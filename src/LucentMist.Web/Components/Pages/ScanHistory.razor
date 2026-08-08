@@ -1,0 +1,145 @@
+@page "/scan/history"
+@using System.Text.Json
+@using LucentMist.Scanning
+@inject ScanStore Store
+
+<PageTitle>扫描历史 — LucentMist</PageTitle>
+<div class="page-header"><h2>📜 扫描历史</h2></div>
+
+@if (_error != null)
+{
+    <div class="card" style="margin-bottom:1rem;"><div style="color:var(--red);font-weight:600;">@_error</div></div>
+}
+
+<div class="card">
+    @if (_tasks.Count == 0)
+    {
+        <div class="card-title">最近 50 个任务</div>
+        <div style="color:var(--text-muted);margin-top:0.5rem;">暂无扫描记录</div>
+    }
+    else
+    {
+        <div class="card-title">最近 @_tasks.Count 个任务</div>
+        <table>
+            <thead>
+                <tr>
+                    <th>状态</th>
+                    <th>目标</th>
+                    <th>类型</th>
+                    <th>创建时间</th>
+                    <th>耗时</th>
+                    <th>摘要</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var task in _tasks)
+                {
+                    <tr style="cursor:pointer" @onclick="() => Toggle(task.Id)">
+                        <td><span class="status-dot @StatusClass(task.Status)"></span> @StatusText(task.Status)</td>
+                        <td>@task.Target</td>
+                        <td>@task.ScanType</td>
+                        <td>@task.CreatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss")</td>
+                        <td>@Duration(task)</td>
+                        <td>@Summary(task)</td>
+                    </tr>
+                    @if (_expandedId == task.Id)
+                    {
+                        <tr>
+                            <td colspan="6">
+                                <div style="font-weight:600;margin-bottom:0.4rem;">任务 @task.Id</div>
+                                <div style="margin-bottom:0.4rem;">@(task.ErrorMessage ?? "无错误")</div>
+                                <pre style="max-height:300px;overflow:auto;background:var(--bg);padding:0.75rem;border-radius:6px;font-size:0.75rem;">@PrettyJson(task.ResultJson)</pre>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@code {
+    private List<ScanTaskRecord> _tasks = new();
+    private string? _expandedId;
+    private string? _error;
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            _tasks = await Store.ListAsync(1, 50);
+        }
+        catch (Exception ex)
+        {
+            _error = $"读取扫描历史失败: {ex.Message}";
+        }
+    }
+
+    private void Toggle(string id)
+        => _expandedId = _expandedId == id ? null : id;
+
+    private static string StatusText(string status) => status switch
+    {
+        "pending" => "排队中",
+        "running" => "运行中",
+        "completed" => "已完成",
+        "failed" => "失败",
+        _ => status,
+    };
+
+    private static string StatusClass(string status) => status switch
+    {
+        "completed" => "online",
+        "failed" => "offline",
+        _ => "pending",
+    };
+
+    private static string Duration(ScanTaskRecord task)
+    {
+        if (task.StartedAt is null || task.CompletedAt is null)
+            return "-";
+        return (task.CompletedAt.Value - task.StartedAt.Value).TotalSeconds.ToString("F1") + "s";
+    }
+
+    private static string Summary(ScanTaskRecord task)
+    {
+        if (task.Status == "failed")
+            return task.ErrorMessage ?? "失败";
+        if (string.IsNullOrWhiteSpace(task.ResultJson))
+            return task.Status == "completed" ? "完成" : "等待结果";
+
+        try
+        {
+            using var doc = JsonDocument.Parse(task.ResultJson);
+            var root = doc.RootElement;
+            var scanType = root.TryGetProperty("scanType", out var st) ? st.GetString() : null;
+            if (scanType == "ping")
+                return $"存活 {GetInt(root, "alive")} 台";
+            if (root.TryGetProperty("openPorts", out var ports))
+                return $"开放 {ports.GetArrayLength()} 个端口";
+            return "完成";
+        }
+        catch (JsonException)
+        {
+            return "结果解析失败";
+        }
+    }
+
+    private static int GetInt(JsonElement root, string name)
+        => root.TryGetProperty(name, out var value) ? value.GetInt32() : 0;
+
+    private static string PrettyJson(string? json)
+    {
+        if (string.IsNullOrWhiteSpace(json)) return "(空)";
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            return JsonSerializer.Serialize(doc.RootElement,
+                new JsonSerializerOptions { WriteIndented = true });
+        }
+        catch (JsonException)
+        {
+            return json;
+        }
+    }
+}

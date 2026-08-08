@@ -40,7 +40,7 @@ app.Urls.Add($"http://0.0.0.0:{port}");
 
 Console.WriteLine($"""
 ╔══════════════════════════════════════════╗
-║   LucentMist Web v0.3.0                  ║
+║   LucentMist Web v0.7.0                  ║
 ║   智能网络分析助手 - Web 管理界面        ║
 ╠══════════════════════════════════════════╣
 ║   地址: http://localhost:{port}           ║
