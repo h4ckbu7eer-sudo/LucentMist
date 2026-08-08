@@ -1,0 +1,61 @@
+@page "/ssl-check"
+@using Microsoft.Extensions.Logging
+@inject ScanService ScanService
+@inject AppState State
+@inject ILoggerFactory LoggerFactory
+
+<PageTitle>SSL 证书校验 — LucentMist</PageTitle>
+<div class="page-header"><h2>🔒 SSL 证书校验</h2></div>
+
+<div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex;gap:0.5rem;align-items:end;">
+        <input type="text" @bind="_target" placeholder="baidu.com" style="flex:1" />
+        <input type="text" @bind="_port" placeholder="443" style="width:80px" />
+        <button class="btn btn-primary" @onclick="Check" disabled="@_busy">🔒 检查</button>
+    </div>
+</div>
+
+@if (State.SslResult != null)
+{
+    var r = State.SslResult;
+    <div class="card-grid">
+        <div class="card"><div class="card-title">域名</div><div class="card-value" style="font-size:1.2rem">@r.Target:@r.Port</div></div>
+        <div class="card"><div class="card-title">状态</div><div class="card-value @(r.Expired?"red":"green")">@(r.Expired?"过期":"有效")</div></div>
+        <div class="card"><div class="card-title">剩余</div><div class="card-value @(r.Days<30?"yellow":"green")">@r.Days 天</div></div>
+        <div class="card"><div class="card-title">证书链</div><div class="card-value" style="font-size:1.2rem">@r.Chain 级</div></div>
+    </div>
+    <div class="card">
+        <table>
+            <tr><td>主题</td><td>@r.Subject</td></tr>
+            <tr><td>颁发者</td><td>@r.Issuer</td></tr>
+            <tr><td>过期</td><td>@r.NotAfter</td></tr>
+            <tr><td>SHA-256</td><td style="font-size:0.7rem;font-family:monospace">@r.Fp</td></tr>
+        </table>
+    </div>
+}
+
+@code {
+    private string _target="baidu.com", _port="443";
+    private bool _busy;
+
+    async Task Check() {
+        _busy=true;
+        try {
+            var d = (System.Text.Json.JsonElement)await ScanService.SslCheckAsync(_target, int.Parse(_port));
+            State.SslResult = new(
+                d.GetProperty("target").GetString()!,
+                d.GetProperty("port").GetInt32(),
+                d.GetProperty("isExpired").GetBoolean(),
+                d.GetProperty("daysRemaining").GetInt32(),
+                d.GetProperty("notAfter").GetString()??"-",
+                d.GetProperty("subject").GetString()??"-",
+                d.GetProperty("issuer").GetString()??"-",
+                d.TryGetProperty("thumbprintSha256",out var t)?t.GetString()??"-":"-",
+                d.TryGetProperty("chain",out var c)?c.GetArrayLength():0
+            );
+        } catch (Exception ex) {
+            LoggerFactory.CreateLogger("LucentMist.Web.SslCheck").LogWarning(ex, "SSL check failed for {Target}:{Port}", _target, _port);
+        }
+        _busy=false;
+    }
+}

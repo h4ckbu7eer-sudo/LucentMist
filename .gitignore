@@ -1,0 +1,60 @@
+# .NET
+bin/
+obj/
+*.user
+*.suo
+*.cache
+*.vs/
+.vscode/
+*.DotSettings.user
+
+# Build output
+nupkg/
+publish/
+artifacts/
+
+# IDE
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config (sensitive)
+config/secrets.json
+appsettings.Development.json
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+logs/
+*.log
+
+# Environment
+.env
+.env.local
+
+# Sirius secrets
+Sirius/.env
+Sirius/secrets/
+.env
+
+# Sirius 部署产物（234MB，独立部署目录，不进版本库）
+Sirius/
+
+# 运行时数据
+logs/
+data/
+*.db-wal
+*.db-shm
+
+# 本地配置
+.env
+local.settings.json
+Sirius.zip
+report.html

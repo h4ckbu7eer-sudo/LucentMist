@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BlazorDisableThrowNavigationException>true</BlazorDisableThrowNavigationException>
+    <RootNamespace>LucentMist.Web</RootNamespace>
+    <Version>0.3.0</Version>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\LucentMist.Agent\LucentMist.Agent.csproj" />
+    <ProjectReference Include="..\LucentMist.Scanning\LucentMist.Scanning.csproj" />
+    <ProjectReference Include="..\LucentMist.Tools\LucentMist.Tools.csproj" />
+    <ProjectReference Include="..\LucentMist.Core\LucentMist.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" Version="10.0.10" />
+  </ItemGroup>
+
+</Project>

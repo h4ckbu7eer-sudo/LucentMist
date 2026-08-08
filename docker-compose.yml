@@ -1,0 +1,63 @@
+version: "3.8"
+
+services:
+  # ============================================
+  # LucentMist API 服务
+  # ============================================
+  lucentmist:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lucentmist:0.1.0
+    container_name: lucentmist-api
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./config:/app/config:ro        # 配置文件（只读）
+      - lucentmist-data:/app/data      # SQLite 数据
+      - lucentmist-logs:/app/logs      # 日志
+    environment:
+      - LucentMist__LLM__Provider=${LLM_PROVIDER:-ollama}
+      - LucentMist__LLM__Model=${LLM_MODEL:-qwen2.5:7b}
+      - LucentMist__LLM__OllamaEndpoint=${OLLAMA_ENDPOINT:-http://host.docker.internal:11434}
+      - LucentMist__API__Port=5050
+      - LucentMist__Database__RedisConnection=redis:6379
+    depends_on:
+      redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - lucentmist-net
+
+  # ============================================
+  # Redis 缓存（可选）
+  # ============================================
+  redis:
+    image: redis:7-alpine
+    container_name: lucentmist-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    restart: unless-stopped
+    networks:
+      - lucentmist-net
+
+# ============================================
+# 持久化卷
+# ============================================
+volumes:
+  lucentmist-data:
+    driver: local
+  lucentmist-logs:
+    driver: local
+  redis-data:
+    driver: local
+
+# ============================================
+# 网络
+# ============================================
+networks:
+  lucentmist-net:
+    driver: bridge

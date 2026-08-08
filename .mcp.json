@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "codex": {
+      "command": "E:\npm-global\codex",
+      "args": ["mcp-server"]
+    }
+  }
+}

@@ -1,0 +1,17 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LucentMist.Agent/LucentMist.Agent.csproj" />
+    <Project Path="src/LucentMist.API/LucentMist.API.csproj" />
+    <Project Path="src/LucentMist.CLI/LucentMist.CLI.csproj" />
+    <Project Path="src/LucentMist.Core/LucentMist.Core.csproj" />
+    <Project Path="src/LucentMist.Scanning/LucentMist.Scanning.csproj" />
+    <Project Path="src/LucentMist.Tools/LucentMist.Tools.csproj" />
+    <Project Path="src/LucentMist.Web/LucentMist.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LucentMist.Agent.Tests/LucentMist.Agent.Tests.csproj" />
+    <Project Path="tests/LucentMist.Core.Tests/LucentMist.Core.Tests.csproj" />
+    <Project Path="tests/LucentMist.Scanning.Tests/LucentMist.Scanning.Tests.csproj" />
+    <Project Path="tests/LucentMist.Tools.Tests/LucentMist.Tools.Tests.csproj" />
+  </Folder>
+</Solution>
