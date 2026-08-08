@@ -11,6 +11,7 @@
   <Folder Name="/tests/">
     <Project Path="tests/LucentMist.Agent.Tests/LucentMist.Agent.Tests.csproj" />
     <Project Path="tests/LucentMist.API.Tests/LucentMist.API.Tests.csproj" />
+    <Project Path="tests/LucentMist.Benchmarks/LucentMist.Benchmarks.csproj" />
     <Project Path="tests/LucentMist.Core.Tests/LucentMist.Core.Tests.csproj" />
     <Project Path="tests/LucentMist.Scanning.Tests/LucentMist.Scanning.Tests.csproj" />
     <Project Path="tests/LucentMist.Tools.Tests/LucentMist.Tools.Tests.csproj" />

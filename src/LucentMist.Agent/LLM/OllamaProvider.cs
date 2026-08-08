@@ -28,6 +28,8 @@ public class OllamaProvider : ILLMProvider
 
     public async Task<string> ChatAsync(string systemPrompt, List<ChatMessage> history, CancellationToken ct = default)
     {
+        await EnsureAvailableAsync(ct);
+
         var messages = new List<object> { new { role = "system", content = systemPrompt } };
         messages.AddRange(history.Select(m => new { role = m.Role, content = m.Content }));
 
@@ -58,6 +60,8 @@ public class OllamaProvider : ILLMProvider
         List<ReActObservation> observations, string toolDefinitions,
         CancellationToken ct = default)
     {
+        await EnsureAvailableAsync(ct);
+
         var prompt = BuildReActPrompt(systemPrompt, userQuery, observations, toolDefinitions);
 
         var messages = new List<object>
@@ -84,6 +88,29 @@ public class OllamaProvider : ILLMProvider
         var reply = doc.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
 
         return ReActResponseParser.Parse(reply);
+    }
+
+    public async Task EnsureAvailableAsync(CancellationToken ct = default)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
+            var response = await _http.GetAsync("/api/tags", timeout.Token);
+            if (!response.IsSuccessStatusCode)
+                throw new InvalidOperationException(
+                    $"Ollama 服务不可达（{_http.BaseAddress}），请确认已运行：ollama serve");
+        }
+        catch (OperationCanceledException)
+        {
+            throw new InvalidOperationException(
+                $"Ollama 服务不可达（{_http.BaseAddress}），请确认已运行：ollama serve");
+        }
+        catch (HttpRequestException ex)
+        {
+            throw new InvalidOperationException(
+                $"Ollama 服务不可达（{_http.BaseAddress}），请确认已运行：ollama serve（{ex.Message}）");
+        }
     }
 
     private string BuildReActPrompt(string systemPrompt, string userQuery,

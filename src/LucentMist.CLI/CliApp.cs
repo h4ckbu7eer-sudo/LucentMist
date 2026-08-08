@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using LucentMist.Agent;
 using LucentMist.Agent.LLM;
+using LucentMist.Scanning;
 using LucentMist.Core.Models;
 using LucentMist.Tools;
 using LucentMist.Tools.Common;
@@ -75,6 +76,11 @@ public class CliApp
         {
             Logger.LogWarning(ex, "Failed to read LLM config; using defaults");
         }
+
+        provider = Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? provider;
+        model = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? model;
+        endpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? endpoint;
+        apiKey = Environment.GetEnvironmentVariable("LMIST_LLM_APIKEY") ?? apiKey;
 
         return (provider, model, endpoint, apiKey);
     }
@@ -1304,7 +1310,44 @@ public class CliApp
             return 1;
         }
 
+        var store = new AgentSessionStore(
+            Environment.GetEnvironmentVariable("LMIST_DB") ?? Path.Combine("data", "lucentmist.db"));
+
+        if (args.Length == 1 && args[0] == "--list")
+            return await ListAgentSessionsAsync(store);
+
+        string? resumeSessionId = null;
         var message = string.Join(' ', args);
+        var userMessage = message;
+
+        if (args[0] == "--resume")
+        {
+            if (args.Length < 2)
+            {
+                AnsiConsole.MarkupLine("[red]请提供会话 ID: lmist agent --resume {id}[/]");
+                return 1;
+            }
+
+            resumeSessionId = args[1];
+            var resume = await store.GetSessionAsync(resumeSessionId);
+            if (resume == null)
+            {
+                AnsiConsole.MarkupLine($"[red]会话不存在: {Escape(resumeSessionId)}[/]");
+                return 1;
+            }
+
+            var history = await store.GetMessagesAsync(resumeSessionId);
+            RenderSessionHistory(resume, history);
+
+            if (args.Length < 3)
+            {
+                AnsiConsole.MarkupLine("[grey]继续对话: lmist agent --resume {id} \"新消息\"[/]");
+                return 0;
+            }
+
+            userMessage = string.Join(' ', args[2..]);
+            message = BuildHistoryContext(history) + userMessage;
+        }
 
         // 自动检测本机 IP，注入到提示中，防止 LLM 猜测
         var localIPs = GetLocalIPs();
@@ -1321,6 +1364,12 @@ public class CliApp
             : "你是助手。输出 JSON: {thought, action, action_input}";
 
         var (provider, model, endpoint, apiKey) = ReadLLMConfig();
+
+        var session = resumeSessionId != null
+            ? await store.GetSessionAsync(resumeSessionId)
+            : await store.CreateSessionAsync("Agent 会话", model);
+        session ??= await store.CreateSessionAsync("Agent 会话", model);
+        await store.AddMessageAsync(session.Id, "user", userMessage);
 
         // 头部面板
         AnsiConsole.Write(new Panel(
@@ -1377,10 +1426,21 @@ public class CliApp
                 AnsiConsole.Write(new Rule("[grey]推理过程[/]"));
                 for (int i = 0; i < engine.ThoughtLog.Count; i++)
                 {
+                    await store.AddMessageAsync(session.Id, "assistant", engine.ThoughtLog[i]);
                     AnsiConsole.MarkupLine($"  [yellow] {i + 1}.[/] [white]{Escape(engine.ThoughtLog[i])}[/]");
                     if (i < engine.Observations.Count)
                     {
                         var obs = engine.Observations[i];
+                        await store.AddMessageAsync(
+                            session.Id,
+                            "tool",
+                            obs.Result,
+                            System.Text.Json.JsonSerializer.Serialize(new
+                            {
+                                tool = obs.ToolName,
+                                input = obs.Input,
+                                success = obs.Success,
+                            }));
                         AnsiConsole.MarkupLine($"     [blue]-> {obs.ToolName}[/]");
                         RenderObservation(obs.ToolName, obs.Result);
                     }
@@ -1389,6 +1449,8 @@ public class CliApp
 
             // 结论
             AnsiConsole.WriteLine();
+            await store.AddMessageAsync(session.Id, "assistant", result.Answer);
+            await store.UpdateTitleAsync(session.Id, TitleFrom(userMessage));
             var panel = new Panel(Markup.Escape(result.Answer))
                 .Header(" 分析结论 ")
                 .BorderColor(Color.Green);
@@ -1396,23 +1458,93 @@ public class CliApp
         }
         catch (TaskCanceledException)
         {
+            await store.AddMessageAsync(session.Id, "assistant", "超时: LLM 响应超时");
             AnsiConsole.MarkupLine("[red]超时: LLM 响应超时[/]");
             AnsiConsole.MarkupLine("[grey]建议: 首次加载模型较慢，请重试[/]");
             return 1;
         }
         catch (HttpRequestException ex)
         {
+            await store.AddMessageAsync(session.Id, "assistant", $"网络错误: {ex.Message}");
             AnsiConsole.MarkupLine($"[red]网络错误: {Escape(ex.Message)}[/]");
             AnsiConsole.MarkupLine("[grey]请确认 Ollama / API 服务正在运行[/]");
             return 1;
         }
         catch (Exception ex)
         {
+            await store.AddMessageAsync(session.Id, "assistant", $"错误: {ex.Message}");
             AnsiConsole.MarkupLine($"[red]错误: {Escape(ex.Message)}[/]");
             return 1;
         }
 
         return 0;
+    }
+
+    private static async Task<int> ListAgentSessionsAsync(AgentSessionStore store)
+    {
+        var sessions = await store.ListSessionsAsync(1, 50);
+        if (sessions.Count == 0)
+        {
+            AnsiConsole.MarkupLine("[grey]暂无 Agent 会话[/]");
+            return 0;
+        }
+
+        var table = new Table()
+            .AddColumn("ID")
+            .AddColumn("标题")
+            .AddColumn("模型")
+            .AddColumn("消息数")
+            .AddColumn("更新时间")
+            .BorderColor(Color.Grey);
+
+        foreach (var s in sessions)
+        {
+            table.AddRow(
+                s.Id[..8],
+                Escape(s.Title),
+                s.Model,
+                s.MessageCount.ToString(),
+                s.UpdatedAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"));
+        }
+
+        AnsiConsole.Write(table);
+        return 0;
+    }
+
+    private static void RenderSessionHistory(
+        AgentSessionRecord session, List<AgentMessageRecord> messages)
+    {
+        AnsiConsole.Write(new Rule($"[grey]{Escape(session.Title)} ({session.MessageCount} 条)[/]"));
+        foreach (var m in messages)
+        {
+            var role = m.Role switch
+            {
+                "user" => "用户",
+                "assistant" => "助手",
+                "tool" => "工具",
+                _ => m.Role,
+            };
+            var content = m.Content.Length > 200 ? m.Content[..200] + "..." : m.Content;
+            AnsiConsole.MarkupLine($"  [teal]{role}:[/] {Escape(content)}");
+        }
+    }
+
+    private static string BuildHistoryContext(List<AgentMessageRecord> messages)
+    {
+        if (messages.Count == 0) return "";
+
+        var sb = new System.Text.StringBuilder();
+        sb.AppendLine("以下是之前会话的历史记录，请基于此继续回答：");
+        foreach (var m in messages)
+            sb.AppendLine($"{m.Role}: {m.Content}");
+        sb.AppendLine();
+        return sb.ToString();
+    }
+
+    private static string TitleFrom(string message)
+    {
+        var text = message.Trim();
+        return text.Length <= 20 ? text : text[..20] + "...";
     }
 
     // ========================================
@@ -1445,6 +1577,9 @@ public class CliApp
                         AnsiConsole.MarkupLine($"  [green]  {Escape(d!)}[/]");
                 }
             }
+
+            if (r.TryGetProperty("hint", out var hint) && hint.ValueKind == JsonValueKind.String)
+                AnsiConsole.MarkupLine($"  [yellow]{Escape(hint.GetString() ?? "")}[/]");
         }
         catch { AnsiConsole.WriteLine(json); }
     }
@@ -1490,6 +1625,9 @@ public class CliApp
             foreach (var d in devs.EnumerateArray())
                 AnsiConsole.MarkupLine($"        [green]{Escape(d.GetString() ?? "-")}[/]");
         }
+
+        if (r.TryGetProperty("hint", out var hint) && hint.ValueKind == JsonValueKind.String)
+            AnsiConsole.MarkupLine($"        [yellow]{Escape(hint.GetString() ?? "")}[/]");
     }
 
     private static void RenderPortObs(JsonElement r)

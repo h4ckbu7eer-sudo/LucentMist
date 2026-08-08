@@ -7,12 +7,13 @@
     <Nullable>enable</Nullable>
     <RootNamespace>LucentMist.CLI</RootNamespace>
     <AssemblyName>lmist</AssemblyName>
-    <Version>0.7.0</Version>
+    <Version>0.8.0</Version>
     <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\LucentMist.Agent\LucentMist.Agent.csproj" />
+    <ProjectReference Include="..\LucentMist.Scanning\LucentMist.Scanning.csproj" />
   </ItemGroup>
 
   <ItemGroup>

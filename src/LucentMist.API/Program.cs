@@ -9,6 +9,8 @@ builder.Services.AddLogging(b => b.AddConsole());
 // 扫描后台任务：持久化 + 队列 + worker
 builder.Services.AddSingleton(new ScanStore(
     Environment.GetEnvironmentVariable("LMIST_DB") ?? Path.Combine("data", "lucentmist.db")));
+builder.Services.AddSingleton(new AgentSessionStore(
+    Environment.GetEnvironmentVariable("LMIST_DB") ?? Path.Combine("data", "lucentmist.db")));
 builder.Services.AddSingleton<ScanCoordinator>();
 builder.Services.AddSingleton<IScanCoordinator>(sp =>
     sp.GetRequiredService<ScanCoordinator>());
@@ -58,14 +60,14 @@ app.MapControllers();
 app.MapGet("/", () => Results.Ok(new
 {
     name = "LucentMist API",
-    version = "0.7.0",
+    version = "0.8.0",
     docs = "/api/v1/health"
 }));
 
 app.MapGet("/api/v1/health", () => Results.Ok(new
 {
     status = "healthy",
-    version = "0.7.0",
+    version = "0.8.0",
     uptime = "0h 0m"
 }));
 
@@ -80,7 +82,7 @@ app.Urls.Add($"http://0.0.0.0:{port}");
 
 Console.WriteLine(@"
 ╔══════════════════════════════════════════╗
-║   LucentMist API v0.7.0                  ║
+║   LucentMist API v0.8.0                  ║
 ║   智能网络分析助手                       ║
 ╠══════════════════════════════════════════╣
 ║   地址: http://0.0.0.0:" + port.PadRight(22) + @"║
