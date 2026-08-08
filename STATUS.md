@@ -2,7 +2,7 @@
 
 > 最后更新: 2026-08-09
 
-## 当前版本: v0.8.0
+## 当前版本: v0.9.0
 
 ## 整体状态: 可交付 (本地/CI/Docker 均已验证)
 
@@ -29,7 +29,7 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 | CI | Windows + Ubuntu Actions success | OK |
 | Docker | API 5050 + Web 5051 双端口实测 200 | OK |
 | 扫描历史 | Web /scan/history 显示真实任务 | OK |
-| 文档 | 部署手册/技术设计/API/README 已对齐 v0.8.0 | OK |
+| 文档 | 部署手册/技术设计/API/README 已对齐 v0.9.0 | OK |
 
 ## LLM 配置
 
@@ -48,5 +48,5 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 
 ## 下一步
 
-- v0.9.0 — 性能基准报告更新 / Agent 回放页面 / 更多诊断
+- v1.0.0-rc1 — Akka.NET net10 评估 / Agent 回放页面增强 / 发布准备
 - v1.0.0 — 正式发布

@@ -59,8 +59,5 @@ local.settings.json
 Sirius.zip
 report.html
 
-# Docker 本地离线包（体积小但无需提交，GitHub Actions 网络环境不需要）
-build/offline/
-
 # BenchmarkDotNet 输出
 BenchmarkDotNet.Artifacts/

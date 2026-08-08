@@ -60,14 +60,14 @@ app.MapControllers();
 app.MapGet("/", () => Results.Ok(new
 {
     name = "LucentMist API",
-    version = "0.8.0",
+    version = "0.9.0",
     docs = "/api/v1/health"
 }));
 
 app.MapGet("/api/v1/health", () => Results.Ok(new
 {
     status = "healthy",
-    version = "0.8.0",
+    version = "0.9.0",
     uptime = "0h 0m"
 }));
 
@@ -82,7 +82,7 @@ app.Urls.Add($"http://0.0.0.0:{port}");
 
 Console.WriteLine(@"
 ╔══════════════════════════════════════════╗
-║   LucentMist API v0.8.0                  ║
+║   LucentMist API v0.9.0                  ║
 ║   智能网络分析助手                       ║
 ╠══════════════════════════════════════════╣
 ║   地址: http://0.0.0.0:" + port.PadRight(22) + @"║

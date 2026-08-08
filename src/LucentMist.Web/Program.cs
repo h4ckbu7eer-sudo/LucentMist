@@ -11,6 +11,12 @@ builder.Services.AddSignalR();
 builder.Services.AddScoped<AppState>();
 builder.Services.AddSingleton<ScanService>();
 builder.Services.AddScoped<ScanTaskClient>();
+builder.Services.AddHttpClient("AgentApi", client =>
+{
+    client.BaseAddress = new Uri(
+        Environment.GetEnvironmentVariable("LMIST_API_URL") ?? "http://localhost:5050");
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
 
 // 扫描后台任务：与 API 共用同一套持久化 + 队列 + worker
 builder.Services.AddSingleton(new ScanStore(
@@ -40,7 +46,7 @@ app.Urls.Add($"http://0.0.0.0:{port}");
 
 Console.WriteLine($"""
 ╔══════════════════════════════════════════╗
-║   LucentMist Web v0.8.0                  ║
+║   LucentMist Web v0.9.0                  ║
 ║   智能网络分析助手 - Web 管理界面        ║
 ╠══════════════════════════════════════════╣
 ║   地址: http://localhost:{port}           ║
