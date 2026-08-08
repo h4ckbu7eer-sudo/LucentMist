@@ -45,7 +45,7 @@ Sirius/secrets/
 .env
 
 # Sirius 部署产物（234MB，独立部署目录，不进版本库）
-Sirius/
+/Sirius/
 
 # 运行时数据
 logs/
