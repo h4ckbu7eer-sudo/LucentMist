@@ -186,3 +186,18 @@ dotnet run --project src/LucentMist.Web
 - D: CI + API 测试 (API 集成测试缺失!)
 - E: 误报可信度
 - F: 文档对齐
+
+## v0.5.0 阶段 D 完成 (2026-08-08)
+
+### CI + API 测试
+1. API 升 net10.0 (原 net8 + RollForward，与 Web/tests 统一)
+2. 新增 LucentMist.API.Tests — WebApplicationFactory 集成测试 6 用例
+   - 关键坑: Mvc.Testing 8.0.6(net8) 跑 net10 项目 → ResponseBodyPipeWriter/UnflushedBytes 崩溃
+   - 修复: 升级 Microsoft.AspNetCore.Mvc.Testing 10.0.10
+3. CLI status 已用 AssemblyVersion + CountTestsFromProject (非硬编码)
+4. 测试 158/158 (Core 13 + Scanning 6 + Agent 44 + Tools 89 + API 6)
+
+### 待办
+- E: 误报可信度 (vuln-scan 置信度列)
+- F: 文档对齐 + 复盘
+- CI 真跑: 需 push GitHub (无 remote，待用户)

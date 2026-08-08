@@ -1085,6 +1085,7 @@ public class CliApp
                         risk: f.TryGetProperty("risk", out var rk) ? rk.GetString() ?? "low" : "low",
                         cvss: f.TryGetProperty("cvss", out var cs) && cs.TryGetDouble(out var sc) ? sc : double.NaN,
                         source: f.TryGetProperty("source", out var sr) ? sr.GetString() ?? "—" : "—",
+                        confirmed: f.TryGetProperty("confirmed", out var cf) && cf.GetBoolean(),
                         fix: f.TryGetProperty("fix", out var fx) ? fx.GetString() : null,
                         name: f.TryGetProperty("name", out var nm) ? nm.GetString() : null
                     ))
@@ -1113,7 +1114,11 @@ public class CliApp
                         var cveDisplay = item.cve ?? "—";
                         var desc = item.name ?? "";
                         if (desc.Length > 50) desc = desc[..50] + "...";
-                        AnsiConsole.MarkupLine($"  [grey]├─[/] [teal]{Escape(cveDisplay)}[/] {cvssStr} [grey]— {Escape(desc)}[/]");
+                        // 置信度：已验证才绿色勾，未验证一律黄色"候选"（防把误报当结论）
+                        var confTag = item.confirmed
+                            ? "[green]✔已验证[/]"
+                            : "[yellow]⚠候选[/]";
+                        AnsiConsole.MarkupLine($"  [grey]├─[/] [teal]{Escape(cveDisplay)}[/] {cvssStr} {confTag} [grey]— {Escape(desc)}[/]");
                     }
                     AnsiConsole.WriteLine();
                 }
@@ -1150,7 +1155,7 @@ public class CliApp
                     };
                     foreach (var p in openPorts.Take(3))
                         if (portAdvice.TryGetValue(p, out var advice))
-                            uniqueFixes.Add((p, "?", $"端口 {p}", "low", double.NaN, "内置库", advice, (string?)null));
+                            uniqueFixes.Add((p, "?", $"端口 {p}", "low", double.NaN, "内置库", false, advice, (string?)null));
                 }
 
                 if (uniqueFixes.Count > 0)
