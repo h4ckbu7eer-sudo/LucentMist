@@ -68,7 +68,10 @@ public class PingScanTool : ITool
                 target,
                 total = ips.Count,
                 alive = alive.Count,
-                devices = alive
+                devices = alive,
+                hint = alive.Count == 0
+                    ? $"目标 {target} 无设备响应。请确认：1) 子网是否与当前网卡匹配 2) 防火墙是否阻止 ICMP"
+                    : null,
             };
 
             _logger.LogInformation("PingScan 完成: Alive={Alive}/{Total}", alive.Count, ips.Count);

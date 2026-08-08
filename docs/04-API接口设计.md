@@ -126,7 +126,7 @@ Content-Type: application/json
 }
 ```
 
-当前实现只使用 `message`；`sessionId`、`provider`、`model`、`target` 为预留字段，会话持久化计划在 v0.8.0 实现。
+当前实现只使用 `message` 和 `sessionId`；`provider`、`model`、`target` 为预留字段。传入 `sessionId` 可继续已有会话，否则自动创建新会话。
 
 **响应 (SSE 流式)**:
 ```
@@ -152,7 +152,7 @@ data: {"content": "扫描完成！发现 15 台在线设备，其中...", "done"
 GET /api/v1/agent/sessions?page=1&size=20
 ```
 
-> 状态：规划中（v0.8.0），当前未实现。
+返回历史会话列表（标题、模型、消息数、更新时间）。
 
 ### 3.3 获取会话详情
 
@@ -160,7 +160,7 @@ GET /api/v1/agent/sessions?page=1&size=20
 GET /api/v1/agent/sessions/{sessionId}
 ```
 
-> 状态：规划中（v0.8.0），当前未实现。
+返回会话详情与完整消息回放。
 
 ### 3.4 删除会话
 
@@ -168,7 +168,14 @@ GET /api/v1/agent/sessions/{sessionId}
 DELETE /api/v1/agent/sessions/{sessionId}
 ```
 
-> 状态：规划中（v0.8.0），当前未实现。
+> 状态：规划中，当前未实现。
+
+CLI 命令：
+
+```bash
+lmist agent --list
+lmist agent --resume {id} "继续分析"
+```
 
 ---
 
@@ -213,7 +220,7 @@ GET /api/v1/health
 ```json
 {
   "status": "healthy",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "uptime": "2h 15m"
 }
 ```

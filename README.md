@@ -4,7 +4,7 @@
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-170%2F170%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-173%2F173%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -70,7 +70,7 @@ dotnet run --project src/LucentMist.Web
 
 ```bash
 # 国内网络建议指定华为云 NuGet 镜像
-docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.7.0 .
+docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.8.0 .
 
 # 启动 API + Web + Redis
 docker compose up -d
@@ -171,7 +171,7 @@ Phase 2 ████████████ Core 层     ✅ 4 Actor + 5 Model
 Phase 3 ████████████ Tools 层    ✅ 4 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 170/170 通过（离线）
+Phase 6 ████████████ 测试        ✅ 173/173 通过（离线）
 Phase 7 ████████████ 文档        ✅ 4 文档
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅
