@@ -8,6 +8,7 @@
     <RootNamespace>LucentMist.CLI</RootNamespace>
     <AssemblyName>lmist</AssemblyName>
     <Version>0.4.1</Version>
+    <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 
   <ItemGroup>
