@@ -174,6 +174,9 @@ public class OsFingerprintTool : ITool
         if (!reachable)
             return ("未知 (不可达)", 0, ["目标不可达"]);
 
+        if (ttl <= 0)
+            return ("未知 (无法获取 TTL)", 0, ["Ping 未返回 TTL"]);
+
         // TTL 推断
         int initialTtl;
         if (ttl <= 32) initialTtl = 32;
