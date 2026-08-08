@@ -25,7 +25,7 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 |------|------|:--:|
 | 编译 (Debug) | 0 errors, 0 warnings | OK |
 | 编译 (Release) | 0 errors, 0 warnings | OK |
-| 测试 | 132/132 passed (离线) | OK |
+| 测试 | 158/158 passed | OK |
 | Agent 端到端 | 已验证 (llama3.1:8b) | OK |
 | CLI 美化 | Spectre.Console | OK |
 | 文档 | 30 files | OK |
