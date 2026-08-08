@@ -8,7 +8,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: lucentmist:0.1.0
+    image: lucentmist:0.5.0
     container_name: lucentmist-api
     ports:
       - "5050:5050"
@@ -24,6 +24,28 @@ services:
       - LucentMist__Database__RedisConnection=redis:6379
     depends_on:
       redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - lucentmist-net
+
+  # ============================================
+  # LucentMist Web 服务
+  # ============================================
+  lucentmist-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lucentmist:0.5.0
+    container_name: lucentmist-web
+    ports:
+      - "5051:5051"
+    volumes:
+      - lucentmist-data:/app/data
+      - lucentmist-logs:/app/logs
+    command: ["dotnet", "web/LucentMist.Web.dll", "5051"]
+    depends_on:
+      lucentmist:
         condition: service_started
     restart: unless-stopped
     networks:

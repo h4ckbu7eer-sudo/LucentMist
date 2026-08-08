@@ -36,7 +36,7 @@ app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapHub<ScanHub>("/scanhub");
 
 var port = args.Length > 0 ? args[0] : "5051";
-app.Urls.Add($"http://localhost:{port}");
+app.Urls.Add($"http://0.0.0.0:{port}");
 
 Console.WriteLine($"""
 ╔══════════════════════════════════════════╗

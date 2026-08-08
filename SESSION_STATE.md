@@ -201,3 +201,37 @@ dotnet run --project src/LucentMist.Web
 - E: 误报可信度 (vuln-scan 置信度列)
 - F: 文档对齐 + 复盘
 - CI 真跑: 需 push GitHub (无 remote，待用户)
+
+## v0.5.0 阶段 E+F 完成 — 全版本交付 (2026-08-08)
+
+### 阶段 E: 误报可信度
+- vuln-scan 输出 ✔已验证 / ⚠候选 置信度列
+- 实测 445 不再误报 EternalBlue/SMBGhost (critical)，候选全部标 ⚠
+
+### 阶段 F: 文档对齐 + 复盘
+- README/STATUS/复盘报告测试数统一 158/158
+- 版本规划补 v0.5.0 + v0.6.0 待办
+- 新增 docs/15-v0.5.0-复盘.md (5 个踩坑: net8 测试错配/record绑定/中文编码/testhost僵尸/Docker缺Web)
+
+## v0.5.0 最终状态
+- build: 0 警告 0 错误
+- 测试: 158/158 (Core 13 + Scanning 6 + Agent 44 + Tools 89 + API 6)
+- Git: 4 commits + v0.4.1 tag + v0.5.0 各阶段
+- 假实现全部清除: ScanController/AgentController/ScannerActor 均真实
+
+## v0.6.0 待办
+- CI 真跑 (需 push GitHub)
+- Docker 完整交付 (Web + aspnet:10.0)
+- CPE 映射统一
+- 扫描任务历史持久化页
+
+## v0.6.0 本地前置修复 (2026-08-08)
+
+- T4: 删除 `ScannerActor` 执行体 + `IScanner`，后台扫描唯一入口 = `ScanWorker`
+- T5: 新增 `IVulnerabilityVerifier`，`PocVerifier` 接入 `VulnerabilityScanTool`，`confirmed = poc.Exploitable`，验证器异常降级为候选
+- T5 测试: 4 用例（PoC 通过/未利用/异常降级/未知 CVE 不联网）
+- T6: 新建 `CpeCatalog` 单一数据源，`CpeMatcher` 与 `ServiceCpeMapping` 统一读取，3 用例
+- Dockerfile: runtime 8.0 → `aspnet:10.0`，补 Web 发布 + `EXPOSE 5051`，测试排除 External；CLI 加 `RollForward=LatestMajor`
+- CI: `dotnet test` 增加 `--filter "Category!=External"`，外网 SSL 用例统一 `[Trait("Category","External")]`
+- 验证: 默认并行 `dotnet build` 0 警告 0 错误；离线测试 170/170（Core 13 + Scanning 6 + API 6 + Agent 44 + Tools 101）
+- 待环境: Docker daemon 启动后执行 build/run/curl；GitHub remote + push 后 CI 真跑

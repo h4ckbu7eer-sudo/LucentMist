@@ -85,6 +85,7 @@ public class SslCertificateToolTests
     // ============================
 
     [Fact]
+    [Trait("Category", "External")]
     public async Task ExecuteAsync_WithBaiduDotCom_ReturnsSuccess()
     {
         var args = new ToolArguments
@@ -105,6 +106,7 @@ public class SslCertificateToolTests
     }
 
     [Fact]
+    [Trait("Category", "External")]
     public async Task ExecuteAsync_ResultContainsAllRequiredFields()
     {
         var args = new ToolArguments
@@ -139,6 +141,7 @@ public class SslCertificateToolTests
     }
 
     [Fact]
+    [Trait("Category", "External")]
     public async Task ExecuteAsync_CertificateFieldsHaveValues()
     {
         var args = new ToolArguments
@@ -182,6 +185,7 @@ public class SslCertificateToolTests
     }
 
     [Fact]
+    [Trait("Category", "External")]
     public async Task ExecuteAsync_SanContainsBaiduDomains()
     {
         var args = new ToolArguments
@@ -205,6 +209,7 @@ public class SslCertificateToolTests
     }
 
     [Fact]
+    [Trait("Category", "External")]
     public async Task ExecuteAsync_ChainHasMultipleCertificates()
     {
         var args = new ToolArguments
@@ -232,6 +237,7 @@ public class SslCertificateToolTests
     // ============================
 
     [Fact]
+    [Trait("Category", "External")]
     public async Task ExecuteAsync_WithNonSslPort_ReturnsError()
     {
         // Connect to baidu.com:80 (HTTP, not HTTPS) — SSL handshake will fail
@@ -253,6 +259,7 @@ public class SslCertificateToolTests
     // ============================
 
     [Fact]
+    [Trait("Category", "External")]
     public async Task ExecuteAsync_DaysRemaining_IsPositiveForValidCert()
     {
         var args = new ToolArguments
@@ -276,6 +283,7 @@ public class SslCertificateToolTests
     }
 
     [Fact]
+    [Trait("Category", "External")]
     public async Task ExecuteAsync_WithDefaultPort_Uses443()
     {
         var args = new ToolArguments

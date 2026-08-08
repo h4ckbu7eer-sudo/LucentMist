@@ -2,7 +2,6 @@ using Akka.Actor;
 using LucentMist.Core.Actors;
 using LucentMist.Core.Interfaces;
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Core.Extensions;
@@ -35,26 +34,10 @@ public static class ServiceCollectionExtensions
             provider.GetRequiredService<ActorSystem>());
 
         // 注册 Core Actor
-        services.AddTransient<ScannerActor>();
         services.AddTransient<AnalyzerActor>();
         services.AddTransient<SessionActor>();
 
-        // 默认 IScanner 实现：宿主未注入真实扫描器时明确报错，而不是静默空转
-        services.TryAddSingleton<IScanner>(_ =>
-            throw new InvalidOperationException(
-                "未注册 IScanner 实现。请由宿主注入真实扫描器（如包装 PingScanTool）。"));
-
         return services;
-    }
-
-    /// <summary>
-    /// 创建并获取 ScannerActor 的引用
-    /// </summary>
-    public static IActorRef GetScannerActor(this IActorRefFactory system, IServiceProvider provider)
-    {
-        var loggerFactory = provider.GetRequiredService<ILoggerFactory>();
-        var scanner = provider.GetRequiredService<IScanner>();
-        return system.ActorOf(Props.Create(() => new ScannerActor(scanner, loggerFactory)), "scanner");
     }
 
     /// <summary>
