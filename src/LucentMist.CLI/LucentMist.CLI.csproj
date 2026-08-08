@@ -7,7 +7,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>LucentMist.CLI</RootNamespace>
     <AssemblyName>lmist</AssemblyName>
-    <Version>0.4.1</Version>
+    <Version>0.7.0</Version>
     <RollForward>LatestMajor</RollForward>
   </PropertyGroup>
 

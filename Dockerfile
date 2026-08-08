@@ -1,5 +1,5 @@
 # LucentMist Dockerfile — 多阶段构建
-# 使用: docker build -t lucentmist:0.5.0 .
+# 使用: docker build -t lucentmist:0.7.0 .
 
 # 国内网络构建可覆盖: docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json
 ARG NUGET_SOURCE=https://api.nuget.org/v3/index.json
@@ -12,6 +12,12 @@ WORKDIR /src
 # 复制项目文件
 COPY LucentMist.slnx ./
 COPY src ./src/
+
+# 预置 Akka.Analyzers 完整缓存，避免容器内 NuGet 下载中断
+COPY build/offline/akka.analyzers /root/.nuget/packages/akka.analyzers
+
+# 复制全部源码（后续 restore 会覆盖任何误入的宿主机 obj）
+COPY . .
 
 # 还原依赖（只还原运行项目，测试由 CI 执行）
 RUN cat > /tmp/NuGet.config <<EOF
@@ -30,14 +36,23 @@ EOF
 RUN dotnet restore src/LucentMist.API/LucentMist.API.csproj --configfile /tmp/NuGet.config \
  && dotnet restore src/LucentMist.API/LucentMist.API.csproj --configfile /tmp/NuGet.config \
  && dotnet restore src/LucentMist.API/LucentMist.API.csproj --configfile /tmp/NuGet.config
-# 复制源码
-COPY . .
+RUN dotnet restore src/LucentMist.Web/LucentMist.Web.csproj --configfile /tmp/NuGet.config \
+ && dotnet restore src/LucentMist.Web/LucentMist.Web.csproj --configfile /tmp/NuGet.config \
+ && dotnet restore src/LucentMist.Web/LucentMist.Web.csproj --configfile /tmp/NuGet.config
+
+# restore 后强制覆盖 Akka.Analyzers 完整缓存，避免残缺缓存导致 build 失败
+RUN rm -rf /root/.nuget/packages/akka.analyzers \
+ && cp -r build/offline/akka.analyzers /root/.nuget/packages/akka.analyzers
 
 # 编译运行项目
 RUN dotnet build src/LucentMist.API/LucentMist.API.csproj -c Release --no-restore
+RUN dotnet build src/LucentMist.Web/LucentMist.Web.csproj -c Release --no-restore
 
 # 发布 API
 RUN dotnet publish src/LucentMist.API -c Release -o /app/api --no-restore
+
+# 发布 Web
+RUN dotnet publish src/LucentMist.Web -c Release -o /app/web --no-restore
 
 # ============ 运行阶段 ============
 FROM mcr.microsoft.com/dotnet/aspnet:10.0 AS runtime
@@ -48,6 +63,7 @@ RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # 从构建阶段复制产物
 COPY --from=build /app/api ./api
+COPY --from=build /app/web ./web
 
 # 复制配置模板
 COPY config/ ./config/
@@ -55,12 +71,12 @@ COPY config/ ./config/
 # 创建数据目录
 RUN mkdir -p /app/data /app/logs
 
-# 暴露 API 端口
-EXPOSE 5050
+# 暴露 API + Web 端口
+EXPOSE 5050 5051
 
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
   CMD curl -f http://localhost:5050/api/v1/health || exit 1
 
-# 默认启动 API 服务
-ENTRYPOINT ["dotnet", "api/LucentMist.API.dll"]
+# 默认启动 API 服务；Web 服务通过 command 覆盖为 web/LucentMist.Web.dll 5051
+CMD ["dotnet", "api/LucentMist.API.dll"]

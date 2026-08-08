@@ -2,9 +2,9 @@
 
 > 🌫️ 基于 ReAct 模式的智能网络分析助手 — 融合网络扫描工具与 AI 推理能力
 
-[![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
-[![CI](https://github.com/<user>/<repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<user>/<repo>/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-158%2F158%20passed-brightgreen)]()
+[![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
+[![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
+[![Tests](https://img.shields.io/badge/tests-170%2F170%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -69,31 +69,22 @@ dotnet run --project src/LucentMist.Web
 ## 🐳 Docker 部署
 
 ```bash
-# 构建并启动（含 Redis）
+# 国内网络建议指定华为云 NuGet 镜像
+docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.7.0 .
+
+# 启动 API + Web + Redis
 docker compose up -d
 
-# 仅构建镜像
-docker build -t lucentmist:0.1.0 .
-
-# 运行容器
-docker run -d \
-  --name lucentmist \
-  -p 5050:5050 \
-  -v ./config:/app/config \
-  -v ./data:/app/data \
-  lucentmist:0.1.0
-
-# 验证
+# API 健康检查
 curl http://localhost:5050/api/v1/health
-```
 
-### 从发布包安装
+# Web 管理界面
+curl http://localhost:5051/
 
-```bash
-# 下载对应平台的 release 包后
-tar -xzf lucentmist-0.1.0-linux-x64.tar.gz
-cd lucentmist-0.1.0
-./cli/lmist status
+# 扫描任务
+curl -X POST http://localhost:5050/api/v1/scan \
+  -H "Content-Type: application/json" \
+  -d '{"target":"127.0.0.1","scanType":"ping"}'
 ```
 
 ---
@@ -106,10 +97,16 @@ LucentMist/
 │   ├── LucentMist.Core/     # 核心抽象层（Actor / Memory / Session）
 │   ├── LucentMist.Agent/    # ReAct AI 智能体
 │   ├── LucentMist.Tools/    # 网络扫描工具集
+│   ├── LucentMist.Scanning/ # 扫描队列与持久化（API/Web 共享）
 │   ├── LucentMist.CLI/      # 命令行入口 (lmist)
-│   └── LucentMist.API/      # RESTful API (ASP.NET)
+│   ├── LucentMist.API/      # RESTful API (ASP.NET)
+│   └── LucentMist.Web/      # Blazor Server 管理界面
 ├── tests/
-│   └── LucentMist.Core.Tests/
+│   ├── LucentMist.Core.Tests/
+│   ├── LucentMist.Tools.Tests/
+│   ├── LucentMist.Agent.Tests/
+│   ├── LucentMist.Scanning.Tests/
+│   └── LucentMist.API.Tests/
 ├── config/                  # 配置文件
 ├── docs/                    # 文档
 └── scripts/                 # 启动脚本
@@ -119,33 +116,21 @@ LucentMist/
 
 ## ⚙️ LLM 配置
 
-编辑 `config/appsettings.json`：
+LLM 通过环境变量配置（代码实际读取 `LMIST_*`）：
 
-```json
-{
-  "LucentMist": {
-    "LLM": {
-      "Provider": "ollama",
-      "Model": "qwen2.5:7b",
-      "OllamaEndpoint": "http://localhost:11434"
-    }
-  }
-}
+```bash
+# Ollama（默认）
+export LMIST_LLM_PROVIDER=ollama
+export LMIST_LLM_MODEL=qwen2.5:7b
+export LMIST_LLM_ENDPOINT=http://localhost:11434
+
+# 或 Claude API
+export LMIST_LLM_PROVIDER=claude
+export LMIST_LLM_MODEL=claude-sonnet-4-6
+export LMIST_LLM_APIKEY=sk-ant-api03-...
 ```
 
-或使用 Claude API：
-
-```json
-{
-  "LucentMist": {
-    "LLM": {
-      "Provider": "claude",
-      "Model": "claude-sonnet-4-6",
-      "ClaudeApiKey": "sk-ant-api03-..."
-    }
-  }
-}
-```
+数据库路径可用 `LMIST_DB` 覆盖，默认 `data/lucentmist.db`。
 
 ---
 
@@ -168,7 +153,7 @@ LucentMist/
 
 | 组件 | 技术 | 版本 |
 |------|------|------|
-| 运行时 | .NET | 8.0 LTS |
+| 运行时 | .NET | API/Web/tests 10.0；Core/Tools/Agent/Scanning/CLI 8.0 |
 | Actor 模型 | Akka.NET | 1.5+ |
 | 数据库 | SQLite | 3.x |
 | 缓存 | Redis (可选) | 7.x |
@@ -186,7 +171,7 @@ Phase 2 ████████████ Core 层     ✅ 4 Actor + 5 Model
 Phase 3 ████████████ Tools 层    ✅ 4 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 158/158 通过
+Phase 6 ████████████ 测试        ✅ 170/170 通过（离线）
 Phase 7 ████████████ 文档        ✅ 4 文档
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅

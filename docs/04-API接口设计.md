@@ -4,7 +4,7 @@
 
 - **Base URL**: `http://localhost:5050`
 - **Content-Type**: `application/json`
-- **认证**: Bearer Token (`Authorization: Bearer <token>`)
+- **认证**: 当前版本未启用鉴权（单用户工具），字段预留
 - **版本**: v1
 
 ---
@@ -18,13 +18,8 @@ POST /api/v1/scan
 Content-Type: application/json
 
 {
-  "target": "192.168.1.0/24",
-  "scanType": "full",
-  "options": {
-    "ports": "1-1000",
-    "timeout": 5000,
-    "concurrency": 100
-  }
+  "target": "192.168.1.1",
+  "scanType": "ping"
 }
 ```
 
@@ -33,10 +28,11 @@ Content-Type: application/json
 {
   "taskId": "a1b2c3d4-...",
   "status": "pending",
-  "message": "扫描任务已创建",
-  "estimatedTime": "30s"
+  "message": "扫描任务已创建"
 }
 ```
+
+`scanType` 支持 `ping`、`tcp`、`udp`。TCP/UDP 默认扫描 `1-1000` 端口；API 当前未开放自定义端口参数，Web 页面使用进程内队列可直接指定端口。
 
 ### 2.2 查询扫描状态
 
@@ -48,45 +44,42 @@ GET /api/v1/scan/{taskId}
 ```json
 {
   "taskId": "a1b2c3d4-...",
-  "status": "running",
-  "progress": {
-    "scanned": 45,
-    "total": 256,
-    "percentage": 17.5,
-    "alive": 12
+  "target": "192.168.1.1",
+  "scanType": "ping",
+  "status": "completed",
+  "createdAt": "2026-08-08T16:47:32.958Z",
+  "startedAt": "2026-08-08T16:47:32.968Z",
+  "completedAt": "2026-08-08T16:47:33.016Z",
+  "totalDevices": 1,
+  "result": {
+    "target": "192.168.1.1",
+    "scanType": "ping",
+    "alive": 1,
+    "devices": ["192.168.1.1"],
+    "openPortsByIp": {},
+    "durationSec": 0.05
   },
-  "results": [...]
+  "error": null
 }
 ```
 
 ### 2.3 UDP 端口扫描
 
+> 状态：`POST /api/v1/scan` 已支持 `scanType=udp`；专用端点暂未开放。
+
 ```http
-POST /api/v1/scan/udp
+POST /api/v1/scan
 Content-Type: application/json
 
 {
   "target": "192.168.1.1",
-  "ports": "53,123,161,500,514,1900",
-  "timeout_ms": 3000,
-  "concurrency": 20
+  "scanType": "udp"
 }
 ```
 
-**响应**:
-```json
-{
-  "target": "192.168.1.1",
-  "totalScanned": 6,
-  "openPorts": [53],
-  "services": { "53": "DNS" },
-  "scanDuration": "00:00:01.234"
-}
-```
+返回任务状态后，`result` 中 `openPorts` 为探测到的 UDP 端口，默认端口范围 `1-1000`。
 
-**端口格式**: 支持逗号分隔（`53,123,161`）和范围（`67-69`），可混合使用（`53,67-69,161`）。
-
-**UDP 服务识别表**:
+**UDP 服务识别表**：
 
 | 端口 | 服务 | 探测方式 |
 |------|------|----------|
@@ -103,31 +96,10 @@ Content-Type: application/json
 
 ### 2.4 SSL 证书校验
 
-```http
-POST /api/v1/scan/ssl
-Content-Type: application/json
+> 状态：SSL 校验在 CLI 与 Web 页面可用；API 暂未提供专用端点。
 
-{
-  "target": "example.com",
-  "port": 443,
-  "timeout_ms": 5000
-}
-```
-
-**响应**:
-```json
-{
-  "target": "example.com",
-  "port": 443,
-  "subject": "CN=*.example.com",
-  "issuer": "CN=DigiCert TLS RSA SHA256 2020 CA1",
-  "notBefore": "2026-01-01T00:00:00.0000000Z",
-  "notAfter": "2027-01-01T23:59:59.0000000Z",
-  "isExpired": false,
-  "daysRemaining": 155,
-  "thumbprint": "A1B2C3D4..."
-}
-```
+CLI 命令：`lmist ssl --target example.com --port 443`。
+Web 页面：`/ssl-check`。
 
 ### 2.5 列出扫描历史
 
@@ -135,7 +107,7 @@ Content-Type: application/json
 GET /api/v1/scan?page=1&size=20
 ```
 
----
+Web 历史页面：`/scan/history`，直接读取 SQLite，展示最近 50 条任务。
 
 ## 3. Agent 接口
 
@@ -149,9 +121,12 @@ Content-Type: application/json
   "sessionId": "optional-existing-session-id",
   "message": "扫描我的网络并分析安全风险",
   "provider": "ollama",
-  "model": "qwen2.5:7b"
+  "model": "qwen2.5:7b",
+  "target": null
 }
 ```
+
+当前实现只使用 `message`；`sessionId`、`provider`、`model`、`target` 为预留字段，会话持久化计划在 v0.8.0 实现。
 
 **响应 (SSE 流式)**:
 ```
@@ -164,6 +139,9 @@ data: {"tool": "PingScanTool", "args": {"target": "192.168.1.0/24"}}
 event: observation
 data: {"result": "发现 15 台设备在线", "devices": [...]}
 
+event: error
+data: {"content": "Ollama 未运行，请执行 ollama serve", "done": true}
+
 event: message
 data: {"content": "扫描完成！发现 15 台在线设备，其中...", "done": true}
 ```
@@ -174,17 +152,23 @@ data: {"content": "扫描完成！发现 15 台在线设备，其中...", "done"
 GET /api/v1/agent/sessions?page=1&size=20
 ```
 
+> 状态：规划中（v0.8.0），当前未实现。
+
 ### 3.3 获取会话详情
 
 ```http
 GET /api/v1/agent/sessions/{sessionId}
 ```
 
+> 状态：规划中（v0.8.0），当前未实现。
+
 ### 3.4 删除会话
 
 ```http
 DELETE /api/v1/agent/sessions/{sessionId}
 ```
+
+> 状态：规划中（v0.8.0），当前未实现。
 
 ---
 
@@ -195,6 +179,8 @@ DELETE /api/v1/agent/sessions/{sessionId}
 ```http
 GET /api/v1/config
 ```
+
+返回实际运行时 LLM 与扫描默认参数。
 
 ### 4.2 更新配置
 
@@ -211,6 +197,8 @@ Content-Type: application/json
 }
 ```
 
+> 状态：规划中，当前未实现。
+
 ---
 
 ## 5. 健康检查
@@ -225,11 +213,8 @@ GET /api/v1/health
 ```json
 {
   "status": "healthy",
-  "version": "0.1.0",
-  "uptime": "2h 15m",
-  "llmProvider": "ollama",
-  "database": "connected",
-  "redis": "connected"
+  "version": "0.7.0",
+  "uptime": "2h 15m"
 }
 ```
 
@@ -259,3 +244,10 @@ GET /api/v1/health
 | 429 | 请求过于频繁 |
 | 500 | 服务器内部错误 |
 | 503 | LLM 服务不可用 |
+
+---
+
+## 7. 未提供接口说明
+
+- 漏洞扫描（`vuln_scan`）、报告生成（`report`）、Sirius 集成能力在 CLI 与 Tools 层可用，API 暂未暴露 HTTP 端点。
+- Agent 会话持久化、配置更新、UDP/SSL 专用端点为规划中功能，当前请使用 CLI 或 Web 页面。

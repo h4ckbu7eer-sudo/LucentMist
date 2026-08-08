@@ -1,10 +1,10 @@
 # LucentMist 项目状态
 
-> 最后更新: 2026-08-03
+> 最后更新: 2026-08-09
 
-## 当前版本: v0.4.0
+## 当前版本: v0.7.0
 
-## 整体状态: 就绪 (Agent 端到端已验证)
+## 整体状态: 可交付 (本地/CI/Docker 均已验证)
 
 ```
 Phase 0 >>>>>>>>>>>>  需求分析
@@ -25,11 +25,11 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 |------|------|:--:|
 | 编译 (Debug) | 0 errors, 0 warnings | OK |
 | 编译 (Release) | 0 errors, 0 warnings | OK |
-| 测试 | 158/158 passed | OK |
-| Agent 端到端 | 已验证 (llama3.1:8b) | OK |
-| CLI 美化 | Spectre.Console | OK |
-| 文档 | 30 files | OK |
-| Docker | Dockerfile + compose | OK |
+| 测试 | 170/170 passed (离线) | OK |
+| CI | Windows + Ubuntu Actions success | OK |
+| Docker | API 5050 + Web 5051 双端口实测 200 | OK |
+| 扫描历史 | Web /scan/history 显示真实任务 | OK |
+| 文档 | 部署手册/技术设计/API/README 已对齐 v0.7.0 | OK |
 
 ## LLM 配置
 
@@ -48,5 +48,5 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 
 ## 下一步
 
-- v0.5.0 — 多平台测试 + Docker 正式发布
+- v0.8.0 — 性能基准 / Agent 会话持久化 / 错误诊断增强
 - v1.0.0 — 正式发布

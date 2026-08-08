@@ -8,7 +8,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: lucentmist:0.5.0
+    image: lucentmist:0.7.0
     container_name: lucentmist-api
     ports:
       - "5050:5050"
@@ -17,13 +17,34 @@ services:
       - lucentmist-data:/app/data      # SQLite 数据
       - lucentmist-logs:/app/logs      # 日志
     environment:
-      - LucentMist__LLM__Provider=${LLM_PROVIDER:-ollama}
-      - LucentMist__LLM__Model=${LLM_MODEL:-qwen2.5:7b}
-      - LucentMist__LLM__OllamaEndpoint=${OLLAMA_ENDPOINT:-http://host.docker.internal:11434}
-      - LucentMist__API__Port=5050
-      - LucentMist__Database__RedisConnection=redis:6379
+      - LMIST_LLM_PROVIDER=${LMIST_LLM_PROVIDER:-ollama}
+      - LMIST_LLM_MODEL=${LMIST_LLM_MODEL:-qwen2.5:7b}
+      - LMIST_LLM_ENDPOINT=${LMIST_LLM_ENDPOINT:-http://host.docker.internal:11434}
+      - LMIST_LLM_APIKEY=${LMIST_LLM_APIKEY:-}
     depends_on:
       redis:
+        condition: service_started
+    restart: unless-stopped
+    networks:
+      - lucentmist-net
+
+  # ============================================
+  # LucentMist Web 服务
+  # ============================================
+  lucentmist-web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: lucentmist:0.7.0
+    container_name: lucentmist-web
+    ports:
+      - "5051:5051"
+    volumes:
+      - lucentmist-data:/app/data
+      - lucentmist-logs:/app/logs
+    command: ["dotnet", "web/LucentMist.Web.dll", "5051"]
+    depends_on:
+      lucentmist:
         condition: service_started
     restart: unless-stopped
     networks:
