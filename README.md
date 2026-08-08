@@ -4,7 +4,7 @@
 
 [![.NET](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/<user>/<repo>/actions/workflows/ci.yml/badge.svg)](https://github.com/<user>/<repo>/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-132%2F132%20offline%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-158%2F158%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -186,7 +186,7 @@ Phase 2 ████████████ Core 层     ✅ 4 Actor + 5 Model
 Phase 3 ████████████ Tools 层    ✅ 4 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 13/13 通过
+Phase 6 ████████████ 测试        ✅ 158/158 通过
 Phase 7 ████████████ 文档        ✅ 4 文档
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅
