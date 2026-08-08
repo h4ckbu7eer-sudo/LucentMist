@@ -1,0 +1,41 @@
+# Build artifacts
+bin/
+obj/
+publish/
+artifacts/
+
+# IDE
+.vs/
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Config secrets
+secrets.json
+.env
+*.env.local
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Logs
+logs/
+*.log
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# Docs (optional — keep README only)
+docs/
+*.md
+!README.md
+
+# Scripts (not needed in runtime)
+scripts/

@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet build *)",
+      "Bash(dotnet test *)",
+      "Bash(timeout 300 bash *)",
+      "Bash(powershell *)",
+      "WebFetch(domain:github.com)",
+      "Bash(claude plugins *)",
+      "Bash(dotnet add *)",
+      "Bash(dotnet run *)",
+      "Read(//c/Users/29617/AppData/Local/Temp/**)",
+      "Bash(dotnet new *)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5050/_framework/blazor.web.js)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5050/)",
+      "Bash(n\\\\\"\")",
+      "Bash(dotnet remove *)",
+      "Bash(dism.exe /online /get-featureinfo /featurename:Microsoft-Windows-Subsystem-Linux)"
+    ]
+  }
+}

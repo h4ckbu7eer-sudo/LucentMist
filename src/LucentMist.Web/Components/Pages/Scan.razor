@@ -1,0 +1,157 @@
+@page "/scan"
+@implements IAsyncDisposable
+@using System.Text.Json
+@using LucentMist.Scanning
+@using LucentMist.Tools.Common
+@inject AppState State
+@inject ScanTaskClient ScanTask
+
+<PageTitle>扫描控制 — LucentMist</PageTitle>
+<div class="page-header"><h2>🔍 扫描控制</h2></div>
+
+<div class="card" style="margin-bottom:1rem;">
+    <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:0.5rem;">
+        <input type="text" @bind="State.ScanTarget" placeholder="127.0.0.1" />
+        <input type="text" @bind="State.ScanPorts" placeholder="1-1000" />
+        <select @bind="State.ScanType">
+            <option value="tcp">TCP</option>
+            <option value="udp">UDP</option>
+            <option value="ping">Ping</option>
+        </select>
+    </div>
+    <button class="btn btn-primary" @onclick="StartScan" disabled="@_busy" style="margin-top:0.5rem;">
+        @(_busy ? "扫描中..." : "🚀 开始扫描")
+    </button>
+</div>
+
+@if (!string.IsNullOrEmpty(State.CurrentTaskId))
+{
+    <div class="card" style="margin-bottom:1rem;">
+        <div class="card-title">任务 @State.CurrentTaskId[..8]</div>
+        <div>@State.CurrentStatus — @State.CurrentMessage</div>
+        <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
+            <div style="height:100%;width:@(State.ProgressPercent)%;background:var(--green);transition:width .2s;"></div>
+        </div>
+    </div>
+}
+
+@if (State.LastError != null)
+{
+    <div class="card" style="margin-bottom:1rem;"><div style="color:var(--red);font-weight:600;">@State.LastError</div></div>
+}
+
+@if (State.ScanResults.Count > 0)
+{
+    <div class="card">
+        <div style="margin-bottom:0.5rem;">
+            目标: <strong>@State.ScanTarget</strong> | 扫描: <strong>@_total</strong> | 开放: <strong style="color:var(--green)">@_open</strong>
+        </div>
+        <table><thead><tr><th>端口</th><th>服务</th><th>状态</th></tr></thead><tbody>
+        @foreach (var r in State.ScanResults)
+        {
+            <tr><td>@r.Port</td><td class="service">@r.Service</td><td style="color:var(--green)">✅ 开放</td></tr>
+        }
+        </tbody></table>
+    </div>
+}
+
+@code {
+    private bool _busy;
+    private int _total, _open;
+
+    protected override void OnInitialized()
+    {
+        ScanTask.Progress += OnProgress;
+        ScanTask.Completed += OnCompleted;
+        ScanTask.Failed += OnFailed;
+    }
+
+    private async Task StartScan()
+    {
+        _busy = true;
+        State.ScanResults.Clear();
+        State.LastError = null;
+        State.CurrentTaskId = "";
+        try {
+            await ScanTask.StartAsync(State.ScanTarget, State.ScanType, State.ScanPorts);
+            State.CurrentTaskId = ScanTask.TaskId;
+            State.CurrentStatus = "pending";
+            State.CurrentMessage = "等待队列";
+            State.ProgressPercent = 0;
+        } catch (Exception ex) {
+            State.LastError = ex.Message;
+            _busy = false;
+        }
+    }
+
+    private void OnProgress(ScanProgressEvent evt)
+    {
+        State.CurrentStatus = evt.Status;
+        State.CurrentMessage = evt.Message;
+        State.ProgressPercent = evt.Percent;
+        _ = InvokeAsync(StateHasChanged);
+    }
+
+    private async void OnCompleted(ScanTaskRecord rec)
+    {
+        _busy = false;
+        State.CurrentStatus = "completed";
+        State.CurrentMessage = "完成";
+        State.ProgressPercent = 100;
+        State.LastError = null;
+        ApplyResult(rec);
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async void OnFailed(string error)
+    {
+        _busy = false;
+        State.CurrentStatus = "failed";
+        State.CurrentMessage = "失败";
+        State.ProgressPercent = 100;
+        State.LastError = error;
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private void ApplyResult(ScanTaskRecord rec)
+    {
+        State.ScanResults.Clear();
+        if (string.IsNullOrWhiteSpace(rec.ResultJson)) return;
+
+        using var doc = JsonDocument.Parse(rec.ResultJson);
+        var root = doc.RootElement;
+        var scanType = root.TryGetProperty("scanType", out var st) ? st.GetString() : "tcp";
+
+        if (scanType == "ping")
+        {
+            if (root.TryGetProperty("devices", out var devices))
+                foreach (var ip in devices.EnumerateArray())
+                    State.ScanResults.Add(new(0, ip.GetString() ?? "?"));
+            _total = State.ScanResults.Count;
+            _open = State.ScanResults.Count;
+            return;
+        }
+
+        _total = root.TryGetProperty("totalScanned", out var total) ? total.GetInt32() : 0;
+        if (root.TryGetProperty("openPorts", out var ports))
+        {
+            foreach (var p in ports.EnumerateArray())
+            {
+                var port = p.GetInt32();
+                var service = scanType == "udp"
+                    ? PortHelper.GetUdpServiceName(port)
+                    : PortHelper.GetTcpServiceName(port);
+                State.ScanResults.Add(new(port, service ?? "?"));
+            }
+        }
+        _open = State.ScanResults.Count;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        ScanTask.Progress -= OnProgress;
+        ScanTask.Completed -= OnCompleted;
+        ScanTask.Failed -= OnFailed;
+        await ScanTask.DisposeAsync();
+    }
+}
