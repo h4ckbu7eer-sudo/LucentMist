@@ -91,3 +91,8 @@ Console.WriteLine(@"
 ");
 
 app.Run();
+
+/// <summary>
+/// 暴露给 WebApplicationFactory 做集成测试
+/// </summary>
+public partial class Program { }

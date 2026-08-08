@@ -172,3 +172,17 @@ dotnet run --project src/LucentMist.Web
 - D: CI + API 测试
 - E: 误报可信度
 - F: 文档对齐
+
+## v0.5.0 阶段 C 完成 (2026-08-08)
+
+### Git + 仓库卫生
+1. git init -b main 重建仓库（原 .git 是空壳）
+2. .gitignore 补全: Sirius/ + logs/ + data/ + *.db-wal/shm + Sirius.zip + report.html
+3. 首提 fd13fed (216 文件)，打 tag v0.4.1
+4. 排除: Sirius.zip(8.8MB)、report.html、bin/obj/publish/Sirius(234MB)
+5. 工作区 clean
+
+### 待办 (阶段 D-F)
+- D: CI + API 测试 (API 集成测试缺失!)
+- E: 误报可信度
+- F: 文档对齐
