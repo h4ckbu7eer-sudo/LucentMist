@@ -235,3 +235,13 @@ dotnet run --project src/LucentMist.Web
 - CI: `dotnet test` 增加 `--filter "Category!=External"`，外网 SSL 用例统一 `[Trait("Category","External")]`
 - 验证: 默认并行 `dotnet build` 0 警告 0 错误；离线测试 170/170（Core 13 + Scanning 6 + API 6 + Agent 44 + Tools 101）
 - 待环境: Docker daemon 启动后执行 build/run/curl；GitHub remote + push 后 CI 真跑
+
+## v0.6.0 Docker 验证 (2026-08-08)
+
+- `docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.5.0 .` 成功
+- `docker run -d --name lmtest -p 5050:5050 lucentmist:0.5.0` 成功
+- `GET /api/v1/health` → 200 healthy
+- `POST /api/v1/scan {"target":"127.0.0.1"}` → 202 + taskId
+- `GET /api/v1/scan/{taskId}` → completed，真实结果 alive=1
+- Dockerfile 增加 `NUGET_SOURCE` 构建参数、双源 NuGet.config、restore 补全重试；测试容器已清理，镜像 405MB 保留
+- 限制：容器内 NuGet 网络不稳定，Web 项目 restore 状态反复不完整，镜像暂收敛为 API-only；CLI 保留本机运行，Web 入镜像待网络/CI 环境
