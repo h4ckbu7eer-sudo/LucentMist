@@ -42,6 +42,8 @@ services:
     volumes:
       - lucentmist-data:/app/data
       - lucentmist-logs:/app/logs
+    environment:
+      - LMIST_API_URL=http://lucentmist:5050
     command: ["dotnet", "web/LucentMist.Web.dll", "5051"]
     depends_on:
       lucentmist:

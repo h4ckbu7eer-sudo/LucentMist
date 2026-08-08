@@ -1,0 +1,247 @@
+@page "/agent"
+@implements IAsyncDisposable
+@using System.Net.Http
+@using System.Net.Http.Json
+@using System.Text.Json
+@inject IHttpClientFactory HttpFactory
+
+<PageTitle>Agent 对话 — LucentMist</PageTitle>
+<div class="page-header"><h2>🤖 Agent 对话</h2></div>
+
+<div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex;gap:0.5rem;align-items:end;">
+        <select @bind="_sessionId" style="flex:1">
+            <option value="">新会话</option>
+            @foreach (var s in _sessions)
+            {
+                <option value="@s.Id">@s.Title (@s.MessageCount 条)</option>
+            }
+        </select>
+        <button class="btn" @onclick="LoadSession" disabled="@_busy">加载会话</button>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex;gap:0.5rem;align-items:end;">
+        <input type="text" @bind="_input" placeholder="例如：扫描 127.0.0.1 的端口" style="flex:1" />
+        <button class="btn btn-primary" @onclick="Send" disabled="@_busy">
+            @(_busy ? "分析中..." : "发送")
+        </button>
+    </div>
+</div>
+
+@if (_error != null)
+{
+    <div class="card" style="margin-bottom:1rem;">
+        <div style="color:var(--red);font-weight:600;">@_error</div>
+    </div>
+}
+
+<div class="card">
+    @if (_lines.Count == 0)
+    {
+        <div style="color:var(--text-muted);">暂无消息</div>
+    }
+    @foreach (var line in _lines)
+    {
+        <div style="margin-bottom:0.7rem;color:@LineColor(line.Kind);">
+            <strong>@LineLabel(line.Kind)</strong>
+            @if (line.Kind == "observation")
+            {
+                <details>
+                    <summary>展开观察结果</summary>
+                    <pre style="max-height:220px;overflow:auto;background:var(--bg);padding:0.6rem;border-radius:6px;font-size:0.75rem;margin-top:0.4rem;">@line.Content</pre>
+                </details>
+            }
+            else
+            {
+                <div style="white-space:pre-wrap;word-break:break-word;">@line.Content</div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private string _input = "";
+    private string _sessionId = "";
+    private bool _busy;
+    private string? _error;
+    private readonly List<AgentLine> _lines = new();
+    private List<SessionItem> _sessions = new();
+    private CancellationTokenSource? _cts;
+
+    private record AgentLine(string Kind, string Content);
+    private record SessionItem(string Id, string Title, int MessageCount);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSessionsAsync();
+    }
+
+    private async Task LoadSessionsAsync()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient("AgentApi");
+            var resp = await client.GetFromJsonAsync<JsonElement>("/api/v1/agent/sessions");
+            _sessions = resp.GetProperty("items").EnumerateArray()
+                .Select(x => new SessionItem(
+                    x.GetProperty("id").GetString() ?? "",
+                    x.TryGetProperty("title", out var t) ? t.GetString() ?? "" : "",
+                    x.TryGetProperty("messageCount", out var m) ? m.GetInt32() : 0))
+                .ToList();
+        }
+        catch (Exception ex)
+        {
+            _error = $"加载会话失败: {ex.Message}";
+        }
+    }
+
+    private async Task LoadSession()
+    {
+        if (string.IsNullOrWhiteSpace(_sessionId)) return;
+        _lines.Clear();
+        _error = null;
+
+        try
+        {
+            var client = HttpFactory.CreateClient("AgentApi");
+            var resp = await client.GetFromJsonAsync<JsonElement>($"/api/v1/agent/sessions/{_sessionId}");
+            foreach (var m in resp.GetProperty("messages").EnumerateArray())
+            {
+                var role = m.GetProperty("role").GetString();
+                var content = m.GetProperty("content").GetString() ?? "";
+                var kind = role switch
+                {
+                    "user" => "user",
+                    "assistant" => "message",
+                    "tool" => "observation",
+                    _ => "message",
+                };
+                _lines.Add(new AgentLine(kind, content));
+            }
+        }
+        catch (Exception ex)
+        {
+            _error = $"加载会话失败: {ex.Message}";
+        }
+    }
+
+    private async Task Send()
+    {
+        if (_busy || string.IsNullOrWhiteSpace(_input)) return;
+
+        _busy = true;
+        _error = null;
+        _lines.Clear();
+        _cts = new CancellationTokenSource();
+
+        try
+        {
+            var client = HttpFactory.CreateClient("AgentApi");
+            var body = JsonSerializer.Serialize(new
+            {
+                message = _input,
+                sessionId = string.IsNullOrWhiteSpace(_sessionId) ? null : _sessionId,
+            });
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, "/api/v1/agent/chat")
+            {
+                Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json"),
+            };
+            using var response = await client.SendAsync(
+                request, HttpCompletionOption.ResponseHeadersRead, _cts.Token);
+
+            if (!response.IsSuccessStatusCode)
+            {
+                _error = $"API 错误: {(int)response.StatusCode}";
+                return;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync(_cts.Token);
+            using var reader = new StreamReader(stream);
+            string? eventName = null;
+
+            while (await reader.ReadLineAsync(_cts.Token) is { } line)
+            {
+                if (line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
+                    eventName = line[6..].Trim();
+                else if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
+                {
+                    var data = line[5..].Trim();
+                    if (string.IsNullOrEmpty(data)) continue;
+                    HandleEvent(eventName, data);
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _error = $"请求失败: {ex.Message}";
+        }
+        finally
+        {
+            _busy = false;
+            _cts?.Dispose();
+            _cts = null;
+            await LoadSessionsAsync();
+        }
+    }
+
+    private void HandleEvent(string? eventName, string data)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(data);
+            var root = doc.RootElement;
+            var content = root.TryGetProperty("content", out var c)
+                ? c.GetString() ?? ""
+                : "";
+            var kind = eventName switch
+            {
+                "thought" => "thought",
+                "action" => "action",
+                "observation" => "observation",
+                "error" => "error",
+                _ => "message",
+            };
+
+            if (kind == "action" && root.TryGetProperty("tool", out var t))
+                content = $"{t.GetString()}: {content}";
+
+            _lines.Add(new AgentLine(kind, content));
+            StateHasChanged();
+        }
+        catch
+        {
+            // 忽略单条无法解析的 SSE 数据，不中断对话流。
+        }
+    }
+
+    private static string LineLabel(string kind) => kind switch
+    {
+        "thought" => "思考",
+        "action" => "动作",
+        "observation" => "观察",
+        "error" => "错误",
+        "user" => "用户",
+        _ => "回复",
+    };
+
+    private static string LineColor(string kind) => kind switch
+    {
+        "thought" => "#b58900",
+        "action" => "#268bd2",
+        "error" => "var(--red)",
+        "user" => "var(--text)",
+        _ => "var(--green)",
+    };
+
+    public async ValueTask DisposeAsync()
+    {
+        _cts?.Cancel();
+        _cts?.Dispose();
+    }
+}
