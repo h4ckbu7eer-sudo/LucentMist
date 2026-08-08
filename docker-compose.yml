@@ -30,28 +30,6 @@ services:
       - lucentmist-net
 
   # ============================================
-  # LucentMist Web 服务
-  # ============================================
-  lucentmist-web:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: lucentmist:0.5.0
-    container_name: lucentmist-web
-    ports:
-      - "5051:5051"
-    volumes:
-      - lucentmist-data:/app/data
-      - lucentmist-logs:/app/logs
-    command: ["dotnet", "web/LucentMist.Web.dll", "5051"]
-    depends_on:
-      lucentmist:
-        condition: service_started
-    restart: unless-stopped
-    networks:
-      - lucentmist-net
-
-  # ============================================
   # Redis 缓存（可选）
   # ============================================
   redis:
