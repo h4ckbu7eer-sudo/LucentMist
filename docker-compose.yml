@@ -19,6 +19,8 @@ services:
       - LMIST_LLM_MODEL=${LMIST_LLM_MODEL:-qwen2.5:7b}
       - LMIST_LLM_ENDPOINT=${LMIST_LLM_ENDPOINT:-http://host.docker.internal:11434}
       - LMIST_LLM_APIKEY=${LMIST_LLM_APIKEY:-}
+      - LMIST_BIND_ADDRESS=0.0.0.0
+      - LMIST_API_TOKEN=${LMIST_API_TOKEN:-}
     depends_on:
       redis:
         condition: service_healthy
@@ -42,6 +44,10 @@ services:
       - lucentmist-logs:/app/logs
     environment:
       - LMIST_API_URL=http://lucentmist:5050
+      - LMIST_API_TOKEN=${LMIST_API_TOKEN:-}
+      - LMIST_WEB_BIND=0.0.0.0
+      - LMIST_WEB_USER=${LMIST_WEB_USER:-}
+      - LMIST_WEB_PASSWORD=${LMIST_WEB_PASSWORD:-}
     command: ["dotnet", "web/LucentMist.Web.dll", "5051"]
     depends_on:
       lucentmist:

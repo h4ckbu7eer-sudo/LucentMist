@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.ComponentModel.DataAnnotations;
 using System.Text.Json;
 using LucentMist.Agent;
 using LucentMist.Agent.LLM;
@@ -178,6 +179,7 @@ public class AgentController : ControllerBase
 /// </summary>
 public class AgentChatRequest
 {
+    [MaxLength(4096)]
     public string Message { get; set; } = "";
     public string? SessionId { get; set; }
     public string Provider { get; set; } = "ollama";
