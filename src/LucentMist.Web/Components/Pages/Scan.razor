@@ -58,12 +58,16 @@
 @code {
     private bool _busy;
     private int _total, _open;
+    private Action<ScanTaskRecord>? _completedHandler;
+    private Action<string>? _failedHandler;
 
     protected override void OnInitialized()
     {
         ScanTask.Progress += OnProgress;
-        ScanTask.Completed += OnCompleted;
-        ScanTask.Failed += OnFailed;
+        _completedHandler = rec => _ = OnCompletedAsync(rec);
+        _failedHandler = error => _ = OnFailedAsync(error);
+        ScanTask.Completed += _completedHandler;
+        ScanTask.Failed += _failedHandler;
     }
 
     private async Task StartScan()
@@ -92,25 +96,41 @@
         _ = InvokeAsync(StateHasChanged);
     }
 
-    private async void OnCompleted(ScanTaskRecord rec)
+    private async Task OnCompletedAsync(ScanTaskRecord rec)
     {
-        _busy = false;
-        State.CurrentStatus = "completed";
-        State.CurrentMessage = "完成";
-        State.ProgressPercent = 100;
-        State.LastError = null;
-        ApplyResult(rec);
-        await InvokeAsync(StateHasChanged);
+        try
+        {
+            _busy = false;
+            State.CurrentStatus = "completed";
+            State.CurrentMessage = "完成";
+            State.ProgressPercent = 100;
+            State.LastError = null;
+            ApplyResult(rec);
+        }
+        catch (Exception ex)
+        {
+            State.LastError = ex.Message;
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
-    private async void OnFailed(string error)
+    private async Task OnFailedAsync(string error)
     {
-        _busy = false;
-        State.CurrentStatus = "failed";
-        State.CurrentMessage = "失败";
-        State.ProgressPercent = 100;
-        State.LastError = error;
-        await InvokeAsync(StateHasChanged);
+        try
+        {
+            _busy = false;
+            State.CurrentStatus = "failed";
+            State.CurrentMessage = "失败";
+            State.ProgressPercent = 100;
+            State.LastError = error;
+        }
+        finally
+        {
+            await InvokeAsync(StateHasChanged);
+        }
     }
 
     private void ApplyResult(ScanTaskRecord rec)
@@ -150,8 +170,8 @@
     public async ValueTask DisposeAsync()
     {
         ScanTask.Progress -= OnProgress;
-        ScanTask.Completed -= OnCompleted;
-        ScanTask.Failed -= OnFailed;
+        if (_completedHandler != null) ScanTask.Completed -= _completedHandler;
+        if (_failedHandler != null) ScanTask.Failed -= _failedHandler;
         await ScanTask.DisposeAsync();
     }
 }

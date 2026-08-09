@@ -83,6 +83,8 @@
     private bool _playing;
     private List<SessionItem> _sessions = new();
     private CancellationTokenSource? _cts;
+    private readonly object _ctsLock = new();
+    private bool _disposed;
 
     private record AgentLine(string Kind, string Content);
     private record SessionItem(string Id, string Title, int MessageCount);
@@ -154,7 +156,10 @@
         _replayLines.Clear();
         _replayIndex = 0;
         _playing = false;
-        _cts = new CancellationTokenSource();
+        lock (_ctsLock)
+        {
+            _cts = new CancellationTokenSource();
+        }
 
         try
         {
@@ -184,11 +189,12 @@
 
             while (await reader.ReadLineAsync(_cts.Token) is { } line)
             {
+                if (_disposed) break;
                 if (line.StartsWith("event:", StringComparison.OrdinalIgnoreCase))
-                    eventName = line[6..].Trim();
+                    eventName = line["event:".Length..].Trim();
                 else if (line.StartsWith("data:", StringComparison.OrdinalIgnoreCase))
                 {
-                    var data = line[5..].Trim();
+                    var data = line["data:".Length..].Trim();
                     if (string.IsNullOrEmpty(data)) continue;
                     HandleEvent(eventName, data);
                 }
@@ -204,14 +210,18 @@
         finally
         {
             _busy = false;
-            _cts?.Dispose();
-            _cts = null;
+            lock (_ctsLock)
+            {
+                _cts?.Dispose();
+                _cts = null;
+            }
             await LoadSessionsAsync();
         }
     }
 
     private void HandleEvent(string? eventName, string data)
     {
+        if (_disposed) return;
         try
         {
             using var doc = JsonDocument.Parse(data);
@@ -252,6 +262,7 @@
     {
         while (_playing && _replayIndex < _replayLines.Count)
         {
+            if (_disposed) break;
             _lines.Add(_replayLines[_replayIndex]);
             _replayIndex++;
             StateHasChanged();
@@ -302,7 +313,12 @@
 
     public async ValueTask DisposeAsync()
     {
-        _cts?.Cancel();
-        _cts?.Dispose();
+        _disposed = true;
+        lock (_ctsLock)
+        {
+            _cts?.Cancel();
+            _cts?.Dispose();
+            _cts = null;
+        }
     }
 }

@@ -36,6 +36,8 @@ logs/
 docs/
 *.md
 !README.md
+!CLAUDE.md
+!AGENTS.md
 
 # Scripts (not needed in runtime)
 scripts/
