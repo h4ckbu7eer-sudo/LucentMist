@@ -23,6 +23,11 @@ secrets.json
 *.db-shm
 *.db-wal
 
+# 前端源码映射和未使用的 Bootstrap 变体（镜像只需 bootstrap.min.css）
+**/*.map
+**/*.rtl.css
+wwwroot/lib/bootstrap/dist/js/
+
 # Logs
 logs/
 *.log

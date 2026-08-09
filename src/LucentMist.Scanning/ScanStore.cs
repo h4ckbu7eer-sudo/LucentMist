@@ -41,6 +41,14 @@ public class ScanStore
         cmd.ExecuteNonQuery();
 
         EnsurePortsColumn(conn);
+        EnableWal(conn);
+    }
+
+    private static void EnableWal(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA journal_mode=WAL;";
+        cmd.ExecuteNonQuery();
     }
 
     private static void EnsurePortsColumn(SqliteConnection conn)

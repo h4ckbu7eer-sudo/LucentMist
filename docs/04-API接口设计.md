@@ -126,7 +126,7 @@ Content-Type: application/json
 }
 ```
 
-当前实现只使用 `message` 和 `sessionId`；`provider`、`model`、`target` 为预留字段。传入 `sessionId` 可继续已有会话，否则自动创建新会话。
+当前请求只接受 `message` 和 `sessionId`。LLM Provider、模型与端点由服务端环境变量（`LMIST_LLM_*`）配置，客户端不能切换。传入 `sessionId` 可继续已有会话，否则自动创建新会话。
 
 **响应 (SSE 流式)**:
 ```

@@ -21,9 +21,6 @@ services:
       - LMIST_LLM_APIKEY=${LMIST_LLM_APIKEY:-}
       - LMIST_BIND_ADDRESS=0.0.0.0
       - LMIST_API_TOKEN=${LMIST_API_TOKEN:-}
-    depends_on:
-      redis:
-        condition: service_healthy
     restart: unless-stopped
     networks:
       - lucentmist-net
@@ -56,26 +53,6 @@ services:
     networks:
       - lucentmist-net
 
-  # ============================================
-  # Redis 缓存（可选）
-  # ============================================
-  redis:
-    image: redis:7-alpine
-    container_name: lucentmist-redis
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis-data:/data
-    command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-    restart: unless-stopped
-    networks:
-      - lucentmist-net
-
 # ============================================
 # 持久化卷
 # ============================================
@@ -83,8 +60,6 @@ volumes:
   lucentmist-data:
     driver: local
   lucentmist-logs:
-    driver: local
-  redis-data:
     driver: local
 
 # ============================================

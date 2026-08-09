@@ -25,7 +25,7 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 |------|------|:--:|
 | 编译 (Debug) | 0 errors, 0 warnings | OK |
 | 编译 (Release) | 0 errors, 0 warnings | OK |
-| 测试 | 173/173 passed (离线) | OK |
+| 测试 | 161/161 passed (离线) | OK |
 | CI | Windows + Ubuntu Actions success | OK |
 | Docker | API 5050 + Web 5051 双端口实测 200 | OK |
 | 扫描历史 | Web /scan/history 显示真实任务 | OK |
@@ -48,5 +48,5 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 
 ## 下一步
 
-- v1.0.0-rc1 — Akka.NET net10 评估 / Agent 回放页面增强 / 发布准备
+- v1.0.0-rc1 — Agent 回放页面增强 / 发布准备
 - v1.0.0 — 正式发布

@@ -66,6 +66,12 @@ public class AgentSessionStore
                 ON agent_messages(session_id);
             """;
         cmd.ExecuteNonQuery();
+
+        using (var wal = conn.CreateCommand())
+        {
+            wal.CommandText = "PRAGMA journal_mode=WAL;";
+            wal.ExecuteNonQuery();
+        }
     }
 
     private SqliteConnection Open()
