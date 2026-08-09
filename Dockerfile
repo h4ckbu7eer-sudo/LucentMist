@@ -33,15 +33,9 @@ RUN cat > /tmp/NuGet.config <<EOF
   </config>
 </configuration>
 EOF
-RUN dotnet restore src/LucentMist.API/LucentMist.API.csproj --configfile /tmp/NuGet.config \
- && dotnet restore src/LucentMist.API/LucentMist.API.csproj --configfile /tmp/NuGet.config \
- && dotnet restore src/LucentMist.API/LucentMist.API.csproj --configfile /tmp/NuGet.config
-RUN dotnet restore src/LucentMist.Web/LucentMist.Web.csproj --configfile /tmp/NuGet.config \
- && dotnet restore src/LucentMist.Web/LucentMist.Web.csproj --configfile /tmp/NuGet.config \
- && dotnet restore src/LucentMist.Web/LucentMist.Web.csproj --configfile /tmp/NuGet.config
-RUN dotnet restore src/LucentMist.CLI/LucentMist.CLI.csproj --configfile /tmp/NuGet.config \
- && dotnet restore src/LucentMist.CLI/LucentMist.CLI.csproj --configfile /tmp/NuGet.config \
- && dotnet restore src/LucentMist.CLI/LucentMist.CLI.csproj --configfile /tmp/NuGet.config
+RUN for i in 1 2 3; do dotnet restore src/LucentMist.API/LucentMist.API.csproj --configfile /tmp/NuGet.config && break; sleep 3; done
+RUN for i in 1 2 3; do dotnet restore src/LucentMist.Web/LucentMist.Web.csproj --configfile /tmp/NuGet.config && break; sleep 3; done
+RUN for i in 1 2 3; do dotnet restore src/LucentMist.CLI/LucentMist.CLI.csproj --configfile /tmp/NuGet.config && break; sleep 3; done
 
 # restore 后强制覆盖 Akka.Analyzers 完整缓存，避免残缺缓存导致 build 失败
 RUN rm -rf /root/.nuget/packages/akka.analyzers \

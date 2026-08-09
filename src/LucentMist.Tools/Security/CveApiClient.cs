@@ -1,4 +1,5 @@
 using System.Net.Http.Json;
+using System.Collections.Concurrent;
 using System.Text.Json;
 using LucentMist.Tools.Common;
 
@@ -9,7 +10,17 @@ namespace LucentMist.Tools.Security;
 /// </summary>
 public class CveApiClient
 {
-    private static readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(5) };
+    private static readonly HttpClient _http = new(new SocketsHttpHandler
+    {
+        PooledConnectionLifetime = TimeSpan.FromMinutes(5),
+        AutomaticDecompression = System.Net.DecompressionMethods.All,
+    })
+    {
+        Timeout = TimeSpan.FromSeconds(5),
+    };
+
+    private static readonly ConcurrentDictionary<string, (DateTime ExpiresAt, List<CveDetail> Items)> Cache = new();
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
 
     public record CveDetail(string Cve, string Description, double CvssScore, string Source, string Fix);
 
@@ -21,6 +32,10 @@ public class CveApiClient
     /// </summary>
     public static async Task<List<CveDetail>> QueryAsync(string service, string? version, int port)
     {
+        var cacheKey = $"{service}|{version}|{port}";
+        if (Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
+            return hit.Items;
+
         var svcKey = ServiceKey(port);
         var seen = new HashSet<string>();
         var results = new List<CveDetail>();
@@ -58,6 +73,7 @@ public class CveApiClient
             }
         }
 
+        Cache[cacheKey] = (DateTime.UtcNow.Add(CacheTtl), results);
         return results;
     }
 

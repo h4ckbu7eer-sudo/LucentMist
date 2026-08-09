@@ -19,6 +19,17 @@ builder.Services.AddSingleton<IScanProgressPublisher>(_ => NullScanProgressPubli
 builder.Services.AddHostedService<ScanWorker>();
 
 // Agent: LLM Provider + 工具注册（配置走环境变量，默认 Ollama）
+builder.Services.AddHttpClient("Ollama", client =>
+{
+    var endpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? "http://localhost:11434";
+    client.BaseAddress = new Uri(endpoint.TrimEnd('/'));
+    client.Timeout = TimeSpan.FromMinutes(5);
+});
+builder.Services.AddHttpClient("Claude", client =>
+{
+    client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 builder.Services.AddSingleton<LucentMist.Agent.LLM.ILLMProvider>(sp =>
 {
     var provider = Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? "ollama";
@@ -29,9 +40,14 @@ builder.Services.AddSingleton<LucentMist.Agent.LLM.ILLMProvider>(sp =>
     {
         "claude" => new LucentMist.Agent.LLM.ClaudeProvider(
             Environment.GetEnvironmentVariable("LMIST_LLM_APIKEY") ?? "",
-            model, lf.CreateLogger<LucentMist.Agent.LLM.ClaudeProvider>()),
+            model,
+            lf.CreateLogger<LucentMist.Agent.LLM.ClaudeProvider>(),
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("Claude")),
         _ => new LucentMist.Agent.LLM.OllamaProvider(
-            endpoint, model, lf.CreateLogger<LucentMist.Agent.LLM.OllamaProvider>()),
+            endpoint,
+            model,
+            lf.CreateLogger<LucentMist.Agent.LLM.OllamaProvider>(),
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("Ollama")),
     };
 });
 builder.Services.AddSingleton(sp =>
@@ -45,16 +61,34 @@ builder.Services.AddSingleton(sp =>
     return registry;
 });
 
-// CORS — 开发阶段允许所有来源
-builder.Services.AddCors(options =>
+// CORS — 开发环境放开；生产仅允许 LMIST_CORS_ORIGINS 显式配置的来源
+var corsOrigins = Environment.GetEnvironmentVariable("LMIST_CORS_ORIGINS");
+if (builder.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(corsOrigins))
 {
-    options.AddDefaultPolicy(policy =>
-        policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader());
-});
+    builder.Services.AddCors(options =>
+    {
+        options.AddDefaultPolicy(policy =>
+        {
+            if (builder.Environment.IsDevelopment())
+            {
+                policy.AllowAnyOrigin().AllowAnyMethod().AllowAnyHeader();
+            }
+            else
+            {
+                policy.WithOrigins(
+                        corsOrigins!.Split(',',
+                            StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+                    .AllowAnyMethod()
+                    .AllowAnyHeader();
+            }
+        });
+    });
+}
 
 var app = builder.Build();
 
-app.UseCors();
+if (app.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(corsOrigins))
+    app.UseCors();
 app.UseMiddleware<TokenBucketRateLimitMiddleware>();
 app.MapControllers();
 

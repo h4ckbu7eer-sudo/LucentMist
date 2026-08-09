@@ -15,13 +15,16 @@ public class OllamaProvider : ILLMProvider
 
     public string Name => "Ollama";
 
-    public OllamaProvider(string endpoint, string model, ILogger<OllamaProvider>? logger = null)
+    public OllamaProvider(
+        string endpoint,
+        string model,
+        ILogger<OllamaProvider>? logger = null,
+        HttpClient? http = null)
     {
-        _http = new HttpClient
-        {
-            BaseAddress = new Uri(endpoint.TrimEnd('/')),
-            Timeout = TimeSpan.FromMinutes(5)
-        };
+        _http = http ?? new HttpClient();
+        if (_http.BaseAddress == null)
+            _http.BaseAddress = new Uri(endpoint.TrimEnd('/'));
+        _http.Timeout = TimeSpan.FromMinutes(5);
         _model = model;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<OllamaProvider>.Instance;
     }

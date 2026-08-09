@@ -178,10 +178,9 @@ public class ReportGenerator
 <head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
 <title>{E(r.Title)}</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700;900&display=swap');
 *,*::before,*::after{{margin:0;padding:0;box-sizing:border-box}}
 :root{{--bg:#0a0e17;--surface:#111827;--surface2:#1a2236;--text:#e2e8f0;--muted:#64748b;--cyan:#2dd4bf;--cyan-glow:rgba(45,212,191,.15)}}
-body{{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;
+body{{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;
   background-image:radial-gradient(ellipse at 20% 0%,rgba(45,212,191,.06) 0%,transparent 60%),
                     radial-gradient(ellipse at 80% 100%,rgba(99,102,241,.04) 0%,transparent 60%),
                     linear-gradient(180deg,#0a0e17 0%,#0f172a 100%)}}
@@ -189,17 +188,17 @@ body{{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--
 header{{text-align:center;padding:3rem 0 2rem;position:relative}}
 header::after{{content:'';position:absolute;bottom:0;left:25%;right:25%;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent)}}
 h1{{font-size:2.2rem;font-weight:900;background:linear-gradient(135deg,#2dd4bf 0%,#818cf8 50%,#2dd4bf 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:.5rem;letter-spacing:-.03em}}
-.meta{{color:var(--muted);font-size:.85rem;font-family:'JetBrains Mono',monospace}}
+.meta{{color:var(--muted);font-size:.85rem;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}
 .stats{{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin:1.5rem 0}}
 .stat-card{{background:var(--surface);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:1.2rem;text-align:center;transition:all .2s}}
 .stat-card:hover{{transform:translateY(-2px);border-color:rgba(45,212,191,.2);box-shadow:0 4px 20px rgba(0,0,0,.3)}}
-.stat-card .val{{font-size:1.8rem;font-weight:900;font-family:'JetBrains Mono',monospace}}
+.stat-card .val{{font-size:1.8rem;font-weight:900;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}
 .stat-card .lbl{{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-top:.3rem}}
 .stat-card.devices .val{{color:#818cf8}}.stat-card.online .val{{color:#4ade80}}.stat-card.ports .val{{color:#2dd4bf}}.stat-card.risk .val{{color:{riskGlow}}}
 
 .urgent-summary{{display:grid;grid-template-columns:repeat(5,1fr);gap:.8rem;margin:1.5rem 0 2rem}}
 .sum-card{{background:var(--surface);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:1rem;text-align:center}}
-.sum-card .val{{font-size:1.5rem;font-weight:900;font-family:'JetBrains Mono',monospace}}
+.sum-card .val{{font-size:1.5rem;font-weight:900;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}}
 .sum-card .lbl{{font-size:.7rem;margin-top:.2rem}}
 .sum-card.severe .val{{color:#ef4444}}.sum-card.high .val{{color:#f87171}}.sum-card.medium .val{{color:#fbbf24}}.sum-card.low .val{{color:var(--muted)}}.sum-card.total .val{{color:var(--cyan)}}
 

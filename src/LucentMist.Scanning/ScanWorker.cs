@@ -16,9 +16,12 @@ public sealed class ScanWorker : BackgroundService
     private readonly ScanCoordinator _coordinator;
     private readonly ScanStore _store;
     private readonly IScanProgressPublisher _progress;
-    private readonly IServiceProvider _services;
     private readonly ILogger<ScanWorker> _logger;
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly ILoggerFactory _loggerFactory;
+    private readonly PingScanTool _pingTool;
+    private readonly PortScanTool _portTool;
+    private readonly UdpScanTool _udpTool;
 
     public ScanWorker(
         ScanCoordinator coordinator,
@@ -30,8 +33,11 @@ public sealed class ScanWorker : BackgroundService
         _coordinator = coordinator;
         _store = store;
         _progress = progress;
-        _services = services;
         _logger = logger;
+        _loggerFactory = services.GetRequiredService<ILoggerFactory>();
+        _pingTool = new PingScanTool(_loggerFactory.CreateLogger<PingScanTool>());
+        _portTool = new PortScanTool(_loggerFactory.CreateLogger<PortScanTool>());
+        _udpTool = new UdpScanTool(_loggerFactory.CreateLogger<UdpScanTool>());
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -61,7 +67,7 @@ public sealed class ScanWorker : BackgroundService
 
         try
         {
-            var lf = _services.GetRequiredService<ILoggerFactory>();
+            var lf = _loggerFactory;
             var outcome = req.ScanType.ToLowerInvariant() switch
             {
                 "ping" => await RunPingAsync(req, startedAt, lf, ct),
@@ -101,8 +107,7 @@ public sealed class ScanWorker : BackgroundService
     private async Task<ScanOutcome> RunPingAsync(
         ScanJob req, DateTime startedAt, ILoggerFactory lf, CancellationToken ct)
     {
-        var pingTool = new PingScanTool(lf.CreateLogger<PingScanTool>());
-        var pingResult = await pingTool.ExecuteAsync(new ToolArguments
+        var pingResult = await _pingTool.ExecuteAsync(new ToolArguments
         {
             ["target"] = req.Target,
             ["timeout_ms"] = "3000",
@@ -130,7 +135,6 @@ public sealed class ScanWorker : BackgroundService
                     .Where(x => !string.IsNullOrEmpty(x))
                     .Cast<string>());
 
-                var portTool = new PortScanTool(lf.CreateLogger<PortScanTool>());
                 var candidates = devices.EnumerateArray().Take(5).ToArray();
                 for (var i = 0; i < candidates.Length; i++)
                 {
@@ -140,7 +144,7 @@ public sealed class ScanWorker : BackgroundService
                     await PublishAsync(req.TaskId, "running",
                         $"端口识别 {i + 1}/{candidates.Length}", 40 + 10 * (i + 1), ct);
 
-                    var portResult = await portTool.ExecuteAsync(new ToolArguments
+                    var portResult = await _portTool.ExecuteAsync(new ToolArguments
                     {
                         ["target"] = ip,
                         ["ports"] = "22,80,443,3389,8080,8443",
@@ -181,8 +185,7 @@ public sealed class ScanWorker : BackgroundService
         ScanJob req, DateTime startedAt, ILoggerFactory lf, CancellationToken ct)
     {
         await PublishAsync(req.TaskId, "running", "TCP 扫描进行中", 50, ct);
-        var tool = new PortScanTool(lf.CreateLogger<PortScanTool>());
-        var result = await tool.ExecuteAsync(new ToolArguments
+        var result = await _portTool.ExecuteAsync(new ToolArguments
         {
             ["target"] = req.Target,
             ["ports"] = string.IsNullOrWhiteSpace(req.Ports) ? "1-1000" : req.Ports,
@@ -200,8 +203,7 @@ public sealed class ScanWorker : BackgroundService
         ScanJob req, DateTime startedAt, ILoggerFactory lf, CancellationToken ct)
     {
         await PublishAsync(req.TaskId, "running", "UDP 扫描进行中", 50, ct);
-        var tool = new UdpScanTool(lf.CreateLogger<UdpScanTool>());
-        var result = await tool.ExecuteAsync(new ToolArguments
+        var result = await _udpTool.ExecuteAsync(new ToolArguments
         {
             ["target"] = req.Target,
             ["ports"] = string.IsNullOrWhiteSpace(req.Ports) ? "1-1000" : req.Ports,

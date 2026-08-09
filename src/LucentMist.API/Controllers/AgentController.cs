@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Text.Json;
 using LucentMist.Agent;
 using LucentMist.Agent.LLM;
+using LucentMist.Core.Networking;
 using LucentMist.Scanning;
 using LucentMist.Tools;
 using Microsoft.AspNetCore.Mvc;
@@ -142,51 +143,12 @@ public class AgentController : ControllerBase
     /// </summary>
     private static string InjectLocalNetworkInfo(string message)
     {
-        var localIPs = GetLocalIPs();
-        if (localIPs.Count == 0) return message;
+        var entries = LocalNetworkInfo.GetEntries();
+        if (entries.Count == 0) return message;
 
-        var info = string.Join("; ", localIPs.Select(ip =>
-            $"{ip.ip}/{ip.prefix} (接口: {ip.name}, 网关: {ip.gateway})"));
+        var info = string.Join("; ", entries.Select(e =>
+            $"{e.Ip}/{e.Prefix} (接口: {e.Name}, 网关: {e.Gateway})"));
         return $"[本机网络信息: {info}] {message}";
-    }
-
-    private static List<(string name, string ip, int prefix, string gateway)> GetLocalIPs()
-    {
-        var results = new List<(string, string, int, string)>();
-        foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
-        {
-            if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up) continue;
-            var props = nic.GetIPProperties();
-            var ipv4 = props.UnicastAddresses
-                .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
-            if (ipv4 == null) continue;
-
-            var ip = ipv4.Address.ToString();
-            if (ip == "127.0.0.1") continue;
-
-            var mask = ipv4.IPv4Mask?.ToString();
-            var prefix = mask != null ? MaskToPrefix(mask) : 24;
-            var gateway = props.GatewayAddresses
-                .FirstOrDefault(g => g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                ?.Address.ToString() ?? "未知";
-
-            results.Add((nic.Name, ip, prefix, gateway));
-        }
-        return results;
-    }
-
-    private static int MaskToPrefix(string mask)
-    {
-        try
-        {
-            var parts = mask.Split('.').Select(int.Parse).ToArray();
-            uint bits = 0;
-            foreach (var p in parts) bits = (bits << 8) | (uint)p;
-            var prefix = 0;
-            while (bits > 0) { if ((bits & 0x80000000) != 0) prefix++; bits <<= 1; }
-            return prefix;
-        }
-        catch { return 24; }
     }
 
     private string LoadSystemPrompt()
