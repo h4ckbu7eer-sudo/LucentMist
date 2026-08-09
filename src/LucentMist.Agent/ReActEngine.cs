@@ -14,6 +14,7 @@ public class ReActEngine
     private readonly ToolRegistry _toolRegistry;
     private readonly ILogger<ReActEngine> _logger;
     private readonly string _systemPrompt;
+    private readonly SemaphoreSlim _runGate = new(1, 1);
 
     public int MaxRounds { get; set; } = 10;
     public int MaxAutoIdentifyPorts { get; set; } = 20;
@@ -36,6 +37,19 @@ public class ReActEngine
     /// 执行 ReAct 循环，处理用户查询
     /// </summary>
     public async Task<ReActResult> RunAsync(string userQuery, CancellationToken ct = default)
+    {
+        await _runGate.WaitAsync(ct);
+        try
+        {
+            return await RunCoreAsync(userQuery, ct);
+        }
+        finally
+        {
+            _runGate.Release();
+        }
+    }
+
+    private async Task<ReActResult> RunCoreAsync(string userQuery, CancellationToken ct)
     {
         Observations.Clear();
         ThoughtLog.Clear();
