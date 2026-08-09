@@ -89,7 +89,7 @@ public class ReportGenerator
             }
         }
 
-        sb.AppendLine($"\n---\n*LucentMist v0.9.0 · {r.GeneratedAt:yyyy-MM-dd HH:mm}*");
+        sb.AppendLine($"\n---\n*LucentMist v{LucentMist.Core.AppVersion.Current} · {r.GeneratedAt:yyyy-MM-dd HH:mm}*");
         return sb.ToString();
     }
 
@@ -246,7 +246,7 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
 {tableSection}
 {DeviceTable(r)}
 {fixList}
-<footer>LucentMist v0.9.0 · {r.GeneratedAt:yyyy-MM-dd HH:mm:ss} · AI-Powered Network Security Scanner</footer>
+<footer>LucentMist v{LucentMist.Core.AppVersion.Current} · {r.GeneratedAt:yyyy-MM-dd HH:mm:ss} · AI-Powered Network Security Scanner</footer>
 </div></body></html>";
     }
 

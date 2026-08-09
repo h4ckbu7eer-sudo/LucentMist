@@ -1761,7 +1761,9 @@ public class CliApp
             .AddColumn("状态");
 
         var version = typeof(CliApp).Assembly.GetName().Version;
-        var ver = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v0.9.0";
+        var ver = version != null
+            ? $"v{version.Major}.{version.Minor}.{version.Build}"
+            : $"v{LucentMist.Core.AppVersion.Current}";
         table.AddRow("[grey]版本[/]", $"[green]{ver}[/]");
         table.AddRow("[grey]编译[/]", "[yellow]由 CI 验证[/]");
         table.AddRow("[grey]测试[/]", "[green]由 CI 验证[/]");

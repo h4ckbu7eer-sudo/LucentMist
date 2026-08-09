@@ -1,5 +1,6 @@
 using System.ComponentModel.DataAnnotations;
-using System.Text.RegularExpressions;
+using System.Net;
+using System.Net.Sockets;
 using LucentMist.Scanning;
 using Microsoft.AspNetCore.Mvc;
 
@@ -36,7 +37,7 @@ public class ScanController : ControllerBase
                 },
             });
 
-        var taskId = await _coordinator.StartAsync(request.Target, request.ScanType, "", ct);
+        var taskId = await _coordinator.StartAsync(request.Target, request.ScanType, request.Ports, ct);
         _logger.LogInformation("扫描任务已入队: TaskId={TaskId}, Target={Target}", taskId, request.Target);
 
         return Accepted(new { taskId, status = "pending", message = "扫描任务已创建" });
@@ -79,17 +80,25 @@ public class ScanController : ControllerBase
         catch { return json; }
     }
 
-    private static readonly Regex TargetPattern = new(
-        @"^(?:(?:\d{1,3}\.){3}\d{1,3}(?:/[0-9]{1,2})?|[0-9a-fA-F:]+(?:/[0-9]{1,3})?|" +
-        @"[a-zA-Z0-9](?:[a-zA-Z0-9\-\.]{0,251}[a-zA-Z0-9])?)$",
-        RegexOptions.Compiled);
-
     private static bool IsValidTarget(string target)
     {
+        if (string.IsNullOrWhiteSpace(target)) return false;
         if (target.Length > 253) return false;
         if (target.IndexOf('\0') >= 0 || target.IndexOf('\n') >= 0 || target.IndexOf('\r') >= 0) return false;
-        if (target is "0.0.0.0" or "0.0.0.0/0" or "::" or "::/0") return false;
-        return TargetPattern.IsMatch(target);
+
+        if (target.Contains('/'))
+        {
+            var parts = target.Split('/', 2);
+            if (!IPAddress.TryParse(parts[0], out var ip) ||
+                ip.AddressFamily != AddressFamily.InterNetwork)
+                return false;
+            if (!int.TryParse(parts[1], out var prefix) || prefix is < 8 or > 30)
+                return false;
+            return true;
+        }
+
+        return IPAddress.TryParse(target, out var address) &&
+               address.AddressFamily == AddressFamily.InterNetwork;
     }
 }
 
@@ -99,4 +108,6 @@ public class ScanRequest
     public string Target { get; set; } = "";
     [MaxLength(16)]
     public string ScanType { get; set; } = "ping";
+    [MaxLength(64)]
+    public string Ports { get; set; } = "";
 }

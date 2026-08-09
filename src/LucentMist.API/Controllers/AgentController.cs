@@ -38,6 +38,10 @@ public class AgentController : ControllerBase
     [HttpPost("chat")]
     public async IAsyncEnumerable<string> Chat([FromBody] AgentChatRequest request, [EnumeratorCancellation] CancellationToken ct)
     {
+        Response.ContentType = "text/event-stream";
+        Response.Headers.CacheControl = "no-cache";
+        Response.Headers.Connection = "keep-alive";
+
         if (string.IsNullOrWhiteSpace(request.Message))
         {
             yield return Sse("error", Json(new { content = "消息不能为空", done = true }));

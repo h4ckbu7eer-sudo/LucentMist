@@ -53,7 +53,7 @@ app.Urls.Add($"http://{bindAddress}:{port}");
 
 Console.WriteLine($"""
 ╔══════════════════════════════════════════╗
-║   LucentMist Web v0.9.0                  ║
+║   LucentMist Web v{LucentMist.Core.AppVersion.Current}                  ║
 ║   智能网络分析助手 - Web 管理界面        ║
 ╠══════════════════════════════════════════╣
 ║   地址: http://localhost:{port}           ║

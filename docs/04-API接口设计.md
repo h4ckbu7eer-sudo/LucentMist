@@ -32,7 +32,7 @@ Content-Type: application/json
 }
 ```
 
-`scanType` 支持 `ping`、`tcp`、`udp`。TCP/UDP 默认扫描 `1-1000` 端口；API 当前未开放自定义端口参数，Web 页面使用进程内队列可直接指定端口。
+`scanType` 支持 `ping`、`tcp`、`udp`。TCP/UDP 默认扫描 `1-1000` 端口；可通过 `ports` 字段指定范围，例如 `80,443,8080` 或 `1-1000`。
 
 ### 2.2 查询扫描状态
 

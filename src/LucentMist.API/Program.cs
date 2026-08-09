@@ -1,10 +1,12 @@
 using LucentMist.API.Middleware;
 using LucentMist.Scanning;
+using Microsoft.AspNetCore.Authorization;
 
 var startedAt = DateTime.UtcNow;
 var llmProvider = Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? "ollama";
 var llmModel = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b";
 var llmEndpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? "http://localhost:11434";
+var appVersion = LucentMist.Core.AppVersion.Current;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -99,17 +101,17 @@ app.UseMiddleware<ApiTokenMiddleware>();
 app.MapControllers();
 
 // 健康检查
-app.MapGet("/", () => Results.Ok(new
+app.MapGet("/", [AllowAnonymous] () => Results.Ok(new
 {
     name = "LucentMist API",
-    version = "0.9.0",
+    version = appVersion,
     docs = "/api/v1/health"
 }));
 
-app.MapGet("/api/v1/health", () => Results.Ok(new
+app.MapGet("/api/v1/health", [AllowAnonymous] () => Results.Ok(new
 {
     status = "healthy",
-    version = "0.9.0",
+    version = appVersion,
     uptime = $"{Math.Max(0, (int)(DateTime.UtcNow - startedAt).TotalHours)}h " +
              $"{Math.Max(0, (int)((DateTime.UtcNow - startedAt).TotalMinutes % 60))}m"
 }));
@@ -132,17 +134,17 @@ var port = args.Length > 0 ? args[0] : "5050";
 var bindAddress = Environment.GetEnvironmentVariable("LMIST_BIND_ADDRESS") ?? "127.0.0.1";
 app.Urls.Add($"http://{bindAddress}:{port}");
 
-Console.WriteLine(@"
+Console.WriteLine($"""
 ╔══════════════════════════════════════════╗
-║   LucentMist API v0.9.0                  ║
+║   LucentMist API v{appVersion}                      ║
 ║   智能网络分析助手                       ║
 ╠══════════════════════════════════════════╣
-║   地址: http://" + bindAddress.PadRight(24) + port.PadRight(4) + @"║
+║   地址: http://{bindAddress.PadRight(24)}{port.PadRight(4)}║
 ║   健康: /api/v1/health                   ║
 ║   扫描: /api/v1/scan                     ║
 ║   Agent: /api/v1/agent/chat              ║
 ╚══════════════════════════════════════════╝
-");
+""");
 
 app.Run();
 
