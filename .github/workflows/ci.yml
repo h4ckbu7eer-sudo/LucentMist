@@ -37,6 +37,7 @@ jobs:
         run: dotnet build -c Release --no-restore
 
       - name: Run tests
+        id: test
         run: dotnet test -c Release --no-build --verbosity normal --filter "Category!=External" --logger "trx;LogFileName=test-results.trx"
 
       - name: Upload test results
@@ -54,7 +55,7 @@ jobs:
           echo "| Status | Details |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
           echo "| Build | ${{ steps.build.outcome }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Tests | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ steps.test.outcome || 'skipped' }} |" >> $GITHUB_STEP_SUMMARY
 
   docker-push:
     name: Build & Push GHCR

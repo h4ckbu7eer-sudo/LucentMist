@@ -21,7 +21,7 @@ services:
       - LMIST_LLM_APIKEY=${LMIST_LLM_APIKEY:-}
     depends_on:
       redis:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - lucentmist-net
@@ -61,6 +61,11 @@ services:
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes --maxmemory 256mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     restart: unless-stopped
     networks:
       - lucentmist-net
