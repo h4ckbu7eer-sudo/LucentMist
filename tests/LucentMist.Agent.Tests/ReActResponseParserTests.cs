@@ -131,6 +131,22 @@ public class ReActResponseParserTests
         Assert.Equal("port_scan", step.Action);
     }
 
+    [Fact]
+    public void Parse_RegexFallback_WithEscapedJsonActionInput()
+    {
+        var input = @"我准备调用工具了
+""thought"": ""扫描端口计划""
+""action"": ""port_scan""
+""action_input"": ""{\""target\"":\""10.119.88.46\"",\""ports\"":\""1-100\""}""
+以上是操作内容";
+
+        var step = ReActResponseParser.Parse(input);
+
+        Assert.Equal("port_scan", step.Action);
+        Assert.Contains("10.119.88.46", step.ActionInput);
+        Assert.Contains("\"ports\"", step.ActionInput);
+    }
+
     // ==========================================
     // 完全损坏 / 空
     // ==========================================

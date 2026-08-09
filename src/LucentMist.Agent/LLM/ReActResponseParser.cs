@@ -109,13 +109,13 @@ public static class ReActResponseParser
         // 提取 thought
         var thoughtMatch = Regex.Match(reply, @"""thought""\s*:\s*""([^""]+)""");
         var actionMatch = Regex.Match(reply, @"""action""\s*:\s*""([^""]+)""");
-        var inputMatch = Regex.Match(reply, @"""action_input""\s*:\s*""(.+?)""\s*[}\]]");
+        var inputMatch = Regex.Match(reply, @"""action_input""\s*:\s*""((?:[^""\\]|\\.)*)""");
 
         if (actionMatch.Success)
         {
             var thought = thoughtMatch.Success ? thoughtMatch.Groups[1].Value : "";
             var action = actionMatch.Groups[1].Value;
-            var input = inputMatch.Success ? inputMatch.Groups[1].Value : "";
+            var input = inputMatch.Success ? UnescapeJsonString(inputMatch.Groups[1].Value) : "";
 
             // 如果 action_input 看起来是 JSON 对象，尝试提取
             if (string.IsNullOrEmpty(input))
@@ -140,5 +140,18 @@ public static class ReActResponseParser
             Action = "final_answer",
             ActionInput = reply.Trim()
         };
+    }
+
+    private static string UnescapeJsonString(string raw)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse($"\"{raw}\"");
+            return doc.RootElement.GetString() ?? raw;
+        }
+        catch
+        {
+            return raw.Replace("\\\"", "\"").Replace("\\\\", "\\");
+        }
     }
 }

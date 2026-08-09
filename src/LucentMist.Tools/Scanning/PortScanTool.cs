@@ -102,6 +102,8 @@ public class PortScanTool : ITool
         {
             using var client = new TcpClient();
             await client.ConnectAsync(ip, port, cts.Token);
+            if (client.Connected)
+                client.Client.LingerState = new LingerOption(true, 0);
             return client.Connected;
         }
         catch (OperationCanceledException) { return false; }

@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace LucentMist.Tools.Security;
 
 /// <summary>
@@ -16,7 +18,7 @@ public static class CveDatabase
         string Fix
     );
 
-    public static readonly CveEntry[] Entries =
+    private static readonly List<CveEntry> _entries = new()
     {
         new("CVE-2017-0144", "EternalBlue", 445, "SMB",
             "critical", "SMBv1", "smbv1",
@@ -58,6 +60,13 @@ public static class CveDatabase
             "medium", "OpenSSH < 7.7", "openssh_version",
             "升级 OpenSSH 到 7.7+"),
     };
+
+    public static IReadOnlyList<CveEntry> Entries => _entries;
+
+    static CveDatabase()
+    {
+        LoadExternalEntries();
+    }
 
     public static CveEntry? FindByCve(string cveId) =>
         Entries.FirstOrDefault(e => e.Cve.Equals(cveId, StringComparison.OrdinalIgnoreCase));
@@ -124,5 +133,61 @@ public static class CveDatabase
             if (av != bv) return av.CompareTo(bv);
         }
         return 0;
+    }
+
+    private static void LoadExternalEntries()
+    {
+        var path = Environment.GetEnvironmentVariable("LMIST_CVE_DB_PATH");
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            var candidates = new[]
+            {
+                Path.Combine("config", "cve-database.json"),
+                Path.Combine(AppContext.BaseDirectory, "config", "cve-database.json"),
+            };
+            path = candidates.FirstOrDefault(File.Exists);
+        }
+
+        if (string.IsNullOrWhiteSpace(path) || !File.Exists(path)) return;
+
+        try
+        {
+            var json = File.ReadAllText(path);
+            var items = JsonSerializer.Deserialize<List<ExternalCveEntry>>(
+                json, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+            if (items == null) return;
+
+            foreach (var item in items)
+            {
+                if (string.IsNullOrWhiteSpace(item.Cve)) continue;
+                if (_entries.Any(e => e.Cve.Equals(item.Cve, StringComparison.OrdinalIgnoreCase))) continue;
+
+                _entries.Add(new CveEntry(
+                    item.Cve,
+                    item.Name ?? item.Cve,
+                    item.Port,
+                    item.Service ?? "?",
+                    item.Risk ?? "medium",
+                    item.MatchBanner ?? "",
+                    item.DetectProbe ?? "",
+                    item.Fix ?? "参考官方公告"));
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Failed to load CVE database: {ex.Message}");
+        }
+    }
+
+    private sealed class ExternalCveEntry
+    {
+        public string? Cve { get; set; }
+        public string? Name { get; set; }
+        public int Port { get; set; }
+        public string? Service { get; set; }
+        public string? Risk { get; set; }
+        public string? MatchBanner { get; set; }
+        public string? DetectProbe { get; set; }
+        public string? Fix { get; set; }
     }
 }

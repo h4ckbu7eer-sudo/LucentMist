@@ -48,7 +48,7 @@ public class ClaudeProvider : ILLMProvider
         {
             model = _model,
             max_tokens = 4096,
-            system = systemPrompt,
+            system = BuildSystem(systemPrompt),
             messages = userMessages
         };
 
@@ -66,9 +66,7 @@ public class ClaudeProvider : ILLMProvider
                   $"- [{o.ToolName}] {o.Input} → {(o.Success ? "成功" : "失败")}: {o.Result}"))
             : "";
 
-        var prompt = $@"{systemPrompt}
-
-## 可用工具
+        var prompt = $@"## 可用工具
 {toolDefinitions}
 
 ## 用户问题
@@ -82,13 +80,24 @@ public class ClaudeProvider : ILLMProvider
         {
             model = _model,
             max_tokens = 4096,
-            system = systemPrompt,
+            system = BuildSystem(systemPrompt),
             messages = new[] { new { role = "user", content = prompt } }
         };
 
         var reply = await SendRequestAsync(body, ct);
         return ParseResponse(reply);
     }
+
+    private static object BuildSystem(string systemPrompt) =>
+        new[]
+        {
+            new
+            {
+                type = "text",
+                text = systemPrompt,
+                cache_control = new { type = "ephemeral" },
+            },
+        };
 
     private async Task<string> SendRequestAsync(object body, CancellationToken ct)
     {
