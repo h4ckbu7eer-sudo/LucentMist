@@ -4,7 +4,7 @@
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-173%2F173%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-161%2F161%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -22,7 +22,7 @@
 - 🔄 **双 LLM** — Ollama 本地推理 + Claude API 云端推理，随时切换
 - 🌐 **Web 管理界面** — Blazor Server 仪表板，实时监控 + 扫描控制
 - 📡 **双接口** — CLI 命令行 + RESTful API (SSE 流式)
-- 💾 **持久化** — SQLite 存储扫描记录 + Redis 缓存（可选）
+- 💾 **持久化** — SQLite 存储扫描记录与 Agent 会话
 
 ---
 
@@ -72,7 +72,7 @@ dotnet run --project src/LucentMist.Web
 # 国内网络建议指定华为云 NuGet 镜像
 docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.0 .
 
-# 启动 API + Web + Redis
+# 启动 API + Web
 docker compose up -d
 
 # API 健康检查
@@ -94,7 +94,7 @@ curl -X POST http://localhost:5050/api/v1/scan \
 ```
 LucentMist/
 ├── src/
-│   ├── LucentMist.Core/     # 核心抽象层（Actor / Memory / Session）
+│   ├── LucentMist.Core/     # 核心模型与共享服务
 │   ├── LucentMist.Agent/    # ReAct AI 智能体
 │   ├── LucentMist.Tools/    # 网络扫描工具集
 │   ├── LucentMist.Scanning/ # 扫描队列与持久化（API/Web 共享）
@@ -140,7 +140,7 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 |------|------|
 | [需求规格说明书](docs/01-需求规格说明书.md) | 功能需求与版本规划 |
 | [技术设计方案](docs/02-技术设计方案.md) | C4 架构、ReAct 模式、数据流 |
-| [数据库设计](docs/03-数据库设计.md) | ER 图、7 张表、Redis 缓存 |
+| [数据库设计](docs/03-数据库设计.md) | ER 图、SQLite 表结构 |
 | [API 接口设计](docs/04-API接口设计.md) | REST API + SSE 流式 |
 | [编码规范](docs/05-编码规范.md) | 命名/异步/DI/测试规范 |
 | [用户手册](docs/用户手册.md) | 安装、CLI 命令、场景示例 |
@@ -154,9 +154,7 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 | 组件 | 技术 | 版本 |
 |------|------|------|
 | 运行时 | .NET | API/Web/tests 10.0；Core/Tools/Agent/Scanning/CLI 8.0 |
-| Actor 模型 | Akka.NET | 1.5+ |
 | 数据库 | SQLite | 3.x |
-| 缓存 | Redis (可选) | 7.x |
 | LLM | Ollama + Claude API | — |
 | 测试 | xUnit | v3 |
 
@@ -171,7 +169,7 @@ Phase 2 ████████████ Core 层     ✅ 4 Actor + 5 Model
 Phase 3 ████████████ Tools 层    ✅ 4 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 173/173 通过（离线）
+Phase 6 ████████████ 测试        ✅ 161/161 通过（离线）
 Phase 7 ████████████ 文档        ✅ 4 文档
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅

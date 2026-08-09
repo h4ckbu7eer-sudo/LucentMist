@@ -45,7 +45,9 @@ public class AgentController : ControllerBase
         }
 
         var session = await _sessions.GetSessionAsync(request.SessionId ?? "")
-            ?? await _sessions.CreateSessionAsync("Agent 会话", request.Model);
+            ?? await _sessions.CreateSessionAsync(
+                "Agent 会话",
+                Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b");
         await _sessions.AddMessageAsync(session.Id, "user", request.Message);
 
         // 注入本机 IP，防止 LLM 猜测错误网段（与 CLI 保持一致）
@@ -182,7 +184,4 @@ public class AgentChatRequest
     [MaxLength(4096)]
     public string Message { get; set; } = "";
     public string? SessionId { get; set; }
-    public string Provider { get; set; } = "ollama";
-    public string Model { get; set; } = "qwen2.5:7b";
-    public string? Target { get; set; }
 }
