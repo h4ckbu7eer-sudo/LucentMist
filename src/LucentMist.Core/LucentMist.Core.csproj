@@ -5,6 +5,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>LucentMist.Core</RootNamespace>
+    <Version>0.9.0</Version>
   </PropertyGroup>
 
   <ItemGroup>

@@ -19,12 +19,21 @@ public class ClaudeProvider : ILLMProvider
     private const string BaseUrl = "https://api.anthropic.com/v1/";
     private const string ApiVersion = "2023-06-01";
 
-    public ClaudeProvider(string apiKey, string model, ILogger<ClaudeProvider>? logger = null)
+    public ClaudeProvider(
+        string apiKey,
+        string model,
+        ILogger<ClaudeProvider>? logger = null,
+        HttpClient? http = null)
     {
-        _http = new HttpClient { BaseAddress = new Uri(BaseUrl) };
-        _http.DefaultRequestHeaders.Add("x-api-key", apiKey);
-        _http.DefaultRequestHeaders.Add("anthropic-version", ApiVersion);
-        _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+        _http = http ?? new HttpClient();
+        if (_http.BaseAddress == null)
+            _http.BaseAddress = new Uri(BaseUrl);
+        if (!_http.DefaultRequestHeaders.Contains("x-api-key"))
+            _http.DefaultRequestHeaders.Add("x-api-key", apiKey);
+        if (!_http.DefaultRequestHeaders.Contains("anthropic-version"))
+            _http.DefaultRequestHeaders.Add("anthropic-version", ApiVersion);
+        if (!_http.DefaultRequestHeaders.Accept.Any(a => a.MediaType == "application/json"))
+            _http.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
         _model = string.IsNullOrEmpty(model) ? "claude-sonnet-4-6" : model;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ClaudeProvider>.Instance;
     }

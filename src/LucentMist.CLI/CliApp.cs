@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using LucentMist.Agent;
 using LucentMist.Agent.LLM;
+using LucentMist.Core.Networking;
 using LucentMist.Scanning;
 using LucentMist.Core.Models;
 using LucentMist.Tools;
@@ -52,7 +53,7 @@ public class CliApp
     private static (string provider, string model, string endpoint, string apiKey) ReadLLMConfig()
     {
         var provider = "ollama";
-        var model = "llama3.1:8b";
+        var model = "qwen2.5:7b";
         var endpoint = "http://localhost:11434";
         var apiKey = "";
 
@@ -1350,11 +1351,11 @@ public class CliApp
         }
 
         // 自动检测本机 IP，注入到提示中，防止 LLM 猜测
-        var localIPs = GetLocalIPs();
-        if (localIPs.Count > 0)
+        var entries = LocalNetworkInfo.GetEntries();
+        if (entries.Count > 0)
         {
-            var ipInfo = string.Join("; ", localIPs.Select(ip =>
-                $"{ip.ip}/{ip.prefix} (接口: {ip.name}, 网关: {ip.gateway})"));
+            var ipInfo = string.Join("; ", entries.Select(e =>
+                $"{e.Ip}/{e.Prefix} (接口: {e.Name}, 网关: {e.Gateway})"));
             message = $"[本机网络信息: {ipInfo}] {message}";
         }
 
@@ -1680,55 +1681,6 @@ public class CliApp
     private static string Escape(string text) =>
         Markup.Escape(text).Replace("[", "[[").Replace("]", "]]");
 
-    /// <summary>
-    /// 自动检测本机所有网卡的 IPv4 地址、子网前缀和网关
-    /// </summary>
-    private static List<(string name, string ip, int prefix, string gateway)> GetLocalIPs()
-    {
-        var results = new List<(string, string, int, string)>();
-
-        foreach (var nic in System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces())
-        {
-            if (nic.OperationalStatus != System.Net.NetworkInformation.OperationalStatus.Up)
-                continue;
-
-            var props = nic.GetIPProperties();
-            var ipv4 = props.UnicastAddresses
-                .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork);
-            if (ipv4 == null) continue;
-
-            var ip = ipv4.Address.ToString();
-            if (ip == "127.0.0.1") continue; // 跳过回环
-
-            // 计算前缀
-            var mask = ipv4.IPv4Mask?.ToString();
-            var prefix = mask != null ? MaskToPrefix(mask) : 24;
-
-            // 查找网关
-            var gateway = props.GatewayAddresses
-                .FirstOrDefault(g => g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-                ?.Address.ToString() ?? "未知";
-
-            results.Add((nic.Name, ip, prefix, gateway));
-        }
-
-        return results;
-    }
-
-    private static int MaskToPrefix(string mask)
-    {
-        try
-        {
-            var parts = mask.Split('.').Select(int.Parse).ToArray();
-            uint bits = 0;
-            foreach (var p in parts) bits = (bits << 8) | (uint)p;
-            var prefix = 0;
-            while (bits > 0) { if ((bits & 0x80000000) != 0) prefix++; bits <<= 1; }
-            return prefix;
-        }
-        catch { return 24; }
-    }
-
     private static string FindFile(string relativePath)
     {
         var candidates = new[]
@@ -1809,10 +1761,10 @@ public class CliApp
             .AddColumn("状态");
 
         var version = typeof(CliApp).Assembly.GetName().Version;
-        var ver = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v0.2.0";
+        var ver = version != null ? $"v{version.Major}.{version.Minor}.{version.Build}" : "v0.9.0";
         table.AddRow("[grey]版本[/]", $"[green]{ver}[/]");
         table.AddRow("[grey]编译[/]", "[yellow]由 CI 验证[/]");
-        table.AddRow("[grey]测试[/]", $"[green]{CountTestsFromProject()} tests[/]");
+        table.AddRow("[grey]测试[/]", "[green]由 CI 验证[/]");
         table.AddRow("[grey]LLM[/]", $"[blue]{provider}[/] [green]{model}[/]");
         table.AddRow("[grey]地址[/]", $"[white]{endpoint}[/]");
         table.AddRow("[grey]工具[/]", "[blue]ping_scan[/] / [blue]port_scan[/] / [blue]udp_scan[/] / [blue]service_identify[/] / [blue]device_query[/]");
@@ -1821,41 +1773,6 @@ public class CliApp
             .Header("[teal] LucentMist [/]")
             .BorderColor(Color.Teal));
         return 0;
-    }
-
-    private static int CountTestsFromProject()
-    {
-        var testsDirectory = FindTestsDirectory();
-        if (testsDirectory == null)
-            return 0;
-
-        var count = 0;
-        foreach (var file in Directory.EnumerateFiles(testsDirectory, "*.cs", SearchOption.AllDirectories))
-        {
-            try
-            {
-                var source = File.ReadAllText(file);
-                count += System.Text.RegularExpressions.Regex.Matches(source, @"\[Fact\]").Count;
-                count += System.Text.RegularExpressions.Regex.Matches(source, @"\[InlineData\(").Count;
-            }
-            catch (Exception ex)
-            {
-                Logger.LogWarning(ex, "Failed to read test source file {Path}", file);
-            }
-        }
-
-        return count;
-    }
-
-    private static string? FindTestsDirectory()
-    {
-        var candidates = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "tests"),
-            "tests",
-            Path.Combine("..", "..", "..", "tests")
-        };
-        return candidates.FirstOrDefault(Directory.Exists);
     }
 
     // ========================================

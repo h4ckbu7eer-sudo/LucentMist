@@ -16,12 +16,16 @@ public class SiriusClient : IDisposable
     public bool IsAvailable { get; private set; }
     public string ErrorMessage { get; private set; } = "";
 
-    public SiriusClient(string? apiUrl = null, string? apiKey = null)
+    public SiriusClient(string? apiUrl = null, string? apiKey = null, HttpClient? http = null)
     {
         apiUrl ??= Environment.GetEnvironmentVariable("SIRIUS_API_URL") ?? "http://localhost:9001";
         apiKey ??= Environment.GetEnvironmentVariable("SIRIUS_API_KEY");
 
         _baseUrl = apiUrl.TrimEnd('/');
+        _http = http ?? new HttpClient();
+        if (_http.BaseAddress == null)
+            _http.BaseAddress = new Uri(_baseUrl);
+        _http.Timeout = TimeSpan.FromSeconds(30);
 
         // 未配置密钥 → 禁用集成，而不是抛异常（避免拖垮 Ollama 模式的 agent）
         if (string.IsNullOrEmpty(apiKey))
@@ -29,13 +33,12 @@ public class SiriusClient : IDisposable
             _enabled = false;
             ErrorMessage = "SIRIUS_API_KEY 未配置，Sirius 集成已禁用";
             IsAvailable = false;
-            _http = new HttpClient { BaseAddress = new Uri(_baseUrl), Timeout = TimeSpan.FromSeconds(30) };
             return;
         }
 
         _enabled = true;
-        _http = new HttpClient { BaseAddress = new Uri(_baseUrl), Timeout = TimeSpan.FromSeconds(30) };
-        _http.DefaultRequestHeaders.Add("X-API-Key", apiKey);
+        if (!_http.DefaultRequestHeaders.Contains("X-API-Key"))
+            _http.DefaultRequestHeaders.Add("X-API-Key", apiKey);
     }
 
     /// <summary>
@@ -59,7 +62,7 @@ public class SiriusClient : IDisposable
         catch
         {
             IsAvailable = false;
-            ErrorMessage = $"Sirius 服务未启动 ({_baseUrl})。\n请运行: cd E:\\LucentMist\\Sirius && docker compose up -d";
+            ErrorMessage = $"Sirius 服务未启动 ({_baseUrl})。\n请运行: cd Sirius && docker compose up -d";
             return false;
         }
     }
