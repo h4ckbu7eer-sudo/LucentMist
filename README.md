@@ -3,7 +3,7 @@
 > 🌫️ 基于 ReAct 模式的智能网络分析助手 — 融合网络扫描工具与 AI 推理能力
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
-[![CI](https://img.shields.io/badge/CI-passing-brightgreen)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
+[![CI](https://img.shields.io/github/actions/workflow/status/h4ckbu7eer-sudo/LucentMist/ci.yml?branch=main)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
 [![Tests](https://img.shields.io/badge/tests-173%2F173%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
