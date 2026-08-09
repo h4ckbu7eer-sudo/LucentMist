@@ -21,6 +21,17 @@
     </div>
 </div>
 
+@if (_replayLines.Count > 0)
+{
+    <div class="card" style="margin-bottom:1rem;">
+        <div style="display:flex;gap:0.5rem;align-items:end;">
+            <button class="btn btn-primary" @onclick="StartReplay" disabled="@_busy">开始回放</button>
+            <button class="btn" @onclick="TogglePause" disabled="@(_replayIndex >= _replayLines.Count)">@(_playing ? "暂停" : "继续")</button>
+            <button class="btn" @onclick="ClearReplay">清空</button>
+        </div>
+    </div>
+}
+
 <div class="card" style="margin-bottom:1rem;">
     <div style="display:flex;gap:0.5rem;align-items:end;">
         <input type="text" @bind="_input" placeholder="例如：扫描 127.0.0.1 的端口" style="flex:1" />
@@ -67,6 +78,9 @@
     private bool _busy;
     private string? _error;
     private readonly List<AgentLine> _lines = new();
+    private readonly List<AgentLine> _replayLines = new();
+    private int _replayIndex;
+    private bool _playing;
     private List<SessionItem> _sessions = new();
     private CancellationTokenSource? _cts;
 
@@ -101,6 +115,9 @@
     {
         if (string.IsNullOrWhiteSpace(_sessionId)) return;
         _lines.Clear();
+        _replayLines.Clear();
+        _replayIndex = 0;
+        _playing = false;
         _error = null;
 
         try
@@ -118,7 +135,7 @@
                     "tool" => "observation",
                     _ => "message",
                 };
-                _lines.Add(new AgentLine(kind, content));
+                _replayLines.Add(new AgentLine(kind, content));
             }
         }
         catch (Exception ex)
@@ -134,6 +151,9 @@
         _busy = true;
         _error = null;
         _lines.Clear();
+        _replayLines.Clear();
+        _replayIndex = 0;
+        _playing = false;
         _cts = new CancellationTokenSource();
 
         try
@@ -218,6 +238,47 @@
         {
             // 忽略单条无法解析的 SSE 数据，不中断对话流。
         }
+    }
+
+    private async Task StartReplay()
+    {
+        _lines.Clear();
+        _replayIndex = 0;
+        _playing = true;
+        await ContinueReplayAsync();
+    }
+
+    private async Task ContinueReplayAsync()
+    {
+        while (_playing && _replayIndex < _replayLines.Count)
+        {
+            _lines.Add(_replayLines[_replayIndex]);
+            _replayIndex++;
+            StateHasChanged();
+            await Task.Delay(250);
+        }
+    }
+
+    private void TogglePause()
+    {
+        if (_replayIndex >= _replayLines.Count) return;
+        if (_playing)
+        {
+            _playing = false;
+        }
+        else
+        {
+            _playing = true;
+            _ = ContinueReplayAsync();
+        }
+    }
+
+    private void ClearReplay()
+    {
+        _playing = false;
+        _lines.Clear();
+        _replayLines.Clear();
+        _replayIndex = 0;
     }
 
     private static string LineLabel(string kind) => kind switch
