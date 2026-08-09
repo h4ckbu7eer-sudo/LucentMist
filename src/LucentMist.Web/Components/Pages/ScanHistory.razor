@@ -2,9 +2,18 @@
 @using System.Text.Json
 @using LucentMist.Scanning
 @inject ScanStore Store
+@inject IJSRuntime Js
 
 <PageTitle>扫描历史 — LucentMist</PageTitle>
 <div class="page-header"><h2>📜 扫描历史</h2></div>
+
+<div class="card" style="margin-bottom:1rem;">
+    <div style="display:flex;gap:0.5rem;align-items:end;flex-wrap:wrap;">
+        <button class="btn" @onclick="ExportJson" disabled="@(_tasks.Count == 0)">导出 JSON</button>
+        <button class="btn" @onclick="ExportMarkdown" disabled="@(_tasks.Count == 0)">导出 Markdown</button>
+        <button class="btn" @onclick="ExportHtml" disabled="@(_tasks.Count == 0)">导出 HTML</button>
+    </div>
+</div>
 
 @if (_error != null)
 {
@@ -62,6 +71,37 @@
     private List<ScanTaskRecord> _tasks = new();
     private string? _expandedId;
     private string? _error;
+
+    private async Task ExportJson()
+    {
+        var json = JsonSerializer.Serialize(_tasks,
+            new JsonSerializerOptions { WriteIndented = true });
+        await Js.InvokeVoidAsync("downloadFile", "scan-history.json", json, "application/json");
+    }
+
+    private async Task ExportMarkdown()
+    {
+        var md = new System.Text.StringBuilder();
+        md.AppendLine("# LucentMist 扫描历史");
+        md.AppendLine();
+        md.AppendLine("| 状态 | 目标 | 类型 | 创建时间 | 耗时 | 摘要 |");
+        md.AppendLine("|------|------|------|----------|------|------|");
+        foreach (var t in _tasks)
+            md.AppendLine($"| {StatusText(t.Status)} | {t.Target} | {t.ScanType} | {t.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss} | {Duration(t)} | {Summary(t)} |");
+        await Js.InvokeVoidAsync("downloadFile", "scan-history.md", md.ToString(), "text/markdown");
+    }
+
+    private async Task ExportHtml()
+    {
+        var html = new System.Text.StringBuilder();
+        html.AppendLine("<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>LucentMist 扫描历史</title></head><body>");
+        html.AppendLine("<h1>LucentMist 扫描历史</h1><table border=\"1\" cellpadding=\"6\" cellspacing=\"0\">");
+        html.AppendLine("<thead><tr><th>状态</th><th>目标</th><th>类型</th><th>创建时间</th><th>耗时</th><th>摘要</th></tr></thead><tbody>");
+        foreach (var t in _tasks)
+            html.AppendLine($"<tr><td>{StatusText(t.Status)}</td><td>{System.Net.WebUtility.HtmlEncode(t.Target)}</td><td>{t.ScanType}</td><td>{t.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}</td><td>{Duration(t)}</td><td>{System.Net.WebUtility.HtmlEncode(Summary(t))}</td></tr>");
+        html.AppendLine("</tbody></table></body></html>");
+        await Js.InvokeVoidAsync("downloadFile", "scan-history.html", html.ToString(), "text/html");
+    }
 
     protected override async Task OnInitializedAsync()
     {

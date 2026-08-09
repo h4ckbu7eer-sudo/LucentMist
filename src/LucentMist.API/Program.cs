@@ -1,3 +1,4 @@
+using LucentMist.API.Middleware;
 using LucentMist.Scanning;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -54,6 +55,7 @@ builder.Services.AddCors(options =>
 var app = builder.Build();
 
 app.UseCors();
+app.UseMiddleware<TokenBucketRateLimitMiddleware>();
 app.MapControllers();
 
 // 健康检查
