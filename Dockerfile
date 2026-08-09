@@ -71,7 +71,10 @@ COPY --from=build /app/cli ./cli
 COPY config/ ./config/
 
 # 创建数据目录
-RUN mkdir -p /app/data /app/logs
+RUN mkdir -p /app/data /app/logs && chown -R app:app /app
+
+# 非 root 运行，降低容器被攻破后的提权风险
+USER app
 
 # 暴露 API + Web 端口
 EXPOSE 5050 5051

@@ -1,6 +1,11 @@
 using LucentMist.API.Middleware;
 using LucentMist.Scanning;
 
+var startedAt = DateTime.UtcNow;
+var llmProvider = Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? "ollama";
+var llmModel = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b";
+var llmEndpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? "http://localhost:11434";
+
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
@@ -88,8 +93,9 @@ if (builder.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(corsOrigin
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(corsOrigins))
-    app.UseCors();
+app.UseCors();
 app.UseMiddleware<TokenBucketRateLimitMiddleware>();
+app.UseMiddleware<ApiTokenMiddleware>();
 app.MapControllers();
 
 // 健康检查
@@ -104,24 +110,34 @@ app.MapGet("/api/v1/health", () => Results.Ok(new
 {
     status = "healthy",
     version = "0.9.0",
-    uptime = "0h 0m"
+    uptime = $"{Math.Max(0, (int)(DateTime.UtcNow - startedAt).TotalHours)}h " +
+             $"{Math.Max(0, (int)((DateTime.UtcNow - startedAt).TotalMinutes % 60))}m"
 }));
 
 app.MapGet("/api/v1/config", () => Results.Ok(new
 {
-    llm = new { provider = "ollama", model = "qwen2.5:7b" },
-    scan = new { defaultTimeoutMs = 5000, maxConcurrency = 100 }
+    llm = new { provider = llmProvider, model = llmModel, endpoint = llmEndpoint },
+    scan = new
+    {
+        pingTimeoutMs = 3000,
+        pingConcurrency = 50,
+        portTimeoutMs = 2000,
+        portConcurrency = 100,
+        udpTimeoutMs = 3000,
+        udpConcurrency = 20,
+    }
 }));
 
 var port = args.Length > 0 ? args[0] : "5050";
-app.Urls.Add($"http://0.0.0.0:{port}");
+var bindAddress = Environment.GetEnvironmentVariable("LMIST_BIND_ADDRESS") ?? "127.0.0.1";
+app.Urls.Add($"http://{bindAddress}:{port}");
 
 Console.WriteLine(@"
 ╔══════════════════════════════════════════╗
 ║   LucentMist API v0.9.0                  ║
 ║   智能网络分析助手                       ║
 ╠══════════════════════════════════════════╣
-║   地址: http://0.0.0.0:" + port.PadRight(22) + @"║
+║   地址: http://" + bindAddress.PadRight(24) + port.PadRight(4) + @"║
 ║   健康: /api/v1/health                   ║
 ║   扫描: /api/v1/scan                     ║
 ║   Agent: /api/v1/agent/chat              ║

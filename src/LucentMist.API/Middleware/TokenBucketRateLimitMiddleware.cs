@@ -9,7 +9,9 @@ public sealed class TokenBucketRateLimitMiddleware
     private static readonly string[] LimitedPaths =
     [
         "/api/v1/agent/chat",
+        "/api/v1/agent/sessions",
         "/api/v1/scan",
+        "/api/v1/config",
     ];
 
     private readonly RequestDelegate _next;

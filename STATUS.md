@@ -33,9 +33,9 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 
 ## LLM 配置
 
-- Provider: Ollama @ localhost:11434
-- Model: llama3.1:8b (4.9 GB)
-- 安装位置: E:\Ollama\
+- Provider: Ollama（默认，可通过 `LMIST_LLM_PROVIDER` 切换 Claude）
+- Model: 通过 `LMIST_LLM_MODEL` 配置，默认 `qwen2.5:7b`
+- Endpoint: 通过 `LMIST_LLM_ENDPOINT` 配置，默认 `http://localhost:11434`
 
 ## 快速链接
 
