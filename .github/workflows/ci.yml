@@ -3,6 +3,9 @@ name: CI
 on:
   push:
     branches: [ main, master, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
   pull_request:
     branches: [ main, master ]
 
@@ -30,6 +33,7 @@ jobs:
         run: dotnet restore
 
       - name: Build (Release)
+        id: build
         run: dotnet build -c Release --no-restore
 
       - name: Run tests
@@ -49,10 +53,12 @@ jobs:
           echo "## Test Results — ${{ matrix.os }}" >> $GITHUB_STEP_SUMMARY
           echo "| Status | Details |" >> $GITHUB_STEP_SUMMARY
           echo "|--------|---------|" >> $GITHUB_STEP_SUMMARY
-          echo "| ✅ Build | 0 errors, 0 warnings |" >> $GITHUB_STEP_SUMMARY
+          echo "| Build | ${{ steps.build.outcome }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests | ${{ job.status }} |" >> $GITHUB_STEP_SUMMARY
 
   docker-push:
     name: Build & Push GHCR
+    needs: build-and-test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -69,6 +75,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Normalize repository name
+        run: |
+          echo "REPO_LC=$(echo '${{ github.event.repository.name }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_ENV"
+
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
@@ -76,5 +86,6 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ghcr.io/${{ github.repository_owner }}/lucentmist:main
-            ghcr.io/${{ github.repository_owner }}/lucentmist:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LC }}:main
+            ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LC }}:latest
+            ghcr.io/${{ github.repository_owner }}/${{ env.REPO_LC }}:${{ github.sha }}

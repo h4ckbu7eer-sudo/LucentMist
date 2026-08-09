@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # ============================================
   # LucentMist API 服务
@@ -8,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: lucentmist:0.7.0
+    image: lucentmist:0.9.0
     container_name: lucentmist-api
     ports:
       - "5050:5050"
@@ -35,7 +33,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: lucentmist:0.7.0
+    image: lucentmist:0.9.0
     container_name: lucentmist-web
     ports:
       - "5051:5051"
@@ -47,7 +45,7 @@ services:
     command: ["dotnet", "web/LucentMist.Web.dll", "5051"]
     depends_on:
       lucentmist:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - lucentmist-net
