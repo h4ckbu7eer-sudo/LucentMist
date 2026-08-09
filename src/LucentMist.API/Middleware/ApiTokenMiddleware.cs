@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using Microsoft.AspNetCore.Authorization;
 
 namespace LucentMist.API.Middleware;
 
@@ -21,7 +22,7 @@ public sealed class ApiTokenMiddleware
 
     public async Task InvokeAsync(HttpContext context)
     {
-        if (string.IsNullOrWhiteSpace(_token) || IsPublicPath(context.Request.Path))
+        if (string.IsNullOrWhiteSpace(_token) || IsPublic(context))
         {
             await _next(context);
             return;
@@ -50,17 +51,15 @@ public sealed class ApiTokenMiddleware
         await _next(context);
     }
 
-    private static bool IsPublicPath(PathString path)
-    {
-        var value = path.Value ?? "";
-        return value is "/" or "/api/v1/health";
-    }
+    private static bool IsPublic(HttpContext context) =>
+        context.GetEndpoint()?.Metadata.GetMetadata<IAllowAnonymous>() != null;
 
     private static bool SafeEquals(string a, string b)
     {
         var bytesA = Encoding.UTF8.GetBytes(a);
         var bytesB = Encoding.UTF8.GetBytes(b);
-        return bytesA.Length == bytesB.Length &&
-               CryptographicOperations.FixedTimeEquals(bytesA, bytesB);
+        var hashA = SHA256.HashData(bytesA);
+        var hashB = SHA256.HashData(bytesB);
+        return CryptographicOperations.FixedTimeEquals(hashA, hashB);
     }
 }

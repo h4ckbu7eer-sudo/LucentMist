@@ -1,3 +1,5 @@
+using System.Diagnostics;
+
 namespace LucentMist.API.Middleware;
 
 /// <summary>
@@ -19,7 +21,7 @@ public sealed class TokenBucketRateLimitMiddleware
     private readonly int _burst;
     private readonly object _lock = new();
     private double _tokens;
-    private DateTime _lastRefill = DateTime.UtcNow;
+    private long _lastRefillTimestamp = Stopwatch.GetTimestamp();
 
     public TokenBucketRateLimitMiddleware(RequestDelegate next)
     {
@@ -42,10 +44,10 @@ public sealed class TokenBucketRateLimitMiddleware
         var limited = false;
         lock (_lock)
         {
-            var now = DateTime.UtcNow;
-            var elapsed = (now - _lastRefill).TotalSeconds;
+            var now = Stopwatch.GetTimestamp();
+            var elapsed = (now - _lastRefillTimestamp) / (double)Stopwatch.Frequency;
             _tokens = Math.Min(_burst, _tokens + elapsed * _rps);
-            _lastRefill = now;
+            _lastRefillTimestamp = now;
 
             if (_tokens < 1)
                 limited = true;

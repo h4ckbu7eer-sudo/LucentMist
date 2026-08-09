@@ -1,4 +1,5 @@
 using System.Text;
+using System.Security.Cryptography;
 
 namespace LucentMist.Web;
 
@@ -34,12 +35,15 @@ public sealed class BasicAuthMiddleware
             {
                 var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(header[prefix.Length..].Trim()));
                 var separator = decoded.IndexOf(':');
-                if (separator > 0 &&
-                    SafeEquals(decoded[..separator], _user) &&
-                    SafeEquals(decoded[(separator + 1)..], _password))
+                if (separator > 0)
                 {
-                    await _next(context);
-                    return;
+                    var userOk = SafeEquals(decoded[..separator], _user);
+                    var passwordOk = SafeEquals(decoded[(separator + 1)..], _password);
+                    if (userOk && passwordOk)
+                    {
+                        await _next(context);
+                        return;
+                    }
                 }
             }
             catch (FormatException)
@@ -56,7 +60,8 @@ public sealed class BasicAuthMiddleware
     {
         var bytesA = Encoding.UTF8.GetBytes(a);
         var bytesB = Encoding.UTF8.GetBytes(b);
-        return bytesA.Length == bytesB.Length &&
-               System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(bytesA, bytesB);
+        var hashA = SHA256.HashData(bytesA);
+        var hashB = SHA256.HashData(bytesB);
+        return CryptographicOperations.FixedTimeEquals(hashA, hashB);
     }
 }
