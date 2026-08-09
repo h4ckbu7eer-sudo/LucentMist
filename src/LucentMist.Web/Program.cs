@@ -10,7 +10,7 @@ builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddSignalR();
 builder.Services.AddScoped<AppState>();
 builder.Services.AddSingleton<ScanService>();
-builder.Services.AddScoped<ScanTaskClient>();
+builder.Services.AddTransient<ScanTaskClient>();
 builder.Services.AddHttpClient("AgentApi", client =>
 {
     client.BaseAddress = new Uri(

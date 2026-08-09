@@ -6,7 +6,7 @@ namespace LucentMist.Web;
 public class AppState
 {
     // 仪表板
-    public int OnlineDevices { get; set; } = 1;
+    public int OnlineDevices { get; set; }
     public int ScanCount { get; set; }
     public string LastScanTarget { get; set; } = "—";
     public List<DeviceResult> LastResults { get; set; } = new();
@@ -20,6 +20,7 @@ public class AppState
     public string ScanTarget { get; set; } = "127.0.0.1";
     public string ScanPorts { get; set; } = "1-1000";
     public string ScanType { get; set; } = "tcp";
+    public string LlmProvider { get; set; } = "ReAct + LLM";
 
     // 当前后台任务
     public string CurrentTaskId { get; set; } = "";

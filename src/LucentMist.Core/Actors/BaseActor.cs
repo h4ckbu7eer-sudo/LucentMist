@@ -39,14 +39,14 @@ public abstract class BaseActor : ReceiveActor
 
             handler(msg).ContinueWith(task =>
             {
-                if (task.IsFaulted && task.Exception != null)
+                if (task.Exception != null)
                 {
                     Logger.LogError(task.Exception, "{ActorName} 处理消息失败: {MessageType}",
                         GetType().Name, typeof(T).Name);
                     sender.Tell(new ActorError(task.Exception.InnerException?.Message ?? task.Exception.Message), self);
                 }
 
-            }, TaskContinuationOptions.ExecuteSynchronously);
+            }, TaskContinuationOptions.OnlyOnFaulted);
         });
     }
 }

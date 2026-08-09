@@ -40,8 +40,8 @@ public sealed class ScanTaskClient : IAsyncDisposable
         var hub = await GetHubAsync(ct);
         _taskId = await _coordinator.StartAsync(target, scanType, ports, ct);
         _finalRaised = 0;
-        await hub.InvokeAsync("JoinScanGroup", _taskId, ct);
         _ = PollUntilFinalAsync();
+        await hub.InvokeAsync("JoinScanGroup", _taskId, ct);
         return _taskId;
     }
 
