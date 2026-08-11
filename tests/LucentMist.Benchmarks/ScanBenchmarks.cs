@@ -9,6 +9,15 @@ namespace LucentMist.Benchmarks;
 [MemoryDiagnoser]
 public class ScanBenchmarks
 {
+    private static readonly string PingTarget =
+        Environment.GetEnvironmentVariable("LMIST_BENCH_PING_TARGET") ?? "127.0.0.0/24";
+
+    private static readonly string PortTarget =
+        Environment.GetEnvironmentVariable("LMIST_BENCH_PORT_TARGET") ?? "127.0.0.1";
+
+    private static readonly string UdpTarget =
+        Environment.GetEnvironmentVariable("LMIST_BENCH_UDP_TARGET") ?? "127.0.0.1";
+
     private readonly PingScanTool _ping = new(NullLogger<PingScanTool>.Instance);
     private readonly PortScanTool _port = new(NullLogger<PortScanTool>.Instance);
     private readonly UdpScanTool _udp = new(NullLogger<UdpScanTool>.Instance);
@@ -27,14 +36,14 @@ public class ScanBenchmarks
 
     private Task Ping(int concurrency) => _ping.ExecuteAsync(new ToolArguments
     {
-        ["target"] = "127.0.0.0/24",
+        ["target"] = PingTarget,
         ["timeout_ms"] = "300",
         ["concurrency"] = concurrency.ToString(),
     });
 
     private Task Port(int concurrency) => _port.ExecuteAsync(new ToolArguments
     {
-        ["target"] = "127.0.0.1",
+        ["target"] = PortTarget,
         ["ports"] = "1-1000",
         ["timeout_ms"] = "100",
         ["concurrency"] = concurrency.ToString(),
@@ -42,7 +51,7 @@ public class ScanBenchmarks
 
     private Task Udp(int concurrency) => _udp.ExecuteAsync(new ToolArguments
     {
-        ["target"] = "127.0.0.1",
+        ["target"] = UdpTarget,
         ["ports"] = "53,123,161,500,514,1900",
         ["timeout_ms"] = "400",
         ["concurrency"] = concurrency.ToString(),

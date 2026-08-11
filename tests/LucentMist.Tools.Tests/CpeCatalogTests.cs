@@ -1,3 +1,4 @@
+using LucentMist.Tools.Security;
 using LucentMist.Tools.Vulnerability;
 
 namespace LucentMist.Tools.Tests;
@@ -42,9 +43,51 @@ public class CpeCatalogTests
     }
 
     [Fact]
+    public void Match_HttpAlt_DoesNotMatchNginx()
+    {
+        Assert.Null(new CpeMatcher().Match("http-alt", "*"));
+    }
+
+    [Fact]
+    public void Match_Openssh_DoesNotMatchViaSshSubstring()
+    {
+        var matched = new CpeMatcher().Match("openssh", "9.6p1");
+
+        Assert.NotNull(matched);
+        Assert.Equal("openssh", matched!.Product);
+    }
+
+    [Fact]
+    public void DetectOsFromTtl_MatchesOsFingerprintTool()
+    {
+        var matcher = new CpeMatcher();
+
+        Assert.Equal(
+            OsFingerprintTool.InferOs(true, 62, []).os,
+            matcher.DetectOsFromTtl(62));
+        Assert.Equal(
+            OsFingerprintTool.InferOs(true, 128, []).os,
+            matcher.DetectOsFromTtl(128));
+    }
+
+    [Fact]
     public void EveryEntry_IsResolvableToCpe()
     {
         foreach (var entry in CpeCatalog.Entries)
             Assert.NotNull(CpeCatalog.GetCpe(entry.Key));
+    }
+
+    [Fact]
+    public void GetCpeAndKeyword_DeriveFromEntries()
+    {
+        foreach (var entry in CpeCatalog.Entries)
+        {
+            var cpe = CpeCatalog.GetCpe(entry.Key);
+            var keyword = CpeCatalog.GetKeyword(entry.Key);
+
+            Assert.NotNull(cpe);
+            Assert.Contains(entry.Product, cpe);
+            Assert.Equal(entry.Keyword, keyword);
+        }
     }
 }

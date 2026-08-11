@@ -60,12 +60,7 @@ builder.Services.AddSingleton<LucentMist.Agent.LLM.ILLMProvider>(sp =>
 builder.Services.AddSingleton(sp =>
 {
     var lf = sp.GetRequiredService<ILoggerFactory>();
-    var registry = new LucentMist.Tools.ToolRegistry();
-    registry.Register(new LucentMist.Tools.Scanning.PingScanTool(lf.CreateLogger<LucentMist.Tools.Scanning.PingScanTool>()));
-    registry.Register(new LucentMist.Tools.Scanning.PortScanTool(lf.CreateLogger<LucentMist.Tools.Scanning.PortScanTool>()));
-    registry.Register(new LucentMist.Tools.Scanning.ServiceIdentifyTool(lf.CreateLogger<LucentMist.Tools.Scanning.ServiceIdentifyTool>()));
-    registry.Register(new LucentMist.Tools.Scanning.DeviceQueryTool(lf.CreateLogger<LucentMist.Tools.Scanning.DeviceQueryTool>(), new List<LucentMist.Core.Models.Device>()));
-    return registry;
+    return LucentMist.Tools.ToolRegistryFactory.CreateDefault(lf);
 });
 
 // CORS — 开发环境放开；生产仅允许 LMIST_CORS_ORIGINS 显式配置的来源
@@ -95,7 +90,9 @@ if (builder.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(corsOrigin
 var app = builder.Build();
 
 if (app.Environment.IsDevelopment() || !string.IsNullOrWhiteSpace(corsOrigins))
-app.UseCors();
+{
+    app.UseCors();
+}
 app.UseMiddleware<TokenBucketRateLimitMiddleware>();
 app.UseMiddleware<ApiTokenMiddleware>();
 app.MapControllers();
@@ -133,6 +130,12 @@ app.MapGet("/api/v1/config", () => Results.Ok(new
 var port = args.Length > 0 ? args[0] : "5050";
 var bindAddress = Environment.GetEnvironmentVariable("LMIST_BIND_ADDRESS") ?? "127.0.0.1";
 app.Urls.Add($"http://{bindAddress}:{port}");
+
+if (bindAddress is not ("127.0.0.1" or "localhost" or "::1") &&
+    string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_API_TOKEN")))
+{
+    Console.Error.WriteLine("WARNING: API 正在监听非回环地址但未设置 LMIST_API_TOKEN，生产环境必须启用认证。");
+}
 
 Console.WriteLine($"""
 ╔══════════════════════════════════════════╗

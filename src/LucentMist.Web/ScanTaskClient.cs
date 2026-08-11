@@ -17,6 +17,7 @@ public sealed class ScanTaskClient : IAsyncDisposable
     private HubConnection? _hub;
     private string _taskId = "";
     private int _finalRaised;
+    private bool _disposed;
 
     public ScanTaskClient(
         IScanCoordinator coordinator,
@@ -113,6 +114,9 @@ public sealed class ScanTaskClient : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (_disposed) return;
+        _disposed = true;
+
         _cts.Cancel();
         if (_hub is not null)
         {

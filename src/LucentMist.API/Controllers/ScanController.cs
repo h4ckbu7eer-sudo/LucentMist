@@ -1,4 +1,5 @@
 using System.ComponentModel.DataAnnotations;
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using LucentMist.Scanning;
@@ -37,7 +38,22 @@ public class ScanController : ControllerBase
                 },
             });
 
-        var taskId = await _coordinator.StartAsync(request.Target, request.ScanType, request.Ports, ct);
+        string taskId;
+        try
+        {
+            taskId = await _coordinator.StartAsync(request.Target, request.ScanType, request.Ports, ct);
+        }
+        catch (ScanQueueFullException ex)
+        {
+            return StatusCode(503, new
+            {
+                error = new
+                {
+                    code = "QUEUE_FULL",
+                    message = ex.Message,
+                },
+            });
+        }
         _logger.LogInformation("扫描任务已入队: TaskId={TaskId}, Target={Target}", taskId, request.Target);
 
         return Accepted(new { taskId, status = "pending", message = "扫描任务已创建" });
@@ -84,21 +100,53 @@ public class ScanController : ControllerBase
     {
         if (string.IsNullOrWhiteSpace(target)) return false;
         if (target.Length > 253) return false;
-        if (target.IndexOf('\0') >= 0 || target.IndexOf('\n') >= 0 || target.IndexOf('\r') >= 0) return false;
+        if (target.IndexOfAny(['\0', '\n', '\r']) >= 0) return false;
 
         if (target.Contains('/'))
         {
-            var parts = target.Split('/', 2);
-            if (!IPAddress.TryParse(parts[0], out var ip) ||
+            var slash = target.IndexOf('/');
+            if (slash == 0 || target.IndexOf('/', slash + 1) >= 0) return false;
+            if (!IPAddress.TryParse(target[..slash], out var ip) ||
                 ip.AddressFamily != AddressFamily.InterNetwork)
                 return false;
-            if (!int.TryParse(parts[1], out var prefix) || prefix is < 8 or > 30)
+            if (!int.TryParse(target[(slash + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var prefix) ||
+                prefix is < 8 or > 32)
                 return false;
             return true;
         }
 
-        return IPAddress.TryParse(target, out var address) &&
-               address.AddressFamily == AddressFamily.InterNetwork;
+        if (IPAddress.TryParse(target, out var address))
+            return address.AddressFamily == AddressFamily.InterNetwork;
+
+        return IsValidHostname(target);
+    }
+
+    private static bool IsValidHostname(string hostname)
+    {
+        if (hostname.Length == 0 || hostname.Length > 253) return false;
+        if (hostname.StartsWith('.') || hostname.EndsWith('.') || hostname.Contains("..")) return false;
+
+        var hasLetter = false;
+        foreach (var label in hostname.Split('.'))
+        {
+            if (label.Length == 0 || label.Length > 63) return false;
+            if (label[0] == '-' || label[^1] == '-') return false;
+
+            var labelHasLetter = false;
+            foreach (var c in label)
+            {
+                if (c is >= 'a' and <= 'z' or >= 'A' and <= 'Z')
+                {
+                    labelHasLetter = true;
+                    continue;
+                }
+                if (c is >= '0' and <= '9' or '_') continue;
+                return false;
+            }
+            hasLetter |= labelHasLetter;
+        }
+
+        return hasLetter;
     }
 }
 

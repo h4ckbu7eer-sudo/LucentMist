@@ -59,5 +59,12 @@ local.settings.json
 Sirius.zip
 report.html
 
+# Auto-check runtime report
+docs/auto-check-latest.md
+/.tmp/
+
 # BenchmarkDotNet 输出
 BenchmarkDotNet.Artifacts/
+
+# Offline package caches should not be committed to the repository
+/build/offline/

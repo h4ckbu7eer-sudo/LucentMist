@@ -57,7 +57,7 @@ if ($LASTEXITCODE -ne 0) { throw "CLI publish failed" }
 Write-Host "       CLI 发布完成" -ForegroundColor Green
 
 # Step 6: 发布 API
-Write-Host "[6/6] 发布 API ($Runtime)..." -ForegroundColor Yellow
+Write-Host "[6/7] 发布 API ($Runtime)..." -ForegroundColor Yellow
 dotnet publish "$ProjectDir\src\LucentMist.API\LucentMist.API.csproj" `
     -c Release `
     -o "$PublishDir\api" `
@@ -66,6 +66,17 @@ dotnet publish "$ProjectDir\src\LucentMist.API\LucentMist.API.csproj" `
     -p:Version=$Version
 if ($LASTEXITCODE -ne 0) { throw "API publish failed" }
 Write-Host "       API 发布完成" -ForegroundColor Green
+
+# Step 7: 发布 Web
+Write-Host "[7/7] 发布 Web ($Runtime)..." -ForegroundColor Yellow
+dotnet publish "$ProjectDir\src\LucentMist.Web\LucentMist.Web.csproj" `
+    -c Release `
+    -o "$PublishDir\web" `
+    --self-contained true `
+    -r $Runtime `
+    -p:Version=$Version
+if ($LASTEXITCODE -ne 0) { throw "Web publish failed" }
+Write-Host "       Web 发布完成" -ForegroundColor Green
 
 # 复制配置
 Copy-Item -Recurse "$ProjectDir\config" "$PublishDir\config"
@@ -84,6 +95,7 @@ Write-Host @"
 ║                                          ║
 ║   CLI: $PublishDir\cli\lmist.exe
 ║   API: $PublishDir\api\LucentMist.API.dll
+║   Web: $PublishDir\web\LucentMist.Web.dll
 ╚══════════════════════════════════════════╝
 
 "@ -ForegroundColor Green

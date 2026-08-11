@@ -32,6 +32,38 @@ public class ScanApiIntegrationTests : IClassFixture<ScanApiFixture>
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
+    [Theory]
+    [InlineData("999.999.999.999")]
+    [InlineData("0.0.0.0/0")]
+    [InlineData("10.0.0.0/1")]
+    [InlineData("999.999.999.999/99")]
+    [InlineData("1.2.3.4/33")]
+    [InlineData("-bad.example.com")]
+    [InlineData("http://example.com")]
+    public async Task CreateScan_InvalidTarget_Returns400(string target)
+    {
+        var resp = await _client.PostAsJsonAsync("/api/v1/scan", new { target, scanType = "ping" });
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("localhost")]
+    [InlineData("example.com")]
+    public async Task CreateScan_ValidHostname_Returns202(string target)
+    {
+        var resp = await _client.PostAsJsonAsync("/api/v1/scan", new { target, scanType = "tcp", ports = "443" });
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("127.0.0.1/32")]
+    [InlineData("10.0.0.0/31")]
+    public async Task CreateScan_ValidPointToPointCidr_Returns202(string target)
+    {
+        var resp = await _client.PostAsJsonAsync("/api/v1/scan", new { target, scanType = "tcp", ports = "80" });
+        Assert.Equal(HttpStatusCode.Accepted, resp.StatusCode);
+    }
+
     [Fact]
     public async Task CreateScan_ValidTarget_Returns202WithTaskId()
     {

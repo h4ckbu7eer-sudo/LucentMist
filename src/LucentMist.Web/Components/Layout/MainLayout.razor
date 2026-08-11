@@ -1,4 +1,6 @@
 @inherits LayoutComponentBase
+@inject AppState State
+@inject IHttpClientFactory HttpFactory
 
 <div class="app">
     <nav class="sidebar">
@@ -26,10 +28,33 @@
             <span class="nav-icon">🔒</span> SSL 证书
         </NavLink>
         <div class="sidebar-footer">
-            <span>LucentMist + Ollama</span>
+            <span>LucentMist + @_provider</span>
         </div>
     </nav>
     <main class="content">
         @Body
     </main>
 </div>
+
+@code {
+    private string _provider = "Ollama";
+
+    protected override async Task OnInitializedAsync()
+    {
+        try
+        {
+            var client = HttpFactory.CreateClient("AgentApi");
+            var cfg = await client.GetFromJsonAsync<System.Text.Json.JsonElement>("/api/v1/config");
+            if (cfg.TryGetProperty("llm", out var llm) &&
+                llm.TryGetProperty("provider", out var provider))
+            {
+                _provider = provider.GetString() ?? "Ollama";
+                State.LlmProvider = _provider;
+            }
+        }
+        catch
+        {
+            // API 不可达时保留默认值，不阻塞页面。
+        }
+    }
+}

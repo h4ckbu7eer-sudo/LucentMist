@@ -67,6 +67,9 @@ public class ScanStore
     {
         var conn = new SqliteConnection(_connectionString);
         conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA busy_timeout=5000;";
+        cmd.ExecuteNonQuery();
         return conn;
     }
 
@@ -138,6 +141,22 @@ public class ScanStore
     public async Task MarkFailedAsync(string id, string error)
     {
         await UpdateAsync(id, "failed", errorMessage: error, completedAt: DateTime.UtcNow);
+    }
+
+    public async Task MarkStaleTasksFailedAsync(string error)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE scan_tasks SET
+                status = 'failed',
+                completed_at = COALESCE(completed_at, $now),
+                error_message = COALESCE(error_message, $error)
+            WHERE status IN ('pending', 'running')
+            """;
+        cmd.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("$error", error);
+        await cmd.ExecuteNonQueryAsync();
     }
 
     private async Task UpdateAsync(string id, string status,

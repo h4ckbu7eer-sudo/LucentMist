@@ -43,9 +43,19 @@ public sealed class ScanWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("ScanWorker 启动，等待扫描任务");
+        await _store.MarkStaleTasksFailedAsync("服务重启，未完成的任务已标记失败");
+
         await foreach (var req in _coordinator.Reader.ReadAllAsync(stoppingToken))
         {
-            await _gate.WaitAsync(stoppingToken);
+            try
+            {
+                await _gate.WaitAsync(stoppingToken);
+            }
+            catch (OperationCanceledException)
+            {
+                await _store.MarkFailedAsync(req.TaskId, "服务关闭，任务未执行");
+                throw;
+            }
             try
             {
                 await ExecuteOneAsync(req, stoppingToken);
@@ -55,6 +65,12 @@ public sealed class ScanWorker : BackgroundService
                 _gate.Release();
             }
         }
+    }
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        _coordinator.Complete();
+        await base.StopAsync(cancellationToken);
     }
 
     private async Task ExecuteOneAsync(ScanJob req, CancellationToken ct)

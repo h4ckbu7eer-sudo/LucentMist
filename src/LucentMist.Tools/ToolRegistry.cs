@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace LucentMist.Tools;
 
 /// <summary>
@@ -5,7 +7,7 @@ namespace LucentMist.Tools;
 /// </summary>
 public class ToolRegistry
 {
-    private readonly Dictionary<string, ITool> _tools = new();
+    private readonly ConcurrentDictionary<string, ITool> _tools = new();
 
     /// <summary>
     /// 注册工具
@@ -21,8 +23,7 @@ public class ToolRegistry
     /// </summary>
     public ITool? Get(string name)
     {
-        _tools.TryGetValue(name, out var tool);
-        return tool;
+        return _tools.TryGetValue(name, out var tool) ? tool : null;
     }
 
     /// <summary>

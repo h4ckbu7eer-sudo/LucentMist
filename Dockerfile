@@ -10,14 +10,9 @@ ARG NUGET_SOURCE=https://api.nuget.org/v3/index.json
 WORKDIR /src
 
 # 复制项目文件
+COPY Directory.Build.props ./
 COPY LucentMist.slnx ./
 COPY src ./src/
-
-# 预置 Akka.Analyzers 完整缓存，避免容器内 NuGet 下载中断
-COPY build/offline/akka.analyzers /root/.nuget/packages/akka.analyzers
-
-# 复制全部源码（后续 restore 会覆盖任何误入的宿主机 obj）
-COPY . .
 
 # 还原依赖（只还原运行项目，测试由 CI 执行）
 RUN cat > /tmp/NuGet.config <<EOF
@@ -37,9 +32,8 @@ RUN for i in 1 2 3; do dotnet restore src/LucentMist.API/LucentMist.API.csproj -
 RUN for i in 1 2 3; do dotnet restore src/LucentMist.Web/LucentMist.Web.csproj --configfile /tmp/NuGet.config && break; sleep 3; done
 RUN for i in 1 2 3; do dotnet restore src/LucentMist.CLI/LucentMist.CLI.csproj --configfile /tmp/NuGet.config && break; sleep 3; done
 
-# restore 后强制覆盖 Akka.Analyzers 完整缓存，避免残缺缓存导致 build 失败
-RUN rm -rf /root/.nuget/packages/akka.analyzers \
- && cp -r build/offline/akka.analyzers /root/.nuget/packages/akka.analyzers
+# 还原后再复制全部源码，避免代码改动使 NuGet 缓存层失效
+COPY . .
 
 # 编译运行项目
 RUN dotnet build src/LucentMist.API/LucentMist.API.csproj -c Release --no-restore
@@ -63,15 +57,19 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
 
 # 从构建阶段复制产物
-COPY --from=build /app/api ./api
-COPY --from=build /app/web ./web
-COPY --from=build /app/cli ./cli
+COPY --from=build --chown=app:app /app/api ./api
+COPY --from=build --chown=app:app /app/web ./web
+COPY --from=build --chown=app:app /app/cli ./cli
 
 # 复制配置模板
-COPY config/ ./config/
+COPY --chown=app:app config/ ./config/
 
 # 创建数据目录
-RUN mkdir -p /app/data /app/logs && chown -R app:app /app
+RUN mkdir -p /app/data /app/logs && chown app:app /app/data /app/logs
+
+# 容器内默认监听所有接口，直接 docker run -p 也能访问
+ENV LMIST_BIND_ADDRESS=0.0.0.0
+ENV LMIST_WEB_BIND=0.0.0.0
 
 # 非 root 运行，降低容器被攻破后的提权风险
 USER app
@@ -80,7 +78,7 @@ USER app
 EXPOSE 5050 5051
 
 # 健康检查
-HEALTHCHECK --interval=30s --timeout=3s --retries=3 \
+HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:5050/api/v1/health || exit 1
 
 # 默认启动 API 服务；Web 服务通过 command 覆盖为 web/LucentMist.Web.dll 5051

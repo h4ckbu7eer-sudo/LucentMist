@@ -28,4 +28,20 @@ public class CveDatabaseTests
 
         Assert.DoesNotContain(matches, e => e.Cve == "CVE-2023-38408");
     }
+
+    [Fact]
+    public void Match_OpenSshForWindows_UsesProductVersion()
+    {
+        var matches = CveDatabase.Match(22, "SSH-2.0-OpenSSH_for_Windows_8.1");
+
+        Assert.DoesNotContain(matches, e => e.Cve == "CVE-2018-15473");
+    }
+
+    [Fact]
+    public void Match_SmbV3_IsNotEternalBlue()
+    {
+        var matches = CveDatabase.Match(445, "SMBv3.1.1");
+
+        Assert.DoesNotContain(matches, e => e.Cve == "CVE-2017-0144");
+    }
 }

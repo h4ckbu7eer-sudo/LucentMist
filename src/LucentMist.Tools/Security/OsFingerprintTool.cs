@@ -64,13 +64,10 @@ public class OsFingerprintTool : ITool
             // 1. ICMP Ping → 获取 TTL
             var (reachable, ttl, pingMs) = await PingWithTtl(target, timeout);
 
-            // 2. TCP 连接测试 → 获取窗口大小
-            var tcpWindows = await ProbeTcpWindows(target, timeout);
-
-            // 3. 开放端口 → OS 提示
+            // 2. 开放端口 → OS 提示
             var portHints = await ProbeKnownPorts(target, timeout);
 
-            // 4. 综合推断 OS
+            // 3. 综合推断 OS
             var (osFamily, confidence, reasons) = InferOs(reachable, ttl, portHints);
 
             var result = new
@@ -82,7 +79,6 @@ public class OsFingerprintTool : ITool
                 reasons,
                 ttl,
                 pingMs,
-                tcpWindows,
                 portHints,
                 scanDuration = sw.Elapsed.ToString()
             };
@@ -123,28 +119,6 @@ public class OsFingerprintTool : ITool
         }
     }
 
-    private async Task<Dictionary<int, int>> ProbeTcpWindows(string ip, int timeout)
-    {
-        var windows = new Dictionary<int, int>();
-        var ports = new[] { 80, 443, 22, 445 };
-        foreach (var port in ports)
-        {
-            try
-            {
-                using var cts = new CancellationTokenSource(timeout / ports.Length);
-                using var client = new TcpClient();
-                await client.ConnectAsync(ip, port, cts.Token);
-                // ReceiveBufferSize 是本机 socket 配置，不是远端 TCP 窗口，仅供调试，不参与 OS 推断。
-                windows[port] = client.ReceiveBufferSize;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "TCP window probe failed for {Ip}:{Port}", ip, port);
-            }
-        }
-        return windows;
-    }
-
     private async Task<List<string>> ProbeKnownPorts(string ip, int timeout)
     {
         var hints = new List<string>();
@@ -165,7 +139,7 @@ public class OsFingerprintTool : ITool
         return hints;
     }
 
-    private static (string os, int confidence, string[] reasons) InferOs(
+    internal static (string os, int confidence, string[] reasons) InferOs(
         bool reachable, int ttl, List<string> portHints)
     {
         var reasons = new List<string>();
@@ -177,20 +151,30 @@ public class OsFingerprintTool : ITool
         if (ttl <= 0)
             return ("未知 (无法获取 TTL)", 0, ["Ping 未返回 TTL"]);
 
-        // TTL 推断
-        int initialTtl;
-        if (ttl <= 32) initialTtl = 32;
-        else if (ttl <= 60) initialTtl = 60;
-        else if (ttl <= 64) initialTtl = 64;
-        else if (ttl <= 128) initialTtl = 128;
-        else initialTtl = 255;
+        // 允许最多 64 跳衰减，保留所有可能的初始 TTL 作为候选
+        var possibleInitialTtls = TtlMap.Keys
+            .Where(initial => initial >= ttl && initial - ttl <= 64)
+            .OrderBy(initial => initial)
+            .ToArray();
 
-        reasons.Add($"TTL={ttl} (初始≈{initialTtl})");
-
-        if (TtlMap.TryGetValue(initialTtl, out var candidates))
+        if (possibleInitialTtls.Length == 0)
         {
-            foreach (var os in candidates)
-                scores[os] = scores.GetValueOrDefault(os) + 30;
+            return ("未知", 0, ["TTL 不在已知初始值范围内"]);
+        }
+
+        var initialTtl = possibleInitialTtls[0];
+        if (possibleInitialTtls.Length > 1)
+            reasons.Add($"TTL={ttl}，可能初始值为 {string.Join("/", possibleInitialTtls)}，无法确认实际跳数");
+        else
+            reasons.Add($"TTL={ttl} (初始≈{initialTtl})");
+
+        foreach (var possibleInitial in possibleInitialTtls)
+        {
+            if (TtlMap.TryGetValue(possibleInitial, out var candidates))
+            {
+                foreach (var os in candidates)
+                    scores[os] = scores.GetValueOrDefault(os) + 20;
+            }
         }
 
         // Port hints
@@ -204,7 +188,7 @@ public class OsFingerprintTool : ITool
 
         if (portHints.Count == 0)
         {
-            reasons.Add("仅 TTL 推断（无额外特征）");
+            reasons.Add("低置信度：仅 TTL 推断，未考虑网络跳数衰减");
             // Default to most common for that TTL
             if (initialTtl == 128) scores["Windows"] = scores.GetValueOrDefault("Windows") + 10;
             if (initialTtl == 64) scores["Linux"] = scores.GetValueOrDefault("Linux") + 10;
@@ -214,7 +198,14 @@ public class OsFingerprintTool : ITool
             return ("未知", 10, reasons.ToArray());
 
         var best = scores.OrderByDescending(kv => kv.Value).First();
-        var confidence = Math.Min(90, best.Value);
+        var confidence = portHints.Count == 0
+            ? Math.Min(45, best.Value)
+            : Math.Min(90, best.Value);
+        if (possibleInitialTtls.Length > 1)
+        {
+            reasons.Add("低置信度：TTL 跳数不确定，结果应视为参考");
+            confidence = Math.Min(confidence, 60);
+        }
         return (best.Key, confidence, reasons.ToArray());
     }
 }

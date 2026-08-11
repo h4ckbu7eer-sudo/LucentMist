@@ -111,7 +111,7 @@ public static class CveDatabase
         {
             var openssh = System.Text.RegularExpressions.Regex.Match(
                 banner,
-                @"OpenSSH[_-](\d+(?:\.\d+)+(?:p\d+)?)",
+                @"OpenSSH[_-]?(?:for[_-]?Windows[_-]?)?(\d+(?:\.\d+)+(?:p\d+)?)",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (openssh.Success)
                 return openssh.Groups[1].Value.Replace("p", ".");

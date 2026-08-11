@@ -50,7 +50,7 @@ dotnet publish "$PROJECT_DIR/src/LucentMist.CLI/LucentMist.CLI.csproj" \
 echo -e "\033[32m       CLI 发布完成\033[0m"
 
 # Step 6: 发布 API
-echo -e "\033[33m[6/6] 发布 API ($RUNTIME)...\033[0m"
+echo -e "\033[33m[6/7] 发布 API ($RUNTIME)...\033[0m"
 dotnet publish "$PROJECT_DIR/src/LucentMist.API/LucentMist.API.csproj" \
     -c Release \
     -o "$PUBLISH_DIR/api" \
@@ -58,6 +58,16 @@ dotnet publish "$PROJECT_DIR/src/LucentMist.API/LucentMist.API.csproj" \
     -r "$RUNTIME" \
     -p:Version="$VERSION"
 echo -e "\033[32m       API 发布完成\033[0m"
+
+# Step 7: 发布 Web
+echo -e "\033[33m[7/7] 发布 Web ($RUNTIME)...\033[0m"
+dotnet publish "$PROJECT_DIR/src/LucentMist.Web/LucentMist.Web.csproj" \
+    -c Release \
+    -o "$PUBLISH_DIR/web" \
+    --self-contained true \
+    -r "$RUNTIME" \
+    -p:Version="$VERSION"
+echo -e "\033[32m       Web 发布完成\033[0m"
 
 # 复制配置和文档
 cp -r "$PROJECT_DIR/config" "$PUBLISH_DIR/config"
@@ -78,5 +88,6 @@ echo "║   输出: $PUBLISH_DIR"
 echo "║                                          ║"
 echo "║   CLI: $PUBLISH_DIR/cli/lmist"
 echo "║   API: $PUBLISH_DIR/api/LucentMist.API.dll"
+echo "║   Web: $PUBLISH_DIR/web/LucentMist.Web.dll"
 echo "╚══════════════════════════════════════════╝"
 echo ""

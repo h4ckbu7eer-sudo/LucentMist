@@ -152,7 +152,8 @@ public class ReActEngineTests
     {
         var llm = LLMProviderFactory.Create("ollama", "llama3.1:8b", "http://localhost:11434");
         var engine = new ReActEngine(llm, CreateRegistry(), "prompt",
-            NullLogger<ReActEngine>.Instance) { MaxRounds = 7 };
+            NullLogger<ReActEngine>.Instance)
+        { MaxRounds = 7 };
 
         Assert.Equal(7, engine.MaxRounds);
     }
@@ -250,7 +251,8 @@ public class ReActEngineTests
         );
 
         var engine = new ReActEngine(mockLLM.Object, CreateRegistry(), "prompt",
-            NullLogger<ReActEngine>.Instance) { MaxRounds = 2 };
+            NullLogger<ReActEngine>.Instance)
+        { MaxRounds = 2 };
 
         var result = await engine.RunAsync("test");
 
@@ -269,7 +271,8 @@ public class ReActEngineTests
         );
 
         var engine = new ReActEngine(mockLLM.Object, CreateRegistry(), "prompt",
-            NullLogger<ReActEngine>.Instance) { MaxRounds = 5 };
+            NullLogger<ReActEngine>.Instance)
+        { MaxRounds = 5 };
 
         var result = await engine.RunAsync("test");
 
@@ -364,7 +367,8 @@ public class ReActEngineTests
         );
 
         var engine = new ReActEngine(mockLLM.Object, registry, "prompt",
-            NullLogger<ReActEngine>.Instance) { MaxRounds = 3 };
+            NullLogger<ReActEngine>.Instance)
+        { MaxRounds = 3 };
 
         var result = await engine.RunAsync("test");
 
@@ -374,6 +378,7 @@ public class ReActEngineTests
         Assert.Equal("port_scan", result.Observations[0].ToolName);
         Assert.Equal("service_identify", result.Observations[1].ToolName);
         Assert.Equal("service_identify", result.Observations[2].ToolName);
+        Assert.Equal(3, engine.ObservationsForRound(1).Count);
     }
 
     [Fact]
@@ -396,7 +401,8 @@ public class ReActEngineTests
         );
 
         var engine = new ReActEngine(mockLLM.Object, registry, "prompt",
-            NullLogger<ReActEngine>.Instance) { MaxRounds = 3 };
+            NullLogger<ReActEngine>.Instance)
+        { MaxRounds = 3 };
 
         var result = await engine.RunAsync("test");
 

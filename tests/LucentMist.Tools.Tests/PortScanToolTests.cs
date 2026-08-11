@@ -20,7 +20,9 @@ public class PortScanToolTests
     {
         var r = await CreateTool().ExecuteAsync(new()
         {
-            ["target"] = "127.0.0.1", ["ports"] = "80,443", ["timeout_ms"] = "1000"
+            ["target"] = "127.0.0.1",
+            ["ports"] = "80,443",
+            ["timeout_ms"] = "1000"
         });
         Assert.True(r.Success);
         Assert.Contains("target", r.Data);
@@ -33,7 +35,9 @@ public class PortScanToolTests
     {
         var r = await CreateTool().ExecuteAsync(new()
         {
-            ["target"] = "127.0.0.1", ["ports"] = "80-82", ["timeout_ms"] = "500"
+            ["target"] = "127.0.0.1",
+            ["ports"] = "80-82",
+            ["timeout_ms"] = "500"
         });
         Assert.Contains("\"totalScanned\":3", r.Data);
     }
@@ -43,7 +47,9 @@ public class PortScanToolTests
     {
         var r = await CreateTool().ExecuteAsync(new()
         {
-            ["target"] = "127.0.0.1", ["ports"] = "22,80,443", ["timeout_ms"] = "500"
+            ["target"] = "127.0.0.1",
+            ["ports"] = "22,80,443",
+            ["timeout_ms"] = "500"
         });
         Assert.Contains("\"totalScanned\":3", r.Data);
     }

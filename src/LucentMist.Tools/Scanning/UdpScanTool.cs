@@ -80,14 +80,6 @@ public class UdpScanTool : ITool
         }
     }
 
-    /// <summary>
-    /// 解析端口范围字符串，支持 53,80-100,443 格式
-    /// </summary>
-    private static List<int> ParsePorts(string portsStr)
-    {
-        return PortHelper.ParsePorts(portsStr);
-    }
-
     private static async Task<bool> ProbeUdpAsync(string ip, int port, int timeoutMs)
     {
         try

@@ -5,12 +5,12 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 build() {
     echo -e "\033[36m编译 LucentMist...\033[0m"
-    dotnet build "$PROJECT_DIR/LucentMist.sln"
+    dotnet build "$PROJECT_DIR/LucentMist.slnx"
 }
 
 test() {
     echo -e "\033[36m运行测试...\033[0m"
-    dotnet test "$PROJECT_DIR/LucentMist.sln"
+    dotnet test "$PROJECT_DIR/LucentMist.slnx"
 }
 
 cli() {

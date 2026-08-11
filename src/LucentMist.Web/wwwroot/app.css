@@ -8,11 +8,11 @@ a, .btn-link { color: #2dd4bf; }
 
 /* Bootstrap button overrides for dark theme */
 .btn-primary {
-    color: #000 !important;
-    background-color: #2dd4bf !important;
-    border-color: #0d9488 !important;
+    color: #000;
+    background-color: #2dd4bf;
+    border-color: #0d9488;
 }
-.btn-primary:hover { background-color: #5ee8d4 !important; }
+.btn-primary:hover { background-color: #5ee8d4; }
 
 .btn:focus, .btn:active:focus, .btn-link.nav-link:focus, .form-control:focus, .form-check-input:focus {
   box-shadow: 0 0 0 0.1rem white, 0 0 0 0.25rem #258cfb;
@@ -101,23 +101,43 @@ th { background: var(--border); color: var(--text-muted); }
 .progress-bar { height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; margin: 0.5rem 0; }
 .progress-bar .fill { height: 100%; background: var(--accent); transition: width 0.3s; }
 
-/* Dark theme overrides — must be last, high specificity */
-.content, .content *, .card, .card * { color: var(--text) !important; }
-.content .card-title, .card .card-title, .content .text-muted, .card .text-muted, .content span[style*="text-muted"] { color: var(--text-muted) !important; }
-.content .green, .card-value.green, .status-online { color: var(--green) !important; }
-.content .red, .card-value.red, .status-offline { color: var(--red) !important; }
-.content .yellow, .card-value.yellow { color: #fbbf24 !important; }
-.content .service, .service { color: var(--accent) !important; }
-strong, b, .content strong { color: var(--accent) !important; }
-.content a, .card a, a.nav-link { color: var(--accent) !important; }
-.btn-primary { color: #000 !important; }
-.btn-danger { color: #fff !important; }
-.content input[type="text"], .content select, .content input { color: var(--text) !important; background: var(--bg) !important; border-color: var(--border) !important; }
-.sidebar *, .sidebar { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text-muted) !important; }
-.sidebar .brand-text { color: var(--text) !important; }
-.sidebar .nav-item.active { color: var(--accent) !important; }
+/* Dark theme overrides */
+.content, .card { color: var(--text); }
+.content .card-title, .card .card-title, .content .text-muted, .card .text-muted { color: var(--text-muted); }
+.content .green, .card-value.green, .status-online { color: var(--green); }
+.content .red, .card-value.red, .status-offline { color: var(--red); }
+.content .yellow, .card-value.yellow { color: #fbbf24; }
+.content .service, .service { color: var(--accent); }
+strong, b { color: var(--accent); }
+.content a, .card a, a.nav-link { color: var(--accent); }
+.btn-danger { color: #fff; }
+.content input[type="text"], .content select { color: var(--text); background: var(--bg); border-color: var(--border); }
+.sidebar, .sidebar * { font-family: 'Segoe UI', system-ui, sans-serif; color: var(--text-muted); }
+.sidebar .brand-text { color: var(--text); }
+.sidebar .nav-item.active { color: var(--accent); }
 .page { background: var(--bg); }
 .top-row { background: var(--sidebar); border-bottom: 1px solid var(--border); }
-#blazor-error-ui { background: var(--card); color: var(--text); }
-th { background: var(--border) !important; color: var(--text-muted) !important; }
-td { border-bottom: 1px solid var(--border) !important; }
+th { background: var(--border); color: var(--text-muted); }
+td { border-bottom: 1px solid var(--border); }
+
+#blazor-error-ui {
+    background: var(--card);
+    color: var(--text);
+    color-scheme: dark;
+    bottom: 0;
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.4);
+    box-sizing: border-box;
+    display: none;
+    left: 0;
+    padding: 0.6rem 1.25rem 0.7rem 1.25rem;
+    position: fixed;
+    width: 100%;
+    z-index: 1000;
+}
+
+    #blazor-error-ui .dismiss {
+        cursor: pointer;
+        position: absolute;
+        right: 0.75rem;
+        top: 0.5rem;
+    }
