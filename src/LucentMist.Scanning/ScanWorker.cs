@@ -128,7 +128,7 @@ public sealed class ScanWorker : BackgroundService
             ["target"] = req.Target,
             ["timeout_ms"] = "3000",
             ["concurrency"] = "50",
-        });
+        }, ct);
 
         if (!pingResult.Success)
             return new ScanOutcome(null, 0, pingResult.Error ?? "存活扫描失败");
@@ -166,7 +166,7 @@ public sealed class ScanWorker : BackgroundService
                         ["ports"] = "22,80,443,3389,8080,8443",
                         ["timeout_ms"] = "2000",
                         ["concurrency"] = "20",
-                    });
+                    }, ct);
 
                     if (portResult.Success)
                     {
@@ -207,7 +207,7 @@ public sealed class ScanWorker : BackgroundService
             ["ports"] = string.IsNullOrWhiteSpace(req.Ports) ? "1-1000" : req.Ports,
             ["timeout_ms"] = "5000",
             ["concurrency"] = "50",
-        });
+        }, ct);
 
         if (!result.Success)
             return new ScanOutcome(null, 0, result.Error ?? "TCP 扫描失败");
@@ -225,7 +225,7 @@ public sealed class ScanWorker : BackgroundService
             ["ports"] = string.IsNullOrWhiteSpace(req.Ports) ? "1-1000" : req.Ports,
             ["timeout_ms"] = "3000",
             ["concurrency"] = "50",
-        });
+        }, ct);
 
         if (!result.Success)
             return new ScanOutcome(null, 0, result.Error ?? "UDP 扫描失败");

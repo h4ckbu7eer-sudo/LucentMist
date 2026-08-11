@@ -25,7 +25,7 @@ public class SslCertificateTool : ITool
 
     public SslCertificateTool(ILogger<SslCertificateTool> logger) => _logger = logger;
 
-    public async Task<ToolResult> ExecuteAsync(ToolArguments args)
+    public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
@@ -39,9 +39,11 @@ public class SslCertificateTool : ITool
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("SslCheck: {Target}:{Port}", target, port);
 
-            using var cts = new CancellationTokenSource(timeout);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(timeout);
             using var client = new TcpClient();
             await client.ConnectAsync(target, port, cts.Token);
 

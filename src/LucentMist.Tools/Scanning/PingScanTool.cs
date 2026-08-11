@@ -29,7 +29,7 @@ public class PingScanTool : ITool
         _logger = logger;
     }
 
-    public async Task<ToolResult> ExecuteAsync(ToolArguments args)
+    public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
@@ -49,10 +49,11 @@ public class PingScanTool : ITool
             using var semaphore = new SemaphoreSlim(concurrency);
             var tasks = ips.Select(async ip =>
             {
-                await semaphore.WaitAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                await semaphore.WaitAsync(cancellationToken);
                 try
                 {
-                    if (await PingHostAsync(ip, timeout))
+                    if (await PingHostAsync(ip, timeout, cancellationToken))
                     {
                         lock (alive) { alive.Add(ip); }
                     }
@@ -166,8 +167,9 @@ public class PingScanTool : ITool
     /// <summary>
     /// Ping 单个主机
     /// </summary>
-    private async Task<bool> PingHostAsync(string ip, int timeoutMs)
+    private async Task<bool> PingHostAsync(string ip, int timeoutMs, CancellationToken cancellationToken)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!_icmpBlocked)
         {
             try
@@ -195,16 +197,18 @@ public class PingScanTool : ITool
             }
         }
 
-        return await TcpProbeAsync(ip, timeoutMs);
+        return await TcpProbeAsync(ip, timeoutMs, cancellationToken);
     }
 
-    private static async Task<bool> TcpProbeAsync(string ip, int timeoutMs)
+    private static async Task<bool> TcpProbeAsync(string ip, int timeoutMs, CancellationToken cancellationToken)
     {
         foreach (var port in new[] { 80, 443, 22, 445 })
         {
             try
             {
-                using var cts = new CancellationTokenSource(Math.Min(timeoutMs, 1500));
+                cancellationToken.ThrowIfCancellationRequested();
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(Math.Min(timeoutMs, 1500));
                 using var client = new TcpClient();
                 await client.ConnectAsync(ip, port, cts.Token);
                 return true;

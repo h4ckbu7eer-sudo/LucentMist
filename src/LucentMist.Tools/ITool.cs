@@ -52,7 +52,7 @@ public interface ITool
     ToolParameter[] Parameters { get; }
 
     /// <summary>执行工具</summary>
-    Task<ToolResult> ExecuteAsync(ToolArguments args);
+    Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default);
 }
 
 /// <summary>

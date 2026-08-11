@@ -39,7 +39,7 @@ public class ServiceIdentifyTool : ITool
         _logger = logger;
     }
 
-    public async Task<ToolResult> ExecuteAsync(ToolArguments args)
+    public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
@@ -53,18 +53,19 @@ public class ServiceIdentifyTool : ITool
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("ServiceIdentify: {Target}:{Port}", target, port);
 
             var serviceName = PortHelper.GetServiceKey(port) ?? "unknown";
             string? banner = null;
 
             // 尝试抓取 Banner（HTTP / SSH / 通用）
-            banner = await GrabBannerAsync(target, port, timeout);
+            banner = await GrabBannerAsync(target, port, timeout, cancellationToken);
 
             // HTTP 回退：如果是 80/443/8080，尝试 HTTP GET
             if (banner == null && port is 80 or 443 or 8080 or 8443)
             {
-                banner = await GrabHttpBannerAsync(target, port, timeout);
+                banner = await GrabHttpBannerAsync(target, port, timeout, cancellationToken);
             }
 
             // 本机 → 获取进程信息
@@ -301,11 +302,13 @@ public class ServiceIdentifyTool : ITool
         }
     }
 
-    private async Task<string?> GrabBannerAsync(string ip, int port, int timeoutMs)
+    private async Task<string?> GrabBannerAsync(string ip, int port, int timeoutMs, CancellationToken cancellationToken)
     {
         try
         {
-            using var cts = new CancellationTokenSource(timeoutMs);
+            cancellationToken.ThrowIfCancellationRequested();
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(timeoutMs);
             using var client = new TcpClient();
             await client.ConnectAsync(ip, port, cts.Token);
 
@@ -322,12 +325,14 @@ public class ServiceIdentifyTool : ITool
         }
     }
 
-    private async Task<string?> GrabHttpBannerAsync(string ip, int port, int timeoutMs)
+    private async Task<string?> GrabHttpBannerAsync(string ip, int port, int timeoutMs, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var scheme = port is 443 or 8443 ? "https" : "http";
-            using var cts = new CancellationTokenSource(timeoutMs);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(timeoutMs);
             var response = await Http.GetAsync($"{scheme}://{ip}:{port}/", cts.Token);
             var serverHeader = response.Headers.Server?.ToString();
             return $"HTTP {(int)response.StatusCode} {response.StatusCode}, Server: {serverHeader ?? "unknown"}";

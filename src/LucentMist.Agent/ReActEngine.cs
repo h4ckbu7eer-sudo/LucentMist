@@ -128,7 +128,7 @@ public class ReActEngine
 
             try
             {
-                var toolResult = await tool.ExecuteAsync(toolArgs);
+                var toolResult = await tool.ExecuteAsync(toolArgs, ct);
                 var obs = new ReActObservation
                 {
                     Step = round,
@@ -142,7 +142,7 @@ public class ReActEngine
                 // 自动服务识别：port_scan 成功后，对每个开放端口调用 service_identify
                 if (step.Action == "port_scan" && toolResult.Success)
                 {
-                    await AutoIdentifyServices(toolResult.Data, toolArgs, round);
+                    await AutoIdentifyServices(toolResult.Data, toolArgs, round, ct);
                 }
             }
             catch (Exception ex)
@@ -169,7 +169,11 @@ public class ReActEngine
     /// <summary>
     /// 自动服务识别：port_scan 成功后，对每个开放端口调用 service_identify
     /// </summary>
-    private async Task AutoIdentifyServices(string portScanResultJson, ToolArguments portScanArgs, int round)
+    private async Task AutoIdentifyServices(
+        string portScanResultJson,
+        ToolArguments portScanArgs,
+        int round,
+        CancellationToken ct)
     {
         var svcTool = _toolRegistry.Get("service_identify");
         if (svcTool == null) return;
@@ -210,7 +214,7 @@ public class ReActEngine
                     ["target"] = target,
                     ["port"] = port.ToString()
                 };
-                var svcResult = await svcTool.ExecuteAsync(svcArgs);
+                var svcResult = await svcTool.ExecuteAsync(svcArgs, ct);
 
                 var svcObs = new ReActObservation
                 {
