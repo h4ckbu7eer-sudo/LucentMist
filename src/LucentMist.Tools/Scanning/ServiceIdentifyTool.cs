@@ -17,6 +17,7 @@ namespace LucentMist.Tools.Scanning;
 public class ServiceIdentifyTool : ITool
 {
     private readonly ILogger<ServiceIdentifyTool> _logger;
+    private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
 
     public string Name => "service_identify";
     public string Description => "识别目标 IP 指定端口上运行的服务，通过 Banner 抓取判断服务类型，本机可显示进程信息";
@@ -68,9 +69,25 @@ public class ServiceIdentifyTool : ITool
 
             // 本机 → 获取进程信息
             object? procInfo = null;
+            var processInfoAvailable = false;
+            string? processInfoError = null;
             if (IsLocalTarget(target))
             {
-                procInfo = GetProcessInfo(port);
+                try
+                {
+                    procInfo = GetProcessInfo(port);
+                    processInfoAvailable = procInfo != null;
+                    if (procInfo == null)
+                    {
+                        processInfoError = OperatingSystem.IsWindows()
+                            ? "未找到端口对应进程"
+                            : "当前平台无法读取进程信息，可能需要 root 权限";
+                    }
+                }
+                catch (Exception ex)
+                {
+                    processInfoError = ex.Message;
+                }
             }
 
             var result = new
@@ -80,7 +97,9 @@ public class ServiceIdentifyTool : ITool
                 serviceName,
                 banner,
                 identified = banner != null,
-                process = procInfo
+                process = procInfo,
+                processInfoAvailable,
+                processInfoError
             };
 
             _logger.LogInformation("ServiceIdentify 完成: {Target}:{Port} → {Service}",
@@ -128,48 +147,84 @@ public class ServiceIdentifyTool : ITool
             var map = new Dictionary<int, int>();
             try
             {
-                var psi = new ProcessStartInfo("netstat", "-ano")
-                {
-                    RedirectStandardOutput = true,
-                    UseShellExecute = false,
-                    CreateNoWindow = true
-                };
+                var psi = OperatingSystem.IsWindows()
+                    ? new ProcessStartInfo("netstat", "-ano")
+                    : new ProcessStartInfo("ss", "-tulnp");
+                psi.RedirectStandardOutput = true;
+                psi.UseShellExecute = false;
+                psi.CreateNoWindow = true;
+
                 using var proc = Process.Start(psi);
                 if (proc == null) return map;
                 var output = proc.StandardOutput.ReadToEnd();
                 proc.WaitForExit(3000);
 
-                // 解析每一行：TCP  0.0.0.0:135  0.0.0.0:0  LISTENING  1234
-                foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var trimmed = line.Trim();
-                    if (!trimmed.StartsWith("TCP")) continue;
-
-                    var parts = Regex.Split(trimmed, @"\s+");
-                    if (parts.Length < 5) continue;
-
-                    var local = parts[1];
-                    var pidStr = parts[^1];
-                    var colon = local.LastIndexOf(':');
-                    if (colon < 0) continue;
-
-                    if (int.TryParse(local[(colon + 1)..], out var port) &&
-                        int.TryParse(pidStr, out var pid))
-                    {
-                        if (!map.ContainsKey(port))
-                            map[port] = pid;
-                    }
-                }
+                map = OperatingSystem.IsWindows()
+                    ? ParseWindowsNetstat(output)
+                    : ParseLinuxSs(output);
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to read netstat port to PID map");
+                _logger.LogWarning(ex, "Failed to read port to PID map");
             }
 
             _portPidCache = map;
             _portPidCacheTime = DateTime.UtcNow;
             return map;
         }
+    }
+
+    internal static Dictionary<int, int> ParseWindowsNetstat(string output)
+    {
+        var map = new Dictionary<int, int>();
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("TCP")) continue;
+
+            var parts = Regex.Split(trimmed, @"\s+");
+            if (parts.Length < 5) continue;
+
+            var local = parts[1];
+            var pidStr = parts[^1];
+            var colon = local.LastIndexOf(':');
+            if (colon < 0) continue;
+
+            if (int.TryParse(local[(colon + 1)..], out var port) &&
+                int.TryParse(pidStr, out var pid))
+            {
+                if (!map.ContainsKey(port))
+                    map[port] = pid;
+            }
+        }
+        return map;
+    }
+
+    internal static Dictionary<int, int> ParseLinuxSs(string output)
+    {
+        var map = new Dictionary<int, int>();
+        foreach (var line in output.Split('\n', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var trimmed = line.Trim();
+            if (!trimmed.StartsWith("tcp")) continue;
+
+            var parts = Regex.Split(trimmed, @"\s+");
+            if (parts.Length < 4) continue;
+
+            var local = parts[2];
+            var processPart = parts[^1];
+            var portMatch = Regex.Match(local, @":(\d+)$");
+            var pidMatch = Regex.Match(processPart, @"pid=(\d+)");
+            if (!portMatch.Success || !pidMatch.Success) continue;
+
+            if (int.TryParse(portMatch.Groups[1].Value, out var port) &&
+                int.TryParse(pidMatch.Groups[1].Value, out var pid) &&
+                !map.ContainsKey(port))
+            {
+                map[port] = pid;
+            }
+        }
+        return map;
     }
 
     private object? GetProcessInfo(int port)
@@ -204,15 +259,15 @@ public class ServiceIdentifyTool : ITool
                 try
                 {
                     foreach (var svc in ServiceController.GetServices())
-                {
-                    if (svc.ServiceName.Equals(procName, StringComparison.OrdinalIgnoreCase) ||
-                        (procPath != null && procPath.Contains(svc.ServiceName, StringComparison.OrdinalIgnoreCase)))
                     {
-                        serviceName = svc.ServiceName;
-                        break;
+                        if (svc.ServiceName.Equals(procName, StringComparison.OrdinalIgnoreCase) ||
+                            (procPath != null && procPath.Contains(svc.ServiceName, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            serviceName = svc.ServiceName;
+                            break;
+                        }
                     }
                 }
-            }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "Failed to enumerate Windows services for {Process}", procName);
@@ -272,8 +327,8 @@ public class ServiceIdentifyTool : ITool
         try
         {
             var scheme = port is 443 or 8443 ? "https" : "http";
-            using var httpClient = new HttpClient { Timeout = TimeSpan.FromMilliseconds(timeoutMs) };
-            var response = await httpClient.GetAsync($"{scheme}://{ip}:{port}/");
+            using var cts = new CancellationTokenSource(timeoutMs);
+            var response = await Http.GetAsync($"{scheme}://{ip}:{port}/", cts.Token);
             var serverHeader = response.Headers.Server?.ToString();
             return $"HTTP {(int)response.StatusCode} {response.StatusCode}, Server: {serverHeader ?? "unknown"}";
         }

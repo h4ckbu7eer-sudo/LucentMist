@@ -1,5 +1,5 @@
-using System.Net.Http.Json;
 using System.Collections.Concurrent;
+using System.Net.Http.Json;
 using System.Text.Json;
 using LucentMist.Tools.Common;
 
@@ -32,6 +32,9 @@ public class CveApiClient
     /// </summary>
     public static async Task<List<CveDetail>> QueryAsync(string service, string? version, int port)
     {
+        if (Environment.GetEnvironmentVariable("LMIST_CVE_EXTERNAL") != "true")
+            return [];
+
         var cacheKey = $"{service}|{version}|{port}";
         if (Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
             return hit.Items;
@@ -74,15 +77,34 @@ public class CveApiClient
         }
 
         Cache[cacheKey] = (DateTime.UtcNow.Add(CacheTtl), results);
+        PruneCache();
         return results;
+    }
+
+    private static void PruneCache()
+    {
+        if (Cache.Count <= 256) return;
+
+        var expired = Cache
+            .Where(kv => kv.Value.ExpiresAt <= DateTime.UtcNow)
+            .Select(kv => kv.Key)
+            .ToArray();
+        foreach (var key in expired)
+            Cache.TryRemove(key, out _);
     }
 
     private static async Task<List<CveDetail>?> WithRetry(Func<Task<List<CveDetail>?>> fn, string source)
     {
         try { return await fn(); }
-        catch { await Task.Delay(500); }
+        catch (Exception ex) { LogSourceFailure(source, ex); await Task.Delay(500); }
         try { return await fn(); }
-        catch { return null; }
+        catch (Exception ex) { LogSourceFailure(source, ex); return null; }
+    }
+
+    private static void LogSourceFailure(string source, Exception ex)
+    {
+        if (Environment.GetEnvironmentVariable("LMIST_CVE_DEBUG") != "true") return;
+        Console.Error.WriteLine($"[CVE:{source}] {ex.GetType().Name}: {ex.Message}");
     }
 
     // ========== CVETodo (服务名搜索) ==========
@@ -214,8 +236,12 @@ public class CveApiClient
         {
             var pkgName = service.ToLower() switch
             {
-                "ssh" => "openssh", "smb" => "samba", "http" => "nginx",
-                "rdp" => "xrdp", "mysql" => "mysql-server", "redis" => "redis",
+                "ssh" => "openssh",
+                "smb" => "samba",
+                "http" => "nginx",
+                "rdp" => "xrdp",
+                "mysql" => "mysql-server",
+                "redis" => "redis",
                 _ => service.ToLower()
             };
             var body = new { queries = new[] { new { package = new { name = pkgName, ecosystem = "Debian" }, version } } };

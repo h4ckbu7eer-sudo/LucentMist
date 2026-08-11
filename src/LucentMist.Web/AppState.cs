@@ -20,7 +20,7 @@ public class AppState
     public string ScanTarget { get; set; } = "127.0.0.1";
     public string ScanPorts { get; set; } = "1-1000";
     public string ScanType { get; set; } = "tcp";
-    public string LlmProvider { get; set; } = "ReAct + LLM";
+    public string LlmProvider { get; set; } = "Ollama";
 
     // 当前后台任务
     public string CurrentTaskId { get; set; } = "";

@@ -85,14 +85,6 @@ public class PortScanTool : ITool
     }
 
     /// <summary>
-    /// 解析端口范围字符串
-    /// </summary>
-    private List<int> ParsePorts(string portsStr)
-    {
-        return PortHelper.ParsePorts(portsStr);
-    }
-
-    /// <summary>
     /// 扫描单个端口
     /// </summary>
     private async Task<bool> ScanPortAsync(string ip, int port, int timeoutMs)

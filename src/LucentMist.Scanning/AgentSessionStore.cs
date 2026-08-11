@@ -78,6 +78,9 @@ public class AgentSessionStore
     {
         var conn = new SqliteConnection(_connectionString);
         conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA busy_timeout=5000;";
+        cmd.ExecuteNonQuery();
         return conn;
     }
 
@@ -111,7 +114,9 @@ public class AgentSessionStore
         };
 
         using var conn = Open();
+        using var tx = conn.BeginTransaction();
         using var cmd = conn.CreateCommand();
+        cmd.Transaction = tx;
         cmd.CommandText = """
             INSERT INTO agent_messages (id, session_id, role, content, tool_calls, created_at)
             VALUES ($id, $session, $role, $content, $tool_calls, $created)
@@ -124,7 +129,19 @@ public class AgentSessionStore
         cmd.Parameters.AddWithValue("$created", msg.CreatedAt.ToString("O"));
         await cmd.ExecuteNonQueryAsync();
 
-        await TouchAsync(sessionId);
+        using var touch = conn.CreateCommand();
+        touch.Transaction = tx;
+        touch.CommandText = """
+            UPDATE agent_sessions SET
+                updated_at = $updated,
+                message_count = (SELECT COUNT(*) FROM agent_messages WHERE session_id = $id)
+            WHERE id = $id
+            """;
+        touch.Parameters.AddWithValue("$id", sessionId);
+        touch.Parameters.AddWithValue("$updated", DateTime.UtcNow.ToString("O"));
+        await touch.ExecuteNonQueryAsync();
+
+        tx.Commit();
     }
 
     public async Task TouchAsync(string sessionId)

@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using LucentMist.Tools;
 using LucentMist.Tools.Security;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LucentMist.Tools.Tests;
 

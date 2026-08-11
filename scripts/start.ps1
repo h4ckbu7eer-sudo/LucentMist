@@ -18,12 +18,12 @@ function Start-API {
 
 function Build-Project {
     Write-Host "编译 LucentMist..." -ForegroundColor Cyan
-    dotnet build "$projectDir/LucentMist.sln"
+    dotnet build "$projectDir/LucentMist.slnx"
 }
 
 function Run-Tests {
     Write-Host "运行测试..." -ForegroundColor Cyan
-    dotnet test "$projectDir/LucentMist.sln"
+    dotnet test "$projectDir/LucentMist.slnx"
 }
 
 function Show-Help {

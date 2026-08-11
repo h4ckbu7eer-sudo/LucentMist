@@ -1,6 +1,6 @@
 # LucentMist
 
-> 基于 ReAct 模式的智能网络分析助手 — C# .NET 8 + Akka.NET + Ollama
+> 基于 ReAct 模式的智能网络分析助手 — C# .NET 8/10 + ReAct + Ollama/Claude
 
 ## Agent skills
 
@@ -14,7 +14,7 @@
 
 ### Domain docs
 
-单上下文布局 — 一个 `CONTEXT.md` + `docs/adr/` 在项目根目录。详见 `docs/agents/domain.md`。
+单上下文布局 — `CONTEXT.md` 与 `docs/adr/` 按 `docs/agents/domain.md` 惰性创建，当前不存在时不要报错。详见 `docs/agents/domain.md`。
 
 ## Team agents
 

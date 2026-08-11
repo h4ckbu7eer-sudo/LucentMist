@@ -10,6 +10,8 @@ services:
     container_name: lucentmist-api
     ports:
       - "5050:5050"
+    cap_add:
+      - NET_RAW
     volumes:
       - ./config:/app/config:ro        # 配置文件（只读）
       - lucentmist-data:/app/data      # SQLite 数据
@@ -36,6 +38,8 @@ services:
     container_name: lucentmist-web
     ports:
       - "5051:5051"
+    cap_add:
+      - NET_RAW
     volumes:
       - lucentmist-data:/app/data
       - lucentmist-logs:/app/logs

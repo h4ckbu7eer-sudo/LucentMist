@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text.Json;
 using Microsoft.Extensions.Logging;
 
@@ -12,6 +13,7 @@ namespace LucentMist.Tools.Scanning;
 public class PingScanTool : ITool
 {
     private readonly ILogger<PingScanTool> _logger;
+    private bool _icmpBlocked;
 
     public string Name => "ping_scan";
     public string Description => "探测网络中存活设备，支持 CIDR 子网（如 192.168.1.0/24）";
@@ -72,6 +74,9 @@ public class PingScanTool : ITool
                 hint = alive.Count == 0
                     ? $"目标 {target} 无设备响应。请确认：1) 子网是否与当前网卡匹配 2) 防火墙是否阻止 ICMP"
                     : null,
+                icmpFallback = _icmpBlocked
+                    ? "ICMP 不可用，已使用 TCP 端口探测（80/443/22/445）"
+                    : null,
             };
 
             _logger.LogInformation("PingScan 完成: Alive={Alive}/{Total}", alive.Count, ips.Count);
@@ -87,12 +92,19 @@ public class PingScanTool : ITool
     /// <summary>
     /// 解析 CIDR 或 IP 范围为目标 IP 列表
     /// </summary>
-    private List<string> ParseTarget(string target)
+    internal List<string> ParseTarget(string target)
     {
         var ips = new List<string>();
 
         // 单个 IP
         if (IPAddress.TryParse(target, out _) && !target.Contains('/'))
+        {
+            ips.Add(target);
+            return ips;
+        }
+
+        // 单个主机名/域名：交给 Ping.SendPingAsync 解析
+        if (!target.Contains('/'))
         {
             ips.Add(target);
             return ips;
@@ -110,26 +122,45 @@ public class PingScanTool : ITool
             var baseBytes = baseIp.GetAddressBytes();
             if (baseBytes.Length != 4)
                 throw new ArgumentException($"仅支持 IPv4 地址: '{target}'");
-            if (prefix is < 8 or > 30)
-                throw new ArgumentException($"CIDR 前缀 /{prefix} 超出允许范围 /8 ~ /30");
+            if (prefix is < 8 or > 32)
+                throw new ArgumentException($"CIDR 前缀 /{prefix} 超出允许范围 /8 ~ /32");
+
+            if (prefix == 32)
+            {
+                ips.Add(baseIp.ToString());
+                return ips;
+            }
+
+            var baseValue = BitConverter.ToUInt32(Enumerable.Reverse(baseBytes).ToArray(), 0);
+            if (prefix == 31)
+            {
+                var mask31 = 0xFFFFFFFFu << 1;
+                var network31 = baseValue & mask31;
+                ips.Add(ToIpString(network31));
+                ips.Add(ToIpString(network31 | 1));
+                return ips;
+            }
 
             var hostCount = (int)((1L << (32 - prefix)) - 2);
             if (hostCount > 65534)
                 throw new ArgumentException($"CIDR /{prefix} 范围过大（{hostCount} 主机），最大支持 65534 个主机");
 
             var mask = 0xFFFFFFFFu << (32 - prefix);
-            var network = BitConverter.ToUInt32(baseBytes.Reverse().ToArray(), 0) & mask;
+            var network = baseValue & mask;
             var broadcast = network | ~mask;
 
             for (var addr = network + 1; addr < broadcast; addr++)
-            {
-                var bytes = BitConverter.GetBytes(addr);
-                Array.Reverse(bytes);
-                ips.Add(new IPAddress(bytes).ToString());
-            }
+                ips.Add(ToIpString(addr));
         }
 
         return ips;
+    }
+
+    private static string ToIpString(uint value)
+    {
+        var bytes = BitConverter.GetBytes(value);
+        Array.Reverse(bytes);
+        return new IPAddress(bytes).ToString();
     }
 
     /// <summary>
@@ -137,15 +168,61 @@ public class PingScanTool : ITool
     /// </summary>
     private async Task<bool> PingHostAsync(string ip, int timeoutMs)
     {
-        try
+        if (!_icmpBlocked)
         {
-            using var ping = new Ping();
-            var reply = await ping.SendPingAsync(ip, timeoutMs);
-            return reply.Status == IPStatus.Success;
+            try
+            {
+                using var ping = new Ping();
+                var reply = await ping.SendPingAsync(ip, timeoutMs);
+                if (reply.Status == IPStatus.Success)
+                    return true;
+                if (reply.Status != IPStatus.TimedOut)
+                    return false;
+            }
+            catch (PingException ex) when (IsPermissionError(ex))
+            {
+                _icmpBlocked = true;
+                _logger.LogWarning("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                _icmpBlocked = true;
+                _logger.LogWarning("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Ping 失败: {Target}", ip);
+            }
         }
-        catch
+
+        return await TcpProbeAsync(ip, timeoutMs);
+    }
+
+    private static async Task<bool> TcpProbeAsync(string ip, int timeoutMs)
+    {
+        foreach (var port in new[] { 80, 443, 22, 445 })
         {
-            return false;
+            try
+            {
+                using var cts = new CancellationTokenSource(Math.Min(timeoutMs, 1500));
+                using var client = new TcpClient();
+                await client.ConnectAsync(ip, port, cts.Token);
+                return true;
+            }
+            catch
+            {
+                // 尝试下一个端口
+            }
         }
+        return false;
+    }
+
+    private static bool IsPermissionError(PingException ex)
+    {
+        if (ex.InnerException is UnauthorizedAccessException) return true;
+        if (ex.InnerException is SocketException socket && socket.SocketErrorCode is SocketError.AccessDenied)
+            return true;
+        return ex.Message.Contains("permission", StringComparison.OrdinalIgnoreCase) ||
+               ex.Message.Contains("access", StringComparison.OrdinalIgnoreCase);
     }
 }

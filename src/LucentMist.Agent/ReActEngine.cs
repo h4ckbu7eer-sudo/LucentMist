@@ -21,6 +21,9 @@ public class ReActEngine
     public List<ReActObservation> Observations { get; } = [];
     public List<string> ThoughtLog { get; } = [];
 
+    public IReadOnlyList<ReActObservation> ObservationsForRound(int round) =>
+        Observations.Where(o => o.Step == round).ToList();
+
     public ReActEngine(
         ILLMProvider llm,
         ToolRegistry toolRegistry,
@@ -294,8 +297,20 @@ public record ReActResult
     public string? Error { get; init; }
 
     public static ReActResult Ok(string answer, List<string> thoughts, List<ReActObservation> obs) =>
-        new() { Success = true, Answer = answer, ThoughtLog = thoughts, Observations = obs };
+        new()
+        {
+            Success = true,
+            Answer = answer,
+            ThoughtLog = thoughts.ToList(),
+            Observations = obs.ToList(),
+        };
 
     public static ReActResult Fail(string error, List<string> thoughts, List<ReActObservation> obs) =>
-        new() { Success = false, Error = error, ThoughtLog = thoughts, Observations = obs };
+        new()
+        {
+            Success = false,
+            Error = error,
+            ThoughtLog = thoughts.ToList(),
+            Observations = obs.ToList(),
+        };
 }

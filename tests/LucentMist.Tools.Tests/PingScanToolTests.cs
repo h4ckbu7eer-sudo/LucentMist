@@ -35,6 +35,25 @@ public class PingScanToolTests
     }
 
     [Fact]
+    public async Task Execute_Hostname_IsNotSilentlyEmpty()
+    {
+        var r = await CreateTool().ExecuteAsync(new() { ["target"] = "localhost", ["timeout_ms"] = "2000" });
+
+        Assert.True(r.Success);
+        Assert.DoesNotContain("\"total\":0", r.Data);
+    }
+
+    [Theory]
+    [InlineData("127.0.0.1/32", 1)]
+    [InlineData("10.0.0.0/31", 2)]
+    public void ParseTarget_SupportsPointToPointCidr(string target, int expected)
+    {
+        var ips = CreateTool().ParseTarget(target);
+
+        Assert.Equal(expected, ips.Count);
+    }
+
+    [Fact]
     public async Task Execute_ContainsAllFields()
     {
         var r = await CreateTool().ExecuteAsync(new() { ["target"] = "127.0.0.1", ["timeout_ms"] = "2000" });

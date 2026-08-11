@@ -1,9 +1,9 @@
-using LucentMist.Web;
-using LucentMist.Web.Hubs;
-using LucentMist.Web.Components;
-using LucentMist.Scanning;
-using Microsoft.AspNetCore.SignalR;
 using System.Net.Http.Headers;
+using LucentMist.Scanning;
+using LucentMist.Web;
+using LucentMist.Web.Components;
+using LucentMist.Web.Hubs;
+using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -37,8 +37,7 @@ var app = builder.Build();
 
 if (!app.Environment.IsDevelopment())
 {
-app.UseExceptionHandler("/Error", createScopeForErrors: true);
-    app.UseHsts();
+    app.UseExceptionHandler("/Error", createScopeForErrors: true);
 }
 
 app.UseMiddleware<BasicAuthMiddleware>();
@@ -50,6 +49,13 @@ app.MapHub<ScanHub>("/scanhub");
 var port = args.Length > 0 ? args[0] : "5051";
 var bindAddress = Environment.GetEnvironmentVariable("LMIST_WEB_BIND") ?? "localhost";
 app.Urls.Add($"http://{bindAddress}:{port}");
+
+if (bindAddress is not ("127.0.0.1" or "localhost" or "::1") &&
+    (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_WEB_USER")) ||
+     string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_WEB_PASSWORD"))))
+{
+    Console.Error.WriteLine("WARNING: Web 正在监听非回环地址但未设置 LMIST_WEB_USER/LMIST_WEB_PASSWORD，生产环境必须启用认证。");
+}
 
 Console.WriteLine($"""
 ╔══════════════════════════════════════════╗

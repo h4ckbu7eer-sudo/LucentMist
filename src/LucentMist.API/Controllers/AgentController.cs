@@ -1,5 +1,5 @@
-using System.Runtime.CompilerServices;
 using System.ComponentModel.DataAnnotations;
+using System.Runtime.CompilerServices;
 using System.Text.Json;
 using LucentMist.Agent;
 using LucentMist.Agent.LLM;
@@ -89,9 +89,8 @@ public class AgentController : ControllerBase
             await _sessions.AddMessageAsync(session.Id, "assistant", engine.ThoughtLog[i]);
             yield return Sse("thought", Json(new { content = engine.ThoughtLog[i] }));
 
-            if (i < engine.Observations.Count)
+            foreach (var obs in engine.ObservationsForRound(i + 1))
             {
-                var obs = engine.Observations[i];
                 await _sessions.AddMessageAsync(
                     session.Id,
                     "tool",
@@ -160,17 +159,25 @@ public class AgentController : ControllerBase
 
     private string LoadSystemPrompt()
     {
-        var candidates = new[]
-        {
-            Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "config", "prompts", "system_prompt.txt"),
-            Path.Combine(Directory.GetCurrentDirectory(), "config", "prompts", "system_prompt.txt"),
-            Path.Combine("config", "prompts", "system_prompt.txt"),
-        };
-        foreach (var p in candidates)
-        {
-            if (System.IO.File.Exists(p)) return System.IO.File.ReadAllText(p);
-        }
+        var path = FindSystemPrompt();
+        if (path != null) return System.IO.File.ReadAllText(path);
         return "你是网络助手。输出 JSON: {thought, action, action_input}";
+    }
+
+    private static string? FindSystemPrompt()
+    {
+        var roots = new[] { Directory.GetCurrentDirectory(), AppContext.BaseDirectory };
+        foreach (var root in roots)
+        {
+            var dir = new DirectoryInfo(root);
+            while (dir != null)
+            {
+                var candidate = Path.Combine(dir.FullName, "config", "prompts", "system_prompt.txt");
+                if (System.IO.File.Exists(candidate)) return candidate;
+                dir = dir.Parent;
+            }
+        }
+        return null;
     }
 
     private static string Sse(string eventName, string data) =>

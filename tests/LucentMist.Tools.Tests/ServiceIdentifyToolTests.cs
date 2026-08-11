@@ -35,7 +35,9 @@ public class ServiceIdentifyToolTests
     {
         var r = await CreateTool().ExecuteAsync(new()
         {
-            ["target"] = "127.0.0.1", ["port"] = port, ["timeout_ms"] = "100"
+            ["target"] = "127.0.0.1",
+            ["port"] = port,
+            ["timeout_ms"] = "100"
         });
         Assert.True(r.Success);
         Assert.Contains(expected, r.Data.ToLower());
@@ -46,7 +48,9 @@ public class ServiceIdentifyToolTests
     {
         var r = await CreateTool().ExecuteAsync(new()
         {
-            ["target"] = "127.0.0.1", ["port"] = "12345", ["timeout_ms"] = "100"
+            ["target"] = "127.0.0.1",
+            ["port"] = "12345",
+            ["timeout_ms"] = "100"
         });
         Assert.True(r.Success);
         Assert.Contains("unknown", r.Data.ToLower());
@@ -57,12 +61,37 @@ public class ServiceIdentifyToolTests
     {
         var r = await CreateTool().ExecuteAsync(new()
         {
-            ["target"] = "127.0.0.1", ["port"] = "80", ["timeout_ms"] = "500"
+            ["target"] = "127.0.0.1",
+            ["port"] = "80",
+            ["timeout_ms"] = "500"
         });
         Assert.Contains("target", r.Data);
         Assert.Contains("port", r.Data);
         Assert.Contains("serviceName", r.Data);
         Assert.Contains("banner", r.Data);
+        Assert.Contains("processInfoAvailable", r.Data);
+    }
+
+    [Fact]
+    public void ParseWindowsNetstat_MapsPortToPid()
+    {
+        var map = ServiceIdentifyTool.ParseWindowsNetstat(
+            "TCP    0.0.0.0:135    0.0.0.0:0    LISTENING    1234\n");
+
+        Assert.Equal(1234, map[135]);
+    }
+
+    [Fact]
+    public void ParseLinuxSs_MapsPortToPid()
+    {
+        var map = ServiceIdentifyTool.ParseLinuxSs("""
+            Netid  State   Local Address:Port  Peer Address:Port  Process
+            tcp    LISTEN  0.0.0.0:22          0.0.0.0:*          users:(("sshd",pid=123,fd=3))
+            tcp    LISTEN  0.0.0.0:80          0.0.0.0:*          users:(("nginx",pid=456,fd=8))
+            """);
+
+        Assert.Equal(123, map[22]);
+        Assert.Equal(456, map[80]);
     }
 
     private static ServiceIdentifyTool CreateTool() =>

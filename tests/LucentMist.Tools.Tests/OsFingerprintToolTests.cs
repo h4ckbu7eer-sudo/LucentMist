@@ -1,8 +1,8 @@
 using System.Text.Json;
-using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using LucentMist.Tools;
 using LucentMist.Tools.Security;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 
 namespace LucentMist.Tools.Tests;
 
@@ -47,9 +47,19 @@ public class OsFingerprintToolTests
         Assert.True(d.TryGetProperty("reasons", out _));
         Assert.True(d.TryGetProperty("ttl", out _));
         Assert.True(d.TryGetProperty("pingMs", out _));
-        Assert.True(d.TryGetProperty("tcpWindows", out _));
+        Assert.False(d.TryGetProperty("tcpWindows", out _));
         Assert.True(d.TryGetProperty("portHints", out _));
         Assert.True(d.TryGetProperty("scanDuration", out _));
+    }
+
+    [Fact]
+    public void InferOs_TtlOnly_ReturnsLowConfidence()
+    {
+        var (os, confidence, reasons) = OsFingerprintTool.InferOs(true, 62, []);
+
+        Assert.NotEmpty(os);
+        Assert.True(confidence <= 45, $"Confidence {confidence} should be low for TTL-only inference");
+        Assert.Contains(reasons, r => r.Contains("低置信度"));
     }
 
     [Fact]

@@ -26,14 +26,20 @@ public class ReportGeneratorTests
             },
             SslInfo = new()
             {
-                Target = "baidu.com", Port = 443,
-                Subject = "CN=*.baidu.com", Issuer = "CN=GlobalSign",
-                NotAfter = "2027-01-01", DaysRemaining = 150, IsExpired = false
+                Target = "baidu.com",
+                Port = 443,
+                Subject = "CN=*.baidu.com",
+                Issuer = "CN=GlobalSign",
+                NotAfter = "2027-01-01",
+                DaysRemaining = 150,
+                IsExpired = false
             },
             VulnInfo = new()
             {
                 OverallRisk = "中",
-                HighCount = 1, MediumCount = 1, LowCount = 1,
+                HighCount = 1,
+                MediumCount = 1,
+                LowCount = 1,
                 Findings = new()
                 {
                     new() { Port = 445, Service = "SMB", Risk = "高", Description = "EternalBlue 风险" },

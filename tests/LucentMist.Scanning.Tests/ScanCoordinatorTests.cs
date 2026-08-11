@@ -31,4 +31,27 @@ public class ScanCoordinatorTests
             if (File.Exists(dbPath)) File.Delete(dbPath);
         }
     }
+
+    [Fact]
+    public async Task StartAsync_WhenQueueFull_ThrowsAndMarksFailed()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"lmist-coord-full-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new ScanStore(dbPath);
+            var coordinator = new ScanCoordinator(store, capacity: 1);
+
+            await coordinator.StartAsync("10.0.0.1", "tcp", "80");
+
+            await Assert.ThrowsAsync<ScanQueueFullException>(() =>
+                coordinator.StartAsync("10.0.0.2", "tcp", "443"));
+
+            var items = await store.ListAsync(1, 10);
+            Assert.Contains(items, r => r.Status == "failed" && !string.IsNullOrWhiteSpace(r.ErrorMessage));
+        }
+        finally
+        {
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
 }

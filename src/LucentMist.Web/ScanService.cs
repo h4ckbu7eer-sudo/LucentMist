@@ -22,39 +22,55 @@ public class ScanService
         _ssl = new SslCertificateTool(loggerFactory.CreateLogger<SslCertificateTool>());
     }
 
-    public async Task<object> PingScanAsync(string target)
+    public async Task<ScanServiceResult> PingScanAsync(string target)
     {
         var r = await _ping.ExecuteAsync(new ToolArguments { ["target"] = target, ["timeout_ms"] = "2000" });
-        return r.Success ? Parse(r.Data) : new { error = r.Error };
+        return r.Success
+            ? ScanServiceResult.Ok(Parse(r.Data))
+            : ScanServiceResult.Fail(r.Error ?? "Ping 扫描失败");
     }
 
-    public async Task<object> PortScanAsync(string target, string ports)
+    public async Task<ScanServiceResult> PortScanAsync(string target, string ports)
     {
         var r = await _port.ExecuteAsync(new ToolArguments { ["target"] = target, ["ports"] = ports, ["timeout_ms"] = "2000" });
-        return r.Success ? Parse(r.Data) : new { error = r.Error };
+        return r.Success
+            ? ScanServiceResult.Ok(Parse(r.Data))
+            : ScanServiceResult.Fail(r.Error ?? "TCP 扫描失败");
     }
 
-    public async Task<object> UdpScanAsync(string target, string ports)
+    public async Task<ScanServiceResult> UdpScanAsync(string target, string ports)
     {
         var r = await _udp.ExecuteAsync(new ToolArguments { ["target"] = target, ["ports"] = ports, ["timeout_ms"] = "3000" });
-        return r.Success ? Parse(r.Data) : new { error = r.Error };
+        return r.Success
+            ? ScanServiceResult.Ok(Parse(r.Data))
+            : ScanServiceResult.Fail(r.Error ?? "UDP 扫描失败");
     }
 
-    public async Task<object> ServiceIdentifyAsync(string target, int port)
+    public async Task<ScanServiceResult> ServiceIdentifyAsync(string target, int port)
     {
         var r = await _service.ExecuteAsync(new ToolArguments { ["target"] = target, ["port"] = port.ToString(), ["timeout_ms"] = "3000" });
-        return r.Success ? Parse(r.Data) : new { error = r.Error };
+        return r.Success
+            ? ScanServiceResult.Ok(Parse(r.Data))
+            : ScanServiceResult.Fail(r.Error ?? "服务识别失败");
     }
 
-    public async Task<object> SslCheckAsync(string target, int port = 443)
+    public async Task<ScanServiceResult> SslCheckAsync(string target, int port = 443)
     {
         var r = await _ssl.ExecuteAsync(new ToolArguments { ["target"] = target, ["port"] = port.ToString(), ["timeout_ms"] = "5000" });
-        return r.Success ? Parse(r.Data) : new { error = r.Error };
+        return r.Success
+            ? ScanServiceResult.Ok(Parse(r.Data))
+            : ScanServiceResult.Fail(r.Error ?? "SSL 检查失败");
     }
 
     private static object Parse(string json)
     {
         try { return System.Text.Json.JsonSerializer.Deserialize<object>(json) ?? json; }
         catch { return json; }
+    }
+
+    public sealed record ScanServiceResult(bool Success, object? Data, string? Error)
+    {
+        public static ScanServiceResult Ok(object data) => new(true, data, null);
+        public static ScanServiceResult Fail(string error) => new(false, null, error);
     }
 }

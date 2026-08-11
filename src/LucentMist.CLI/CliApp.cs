@@ -4,12 +4,11 @@ using LucentMist.Agent;
 using LucentMist.Agent.LLM;
 using LucentMist.Core.Networking;
 using LucentMist.Scanning;
-using LucentMist.Core.Models;
 using LucentMist.Tools;
 using LucentMist.Tools.Common;
+using LucentMist.Tools.Reporting;
 using LucentMist.Tools.Scanning;
 using LucentMist.Tools.Security;
-using LucentMist.Tools.Reporting;
 using LucentMist.Tools.Sirius;
 using LucentMist.Tools.Vulnerability;
 using Microsoft.Extensions.Logging;
@@ -569,110 +568,110 @@ public class CliApp
         switch (sub)
         {
             case "summary":
-            {
-                var hosts = await client.GetHostsAsync();
-                if (hosts == null || hosts.Count == 0) { AnsiConsole.MarkupLine("[yellow]无主机数据[/]"); return 0; }
-
-                AnsiConsole.Write(new Rule("[teal]Sirius 主机与漏洞汇总[/]"));
-                var t = new Table().BorderColor(Color.Grey)
-                    .AddColumn(new TableColumn("主机ID").NoWrap())
-                    .AddColumn(new TableColumn("IP").NoWrap())
-                    .AddColumn("OS")
-                    .AddColumn("端口")
-                    .AddColumn("最近活跃");
-                foreach (var h in hosts.Take(20))
                 {
-                    var portCount = h.Ports?.Count(p => p.State == "open") ?? 0;
-                    var osShort = (h.OsVersion ?? "").Length > 30 ? (h.OsVersion ?? "")[..30] + "..." : (h.OsVersion ?? "");
-                    t.AddRow(
-                        $"[teal]{h.Hid}[/]",
-                        $"[white]{Escape(h.Ip ?? "?")}[/]",
-                        $"[grey]{Escape(h.Os ?? "?")} {Escape(osShort)}[/]",
-                        portCount > 0 ? $"[green]{portCount} 开放[/]" : "[grey]—[/]",
-                        $"[grey]{Escape(h.LastSeen ?? h.FirstSeen ?? "?")}[/]");
+                    var hosts = await client.GetHostsAsync();
+                    if (hosts == null || hosts.Count == 0) { AnsiConsole.MarkupLine("[yellow]无主机数据[/]"); return 0; }
+
+                    AnsiConsole.Write(new Rule("[teal]Sirius 主机与漏洞汇总[/]"));
+                    var t = new Table().BorderColor(Color.Grey)
+                        .AddColumn(new TableColumn("主机ID").NoWrap())
+                        .AddColumn(new TableColumn("IP").NoWrap())
+                        .AddColumn("OS")
+                        .AddColumn("端口")
+                        .AddColumn("最近活跃");
+                    foreach (var h in hosts.Take(20))
+                    {
+                        var portCount = h.Ports?.Count(p => p.State == "open") ?? 0;
+                        var osShort = (h.OsVersion ?? "").Length > 30 ? (h.OsVersion ?? "")[..30] + "..." : (h.OsVersion ?? "");
+                        t.AddRow(
+                            $"[teal]{h.Hid}[/]",
+                            $"[white]{Escape(h.Ip ?? "?")}[/]",
+                            $"[grey]{Escape(h.Os ?? "?")} {Escape(osShort)}[/]",
+                            portCount > 0 ? $"[green]{portCount} 开放[/]" : "[grey]—[/]",
+                            $"[grey]{Escape(h.LastSeen ?? h.FirstSeen ?? "?")}[/]");
+                    }
+                    AnsiConsole.Write(t);
+                    AnsiConsole.MarkupLine($"[grey]共 {hosts.Count} 台主机[/]");
+                    return 0;
                 }
-                AnsiConsole.Write(t);
-                AnsiConsole.MarkupLine($"[grey]共 {hosts.Count} 台主机[/]");
-                return 0;
-            }
 
             case "target":
-            {
-                if (rest.Length == 0) { AnsiConsole.MarkupLine("[red]请指定主机 ID 或 IP[/]"); return 1; }
-                var query = rest[0];
-
-                // 从主机列表查找匹配的主机
-                var hosts = await client.GetHostsAsync();
-                var host = hosts?.FirstOrDefault(h => h.Hid == query || h.Ip == query);
-                if (host == null) { AnsiConsole.MarkupLine($"[yellow]未找到主机: {Escape(query)}[/]"); return 0; }
-
-                AnsiConsole.Write(new Rule($"[teal]主机: {Escape(host.Hid)}[/]"));
-                AnsiConsole.MarkupLine($"  IP: [teal]{Escape(host.Ip ?? "?")}[/]  OS: [white]{Escape(host.Os ?? "?")} {Escape((host.OsVersion ?? "").Length > 40 ? (host.OsVersion ?? "")[..40] : (host.OsVersion ?? ""))}[/]");
-                AnsiConsole.WriteLine();
-
-                if (host.Ports is { Count: > 0 })
                 {
-                    var pt = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("协议").AddColumn("状态");
-                    foreach (var p in host.Ports)
+                    if (rest.Length == 0) { AnsiConsole.MarkupLine("[red]请指定主机 ID 或 IP[/]"); return 1; }
+                    var query = rest[0];
+
+                    // 从主机列表查找匹配的主机
+                    var hosts = await client.GetHostsAsync();
+                    var host = hosts?.FirstOrDefault(h => h.Hid == query || h.Ip == query);
+                    if (host == null) { AnsiConsole.MarkupLine($"[yellow]未找到主机: {Escape(query)}[/]"); return 0; }
+
+                    AnsiConsole.Write(new Rule($"[teal]主机: {Escape(host.Hid)}[/]"));
+                    AnsiConsole.MarkupLine($"  IP: [teal]{Escape(host.Ip ?? "?")}[/]  OS: [white]{Escape(host.Os ?? "?")} {Escape((host.OsVersion ?? "").Length > 40 ? (host.OsVersion ?? "")[..40] : (host.OsVersion ?? ""))}[/]");
+                    AnsiConsole.WriteLine();
+
+                    if (host.Ports is { Count: > 0 })
                     {
-                        var stateColor = p.State?.ToLower() switch { "open" => "green", "closed" => "red", "filtered" => "yellow", _ => "grey" };
-                        pt.AddRow($"[yellow]{p.Number}[/]", $"[white]{p.Protocol ?? "?"}[/]", $"[{stateColor}]{p.State ?? "?"}[/]");
+                        var pt = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("协议").AddColumn("状态");
+                        foreach (var p in host.Ports)
+                        {
+                            var stateColor = p.State?.ToLower() switch { "open" => "green", "closed" => "red", "filtered" => "yellow", _ => "grey" };
+                            pt.AddRow($"[yellow]{p.Number}[/]", $"[white]{p.Protocol ?? "?"}[/]", $"[{stateColor}]{p.State ?? "?"}[/]");
+                        }
+                        AnsiConsole.Write(pt);
                     }
-                    AnsiConsole.Write(pt);
+                    else { AnsiConsole.MarkupLine("[grey]无端口数据[/]"); }
+                    return 0;
                 }
-                else { AnsiConsole.MarkupLine("[grey]无端口数据[/]"); }
-                return 0;
-            }
 
             case "vuln":
-            {
-                if (rest.Length == 0) { AnsiConsole.MarkupLine("[red]请指定 CVE 编号[/]"); return 1; }
-                var cveId = rest[0].ToUpper();
-                AnsiConsole.Write(new Rule($"[teal]Sirius CVE: {Escape(cveId)}[/]"));
-
-                var vulnData = await client.QueryVulnerabilitiesAsync(cve: cveId);
-                if (vulnData == null || vulnData.Value.ValueKind != JsonValueKind.Array || vulnData.Value.GetArrayLength() == 0)
-                { AnsiConsole.MarkupLine($"[yellow]未找到 {Escape(cveId)} 的漏洞数据[/]"); return 0; }
-
-                foreach (var v in vulnData.Value.EnumerateArray().Take(3))
                 {
-                    var c = v.TryGetProperty("cve", out var cv) ? cv.GetString() ?? "?" : "?";
-                    var n = v.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "";
-                    var r = v.TryGetProperty("risk", out var rk) ? rk.GetString() ?? "?" : "?";
-                    var cvss = v.TryGetProperty("cvss", out var cs) && cs.TryGetDouble(out var sc) ? $"{sc:F1}" : "N/A";
-                    var desc = v.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
-                    var fix = v.TryGetProperty("fix", out var fx) ? fx.GetString() ?? "" : "";
+                    if (rest.Length == 0) { AnsiConsole.MarkupLine("[red]请指定 CVE 编号[/]"); return 1; }
+                    var cveId = rest[0].ToUpper();
+                    AnsiConsole.Write(new Rule($"[teal]Sirius CVE: {Escape(cveId)}[/]"));
 
-                    var riskColor = r.ToLower() switch { "critical" => "red", "high" => "yellow", "medium" => "green", _ => "grey" };
-                    var tbl = new Table().BorderColor(Color.Grey).AddColumn("项目").AddColumn("值")
-                        .AddRow("CVE", $"[teal]{Escape(c)}[/]")
-                        .AddRow("名称", $"[white]{Escape(n)}[/]")
-                        .AddRow("风险", $"[{riskColor}]{r}[/]")
-                        .AddRow("CVSS", $"[yellow]{cvss}[/]")
-                        .AddRow("描述", $"[grey]{Escape(desc.Length > 80 ? desc[..80] + "..." : desc)}[/]")
-                        .AddRow("修复", $"[green]{Escape(fix.Length > 80 ? fix[..80] + "..." : fix)}[/]");
-                    AnsiConsole.Write(tbl);
-                    AnsiConsole.WriteLine();
+                    var vulnData = await client.QueryVulnerabilitiesAsync(cve: cveId);
+                    if (vulnData == null || vulnData.Value.ValueKind != JsonValueKind.Array || vulnData.Value.GetArrayLength() == 0)
+                    { AnsiConsole.MarkupLine($"[yellow]未找到 {Escape(cveId)} 的漏洞数据[/]"); return 0; }
+
+                    foreach (var v in vulnData.Value.EnumerateArray().Take(3))
+                    {
+                        var c = v.TryGetProperty("cve", out var cv) ? cv.GetString() ?? "?" : "?";
+                        var n = v.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "";
+                        var r = v.TryGetProperty("risk", out var rk) ? rk.GetString() ?? "?" : "?";
+                        var cvss = v.TryGetProperty("cvss", out var cs) && cs.TryGetDouble(out var sc) ? $"{sc:F1}" : "N/A";
+                        var desc = v.TryGetProperty("description", out var d) ? d.GetString() ?? "" : "";
+                        var fix = v.TryGetProperty("fix", out var fx) ? fx.GetString() ?? "" : "";
+
+                        var riskColor = r.ToLower() switch { "critical" => "red", "high" => "yellow", "medium" => "green", _ => "grey" };
+                        var tbl = new Table().BorderColor(Color.Grey).AddColumn("项目").AddColumn("值")
+                            .AddRow("CVE", $"[teal]{Escape(c)}[/]")
+                            .AddRow("名称", $"[white]{Escape(n)}[/]")
+                            .AddRow("风险", $"[{riskColor}]{r}[/]")
+                            .AddRow("CVSS", $"[yellow]{cvss}[/]")
+                            .AddRow("描述", $"[grey]{Escape(desc.Length > 80 ? desc[..80] + "..." : desc)}[/]")
+                            .AddRow("修复", $"[green]{Escape(fix.Length > 80 ? fix[..80] + "..." : fix)}[/]");
+                        AnsiConsole.Write(tbl);
+                        AnsiConsole.WriteLine();
+                    }
+                    return 0;
                 }
-                return 0;
-            }
 
             case "scan":
                 AnsiConsole.MarkupLine("[yellow]Sirius 扫描通过引擎自动触发，使用 Web UI: http://localhost:3000[/]");
                 return 0;
 
             case "status":
-            {
-                var hosts = await client.GetHostsAsync();
-                if (hosts == null || hosts.Count == 0) { AnsiConsole.MarkupLine("[yellow]无扫描记录[/]"); return 0; }
+                {
+                    var hosts = await client.GetHostsAsync();
+                    if (hosts == null || hosts.Count == 0) { AnsiConsole.MarkupLine("[yellow]无扫描记录[/]"); return 0; }
 
-                AnsiConsole.Write(new Rule("[teal]Sirius 扫描历史[/]"));
-                var t = new Table().BorderColor(Color.Grey).AddColumn("主机ID").AddColumn("OS").AddColumn("首次发现").AddColumn("最近活跃");
-                foreach (var h in hosts.Take(10))
-                    t.AddRow(h.Hid[..Math.Min(24, h.Hid.Length)], $"{Escape(h.Os ?? "?")}", h.FirstSeen ?? "?", h.LastSeen ?? "?");
-                AnsiConsole.Write(t);
-                return 0;
-            }
+                    AnsiConsole.Write(new Rule("[teal]Sirius 扫描历史[/]"));
+                    var t = new Table().BorderColor(Color.Grey).AddColumn("主机ID").AddColumn("OS").AddColumn("首次发现").AddColumn("最近活跃");
+                    foreach (var h in hosts.Take(10))
+                        t.AddRow(h.Hid[..Math.Min(24, h.Hid.Length)], $"{Escape(h.Os ?? "?")}", h.FirstSeen ?? "?", h.LastSeen ?? "?");
+                    AnsiConsole.Write(t);
+                    return 0;
+                }
 
             default:
                 AnsiConsole.MarkupLine("[grey]用法: lmist sirius <summary|target <id>|status>[/]");
@@ -721,8 +720,10 @@ public class CliApp
         var gen = new ReportGenerator();
         var reportFormat = format.ToLower() switch
         {
-            "json" => ReportGenerator.Format.Json, "csv" => ReportGenerator.Format.Csv,
-            "md" or "markdown" => ReportGenerator.Format.Markdown, _ => ReportGenerator.Format.Html
+            "json" => ReportGenerator.Format.Json,
+            "csv" => ReportGenerator.Format.Csv,
+            "md" or "markdown" => ReportGenerator.Format.Markdown,
+            _ => ReportGenerator.Format.Html
         };
         var content = gen.Generate(report, reportFormat);
         await File.WriteAllTextAsync(output, content);
@@ -1298,7 +1299,10 @@ public class CliApp
 
     private static string RiskLabel(string risk) => risk switch
     {
-        "critical" => "严重漏洞", "high" => "高危漏洞", "medium" => "中危漏洞", _ => "低危漏洞"
+        "critical" => "严重漏洞",
+        "high" => "高危漏洞",
+        "medium" => "中危漏洞",
+        _ => "低危漏洞"
     };
 
     // AGENT — 使用配置文件中的模型
@@ -1387,7 +1391,7 @@ public class CliApp
             .AddRow("[grey]Provider[/]", $"[blue]{provider}[/]")
             .AddRow("[grey]模型[/]", $"[green]{model}[/]")
             .AddRow("[grey]地址[/]", $"[white]{providerName}[/]")
-            .AddRow("[grey]工具[/]", "[blue]ping_scan[/] / [blue]port_scan[/] / [blue]udp_scan[/] / [blue]service_identify[/] / [blue]device_query[/]");
+            .AddRow("[grey]工具[/]", "[blue]ping_scan[/] / [blue]port_scan[/] / [blue]service_identify[/] / [blue]os_fingerprint[/] / [blue]ssl_check[/] / [blue]udp_scan[/] / [blue]vuln_scan[/] / [blue]sirius_scan[/]");
         AnsiConsole.Write(info);
         AnsiConsole.WriteLine();
 
@@ -1397,16 +1401,11 @@ public class CliApp
             ? new ClaudeProvider(apiKey, model, lf.CreateLogger<ClaudeProvider>())
             : new OllamaProvider(endpoint, model, lf.CreateLogger<OllamaProvider>());
 
-        var toolRegistry = new ToolRegistry();
-        toolRegistry.Register(new PingScanTool(lf.CreateLogger<PingScanTool>()));
-        toolRegistry.Register(new PortScanTool(lf.CreateLogger<PortScanTool>()));
-        toolRegistry.Register(new ServiceIdentifyTool(lf.CreateLogger<ServiceIdentifyTool>()));
-        toolRegistry.Register(new UdpScanTool(lf.CreateLogger<UdpScanTool>()));
-        toolRegistry.Register(new SiriusTool());
-        toolRegistry.Register(new DeviceQueryTool(lf.CreateLogger<DeviceQueryTool>(), new List<Device>()));
+        var toolRegistry = ToolRegistryFactory.CreateDefault(lf);
 
         var engine = new ReActEngine(llm, toolRegistry, systemPrompt,
-            lf.CreateLogger<ReActEngine>()) { MaxRounds = 5 };
+            lf.CreateLogger<ReActEngine>())
+        { MaxRounds = 5 };
 
         try
         {
@@ -1429,9 +1428,8 @@ public class CliApp
                 {
                     await store.AddMessageAsync(session.Id, "assistant", engine.ThoughtLog[i]);
                     AnsiConsole.MarkupLine($"  [yellow] {i + 1}.[/] [white]{Escape(engine.ThoughtLog[i])}[/]");
-                    if (i < engine.Observations.Count)
+                    foreach (var obs in engine.ObservationsForRound(i + 1))
                     {
-                        var obs = engine.Observations[i];
                         await store.AddMessageAsync(
                             session.Id,
                             "tool",
@@ -1769,7 +1767,7 @@ public class CliApp
         table.AddRow("[grey]测试[/]", "[green]由 CI 验证[/]");
         table.AddRow("[grey]LLM[/]", $"[blue]{provider}[/] [green]{model}[/]");
         table.AddRow("[grey]地址[/]", $"[white]{endpoint}[/]");
-        table.AddRow("[grey]工具[/]", "[blue]ping_scan[/] / [blue]port_scan[/] / [blue]udp_scan[/] / [blue]service_identify[/] / [blue]device_query[/]");
+        table.AddRow("[grey]工具[/]", "[blue]ping_scan[/] / [blue]port_scan[/] / [blue]service_identify[/] / [blue]os_fingerprint[/] / [blue]ssl_check[/] / [blue]udp_scan[/] / [blue]vuln_scan[/] / [blue]sirius_scan[/]");
 
         AnsiConsole.Write(new Panel(table)
             .Header("[teal] LucentMist [/]")
@@ -1796,17 +1794,17 @@ public class CliApp
             .AddColumn("[teal]说明[/]")
             .AddColumn("[teal]示例[/]");
 
-        table.AddRow("[yellow]scan[/]",     "网络扫描",       "[grey]lmist scan 192.168.1.0/24 --udp[/]");
-        table.AddRow("[yellow]ssl-check[/]",      "SSL 证书校验",   "[grey]lmist ssl-check baidu.com[/]");
-        table.AddRow("[yellow]os-fingerprint[/]", "OS 指纹识别",    "[grey]lmist os-fingerprint 192.168.1.1[/]");
-        table.AddRow("[yellow]vuln-scan[/]",      "漏洞扫描",       "[grey]lmist vuln-scan 192.168.1.1[/]");
-        table.AddRow("[yellow]vuln-detail[/]",    "CVE 详情",       "[grey]lmist vuln-detail CVE-2017-0144[/]");
-        table.AddRow("[yellow]sirius[/]",         "Sirius 漏洞",    "[grey]lmist sirius summary|target|vuln|status[/]");
-        table.AddRow("[yellow]report[/]",         "生成报告",       "[grey]lmist report --format html[/]");
-        table.AddRow("[yellow]agent[/]",    "AI 智能体对话",  "[grey]lmist agent \"分析网络\"[/]");
-        table.AddRow("[yellow]config[/]", "查看/切换配置",  "[grey]lmist config --set Model=qwen2.5:7b[/]");
-        table.AddRow("[yellow]status[/]", "系统状态",       "[grey]lmist status[/]");
-        table.AddRow("[yellow]help[/]",   "帮助信息",       "[grey]lmist help[/]");
+        table.AddRow("[yellow]scan[/]", "网络扫描", "[grey]lmist scan 192.168.1.0/24 --udp[/]");
+        table.AddRow("[yellow]ssl-check[/]", "SSL 证书校验", "[grey]lmist ssl-check baidu.com[/]");
+        table.AddRow("[yellow]os-fingerprint[/]", "OS 指纹识别", "[grey]lmist os-fingerprint 192.168.1.1[/]");
+        table.AddRow("[yellow]vuln-scan[/]", "漏洞扫描", "[grey]lmist vuln-scan 192.168.1.1[/]");
+        table.AddRow("[yellow]vuln-detail[/]", "CVE 详情", "[grey]lmist vuln-detail CVE-2017-0144[/]");
+        table.AddRow("[yellow]sirius[/]", "Sirius 漏洞", "[grey]lmist sirius summary|target|vuln|status[/]");
+        table.AddRow("[yellow]report[/]", "生成报告", "[grey]lmist report --format html[/]");
+        table.AddRow("[yellow]agent[/]", "AI 智能体对话", "[grey]lmist agent \"分析网络\"[/]");
+        table.AddRow("[yellow]config[/]", "查看/切换配置", "[grey]lmist config --set Model=qwen2.5:7b[/]");
+        table.AddRow("[yellow]status[/]", "系统状态", "[grey]lmist status[/]");
+        table.AddRow("[yellow]help[/]", "帮助信息", "[grey]lmist help[/]");
 
         AnsiConsole.Write(table);
         return 0;

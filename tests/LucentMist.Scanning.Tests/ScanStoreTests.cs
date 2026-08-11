@@ -1,3 +1,4 @@
+using System.Reflection;
 using LucentMist.Scanning;
 using Microsoft.Data.Sqlite;
 
@@ -112,5 +113,18 @@ public class ScanStoreTests : IDisposable
         {
             if (File.Exists(dbPath)) File.Delete(dbPath);
         }
+    }
+
+    [Fact]
+    public void Open_SetsBusyTimeout()
+    {
+        var method = typeof(ScanStore).GetMethod("Open", BindingFlags.Instance | BindingFlags.NonPublic);
+        Assert.NotNull(method);
+
+        using var conn = (SqliteConnection)method!.Invoke(_store, null)!;
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA busy_timeout;";
+
+        Assert.Equal(5000, Convert.ToInt64(cmd.ExecuteScalar()));
     }
 }

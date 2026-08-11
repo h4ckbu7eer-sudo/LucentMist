@@ -165,12 +165,12 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 ```
 Phase 0 ████████████ 需求分析    ✅ 5 文档
 Phase 1 ████████████ 项目初始化  ✅ 5 项目
-Phase 2 ████████████ Core 层     ✅ 4 Actor + 5 Model
-Phase 3 ████████████ Tools 层    ✅ 4 工具
+Phase 2 ████████████ Core 层     ✅ ReAct + SQLite 持久化
+Phase 3 ████████████ Tools 层    ✅ 8 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 161/161 通过（离线）
-Phase 7 ████████████ 文档        ✅ 4 文档
+Phase 6 ████████████ 测试        ✅ 214/214 通过
+Phase 7 ████████████ 文档        ✅
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅
 ```

@@ -28,8 +28,11 @@ public class ReportGenerator
 
     public string Generate(ScanReport r, Format f) => f switch
     {
-        Format.Json => ToJson(r), Format.Html => ToHtml(r),
-        Format.Markdown => ToMarkdown(r), Format.Csv => ToCsv(r), _ => ToJson(r)
+        Format.Json => ToJson(r),
+        Format.Html => ToHtml(r),
+        Format.Markdown => ToMarkdown(r),
+        Format.Csv => ToCsv(r),
+        _ => ToJson(r)
     };
 
     private static string ToJson(ScanReport r) => JsonSerializer.Serialize(r,
