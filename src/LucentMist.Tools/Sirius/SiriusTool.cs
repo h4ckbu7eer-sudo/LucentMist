@@ -22,16 +22,18 @@ public class SiriusTool : ITool
         _client = client ?? new SiriusClient();
     }
 
-    public async Task<ToolResult> ExecuteAsync(ToolArguments args)
+    public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
         var action = args.GetOrDefault("action", "summary");
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (!await _client.CheckAvailabilityAsync())
                 return ToolResult.Fail($"Sirius 不可用: {_client.ErrorMessage}", sw.Elapsed);
 
+            cancellationToken.ThrowIfCancellationRequested();
             object? data = action switch
             {
                 "summary" => await _client.GetHostsAsync(),
@@ -40,6 +42,7 @@ public class SiriusTool : ITool
                 _ => null
             };
 
+            cancellationToken.ThrowIfCancellationRequested();
             if (data == null)
                 return ToolResult.Fail("查询失败或无数据", sw.Elapsed);
 

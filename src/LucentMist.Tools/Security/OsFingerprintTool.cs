@@ -48,7 +48,7 @@ public class OsFingerprintTool : ITool
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<OsFingerprintTool>.Instance;
     }
 
-    public async Task<ToolResult> ExecuteAsync(ToolArguments args)
+    public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
@@ -59,13 +59,14 @@ public class OsFingerprintTool : ITool
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("OsFingerprint: {Target}", target);
 
             // 1. ICMP Ping → 获取 TTL
-            var (reachable, ttl, pingMs) = await PingWithTtl(target, timeout);
+            var (reachable, ttl, pingMs) = await PingWithTtl(target, timeout, cancellationToken);
 
             // 2. 开放端口 → OS 提示
-            var portHints = await ProbeKnownPorts(target, timeout);
+            var portHints = await ProbeKnownPorts(target, timeout, cancellationToken);
 
             // 3. 综合推断 OS
             var (osFamily, confidence, reasons) = InferOs(reachable, ttl, portHints);
@@ -92,13 +93,17 @@ public class OsFingerprintTool : ITool
         }
     }
 
-    private async Task<(bool reachable, int ttl, long ms)> PingWithTtl(string ip, int timeout)
+    private async Task<(bool reachable, int ttl, long ms)> PingWithTtl(
+        string ip,
+        int timeout,
+        CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var ping = new Ping();
             var options = new PingOptions { Ttl = 128, DontFragment = true };
-            var reply = await ping.SendPingAsync(ip, timeout, new byte[32], options);
+            var reply = await ping.SendPingAsync(ip, timeout, new byte[32], options).WaitAsync(cancellationToken);
             return (reply.Status == IPStatus.Success, reply.Options?.Ttl ?? 0, reply.RoundtripTime);
         }
         catch (Exception ex)
@@ -107,8 +112,9 @@ public class OsFingerprintTool : ITool
             // Try without TTL options
             try
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 using var ping = new Ping();
-                var reply = await ping.SendPingAsync(ip, timeout);
+                var reply = await ping.SendPingAsync(ip, timeout).WaitAsync(cancellationToken);
                 return (reply.Status == IPStatus.Success, reply.Options?.Ttl ?? 0, reply.RoundtripTime);
             }
             catch (Exception fallbackEx)
@@ -119,14 +125,16 @@ public class OsFingerprintTool : ITool
         }
     }
 
-    private async Task<List<string>> ProbeKnownPorts(string ip, int timeout)
+    private async Task<List<string>> ProbeKnownPorts(string ip, int timeout, CancellationToken cancellationToken)
     {
         var hints = new List<string>();
         foreach (var (port, hint) in PortOsHints)
         {
             try
             {
-                using var cts = new CancellationTokenSource(timeout / PortOsHints.Count);
+                cancellationToken.ThrowIfCancellationRequested();
+                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                cts.CancelAfter(timeout / PortOsHints.Count);
                 using var client = new TcpClient();
                 await client.ConnectAsync(ip, port, cts.Token);
                 hints.Add(hint);

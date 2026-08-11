@@ -16,6 +16,19 @@ public class PortScanToolTests
     }
 
     [Fact]
+    public async Task Execute_CanceledToken_ReturnsFailure()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var r = await CreateTool().ExecuteAsync(
+            new() { ["target"] = "127.0.0.1", ["ports"] = "80" },
+            cts.Token);
+
+        Assert.False(r.Success);
+    }
+
+    [Fact]
     public async Task Execute_ContainsRequiredFields()
     {
         var r = await CreateTool().ExecuteAsync(new()

@@ -28,7 +28,7 @@ public class PortScanTool : ITool
         _logger = logger;
     }
 
-    public async Task<ToolResult> ExecuteAsync(ToolArguments args)
+    public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
@@ -49,10 +49,11 @@ public class PortScanTool : ITool
 
             var tasks = ports.Select(async port =>
             {
-                await semaphore.WaitAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                await semaphore.WaitAsync(cancellationToken);
                 try
                 {
-                    if (await ScanPortAsync(target, port, timeout))
+                    if (await ScanPortAsync(target, port, timeout, cancellationToken))
                     {
                         lock (openPorts) { openPorts.Add(port); }
                     }
@@ -87,9 +88,11 @@ public class PortScanTool : ITool
     /// <summary>
     /// 扫描单个端口
     /// </summary>
-    private async Task<bool> ScanPortAsync(string ip, int port, int timeoutMs)
+    private async Task<bool> ScanPortAsync(string ip, int port, int timeoutMs, CancellationToken cancellationToken)
     {
-        using var cts = new CancellationTokenSource(timeoutMs);
+        cancellationToken.ThrowIfCancellationRequested();
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeoutMs);
         try
         {
             using var client = new TcpClient();

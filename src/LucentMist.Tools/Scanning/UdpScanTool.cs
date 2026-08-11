@@ -22,7 +22,7 @@ public class UdpScanTool : ITool
 
     public UdpScanTool(ILogger<UdpScanTool> logger) => _logger = logger;
 
-    public async Task<ToolResult> ExecuteAsync(ToolArguments args)
+    public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
@@ -44,10 +44,11 @@ public class UdpScanTool : ITool
 
             var tasks = ports.Select(async port =>
             {
-                await semaphore.WaitAsync();
+                cancellationToken.ThrowIfCancellationRequested();
+                await semaphore.WaitAsync(cancellationToken);
                 try
                 {
-                    if (await ProbeUdpAsync(target, port, timeout))
+                    if (await ProbeUdpAsync(target, port, timeout, cancellationToken))
                     {
                         lock (openPorts) openPorts.Add(port);
                     }
@@ -80,10 +81,11 @@ public class UdpScanTool : ITool
         }
     }
 
-    private static async Task<bool> ProbeUdpAsync(string ip, int port, int timeoutMs)
+    private static async Task<bool> ProbeUdpAsync(string ip, int port, int timeoutMs, CancellationToken cancellationToken)
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             using var client = new UdpClient();
             client.Client.ReceiveTimeout = timeoutMs;
             client.Client.SendTimeout = timeoutMs;
@@ -99,7 +101,8 @@ public class UdpScanTool : ITool
 
             await client.SendAsync(probe, probe.Length);
 
-            using var cts = new CancellationTokenSource(timeoutMs);
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            cts.CancelAfter(timeoutMs);
             try
             {
                 var response = await client.ReceiveAsync(cts.Token);

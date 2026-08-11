@@ -291,7 +291,7 @@ public class ReActEngineTests
         mockTool.Setup(t => t.Name).Returns("broken_tool");
         mockTool.Setup(t => t.Description).Returns("会崩溃的工具");
         mockTool.Setup(t => t.Parameters).Returns([]);
-        mockTool.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>()))
+        mockTool.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("工具内部错误"));
         registry.Register(mockTool.Object);
 
@@ -342,7 +342,7 @@ public class ReActEngineTests
         mockPortScan.Setup(t => t.Name).Returns("port_scan");
         mockPortScan.Setup(t => t.Description).Returns("scan ports");
         mockPortScan.Setup(t => t.Parameters).Returns([]);
-        mockPortScan.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>()))
+        mockPortScan.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ToolResult.Ok(
                 @"{""target"":""192.168.1.1"",""totalScanned"":100,""openPorts"":[80,443],""scanDuration"":""1s""}",
                 TimeSpan.FromMilliseconds(1)));
@@ -352,7 +352,7 @@ public class ReActEngineTests
         mockSvcIdentify.Setup(t => t.Name).Returns("service_identify");
         mockSvcIdentify.Setup(t => t.Description).Returns("identify service");
         mockSvcIdentify.Setup(t => t.Parameters).Returns([]);
-        mockSvcIdentify.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>()))
+        mockSvcIdentify.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ToolResult.Ok(
                 @"{""target"":""192.168.1.1"",""port"":80,""serviceName"":""http"",""identified"":true}",
                 TimeSpan.FromMilliseconds(1)));
@@ -388,7 +388,7 @@ public class ReActEngineTests
         mockPortScan.Setup(t => t.Name).Returns("port_scan");
         mockPortScan.Setup(t => t.Description).Returns("scan ports");
         mockPortScan.Setup(t => t.Parameters).Returns([]);
-        mockPortScan.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>()))
+        mockPortScan.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ToolResult.Ok(
                 @"{""target"":""192.168.1.1"",""totalScanned"":100,""openPorts"":[],""scanDuration"":""1s""}",
                 TimeSpan.FromMilliseconds(1)));
@@ -418,7 +418,7 @@ public class ReActEngineTests
         mockPortScan.Setup(t => t.Name).Returns("port_scan");
         mockPortScan.Setup(t => t.Description).Returns("scan ports");
         mockPortScan.Setup(t => t.Parameters).Returns([]);
-        mockPortScan.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>()))
+        mockPortScan.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ToolResult.Ok(
                 $"{{\"target\":\"192.168.1.1\",\"totalScanned\":25,\"openPorts\":[{openPorts}]}}",
                 TimeSpan.FromMilliseconds(1)));
@@ -427,7 +427,7 @@ public class ReActEngineTests
         mockSvcIdentify.Setup(t => t.Name).Returns("service_identify");
         mockSvcIdentify.Setup(t => t.Description).Returns("identify service");
         mockSvcIdentify.Setup(t => t.Parameters).Returns([]);
-        mockSvcIdentify.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>()))
+        mockSvcIdentify.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ToolResult.Ok(
                 "{\"target\":\"192.168.1.1\",\"port\":80,\"serviceName\":\"http\",\"identified\":true}",
                 TimeSpan.FromMilliseconds(1)));
