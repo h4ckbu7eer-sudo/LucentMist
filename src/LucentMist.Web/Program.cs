@@ -1,4 +1,5 @@
 using System.Net.Http.Headers;
+using LucentMist.Core.Logging;
 using LucentMist.Scanning;
 using LucentMist.Web;
 using LucentMist.Web.Components;
@@ -9,6 +10,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddSignalR();
+builder.Services.AddLogging(b => b.AddSimpleFile(
+    Environment.GetEnvironmentVariable("LMIST_LOG_FILE") ?? Path.Combine("logs", "lucentmist-web.log")));
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    var maxConnections = int.TryParse(
+        Environment.GetEnvironmentVariable("LMIST_MAX_CONNECTIONS"),
+        out var parsed) ? parsed : 512;
+    options.Limits.MaxConcurrentConnections = Math.Max(16, maxConnections);
+    options.Limits.MaxConcurrentUpgradedConnections = Math.Max(8, maxConnections / 4);
+});
 builder.Services.AddScoped<AppState>();
 builder.Services.AddSingleton<ScanService>();
 builder.Services.AddTransient<ScanTaskClient>();
@@ -32,6 +44,7 @@ builder.Services.AddSingleton<IScanCoordinator>(sp =>
 builder.Services.AddSingleton<IScanProgressPublisher>(sp =>
     new SignalRScanProgressPublisher(sp.GetRequiredService<IHubContext<ScanHub>>()));
 builder.Services.AddHostedService<ScanWorker>();
+builder.Services.AddHostedService<DatabaseMaintenanceService>();
 
 var app = builder.Build();
 

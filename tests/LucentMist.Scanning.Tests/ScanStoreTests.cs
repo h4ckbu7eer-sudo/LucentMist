@@ -127,4 +127,26 @@ public class ScanStoreTests : IDisposable
 
         Assert.Equal(5000, Convert.ToInt64(cmd.ExecuteScalar()));
     }
+
+    [Fact]
+    public async Task CleanupAsync_DeletesOldCompletedScans()
+    {
+        var rec = await _store.CreateAsync("127.0.0.1", "tcp", "80");
+        await _store.MarkCompletedAsync(rec.Id, 1, "{}");
+
+        using (var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE scan_tasks SET created_at = $old WHERE id = $id";
+            cmd.Parameters.AddWithValue("$old", DateTime.UtcNow.AddDays(-91).ToString("O"));
+            cmd.Parameters.AddWithValue("$id", rec.Id);
+            cmd.ExecuteNonQuery();
+        }
+
+        var deleted = await _store.CleanupAsync(90);
+
+        Assert.Equal(1, deleted);
+        Assert.Null(await _store.GetAsync(rec.Id));
+    }
 }

@@ -73,4 +73,27 @@ public class AgentSessionStoreTests : IDisposable
 
         Assert.Equal(5000, Convert.ToInt64(cmd.ExecuteScalar()));
     }
+
+    [Fact]
+    public async Task CleanupAsync_DeletesOldSessionsAndMessages()
+    {
+        var session = await _store.CreateSessionAsync("old", "qwen2.5:7b");
+        await _store.AddMessageAsync(session.Id, "user", "old message");
+
+        using (var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE agent_sessions SET updated_at = $old WHERE id = $id";
+            cmd.Parameters.AddWithValue("$old", DateTime.UtcNow.AddDays(-91).ToString("O"));
+            cmd.Parameters.AddWithValue("$id", session.Id);
+            cmd.ExecuteNonQuery();
+        }
+
+        var deleted = await _store.CleanupAsync(90);
+
+        Assert.Equal(1, deleted);
+        Assert.Null(await _store.GetSessionAsync(session.Id));
+        Assert.Empty(await _store.GetMessagesAsync(session.Id));
+    }
 }
