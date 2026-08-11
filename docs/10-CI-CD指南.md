@@ -44,12 +44,10 @@ Push / PR → GitHub Actions
 ```yaml
 - uses: actions/setup-dotnet@v4
   with:
-    dotnet-version: |
-      8.0.x
-      10.0.x
+    dotnet-version: 10.0.x
 ```
 
-安装 .NET 8.0（源项目目标框架）和 .NET 10.0（测试项目目标框架）两个 SDK。`.NET 10 SDK` 向下兼容编译 `net8.0` 项目。
+安装 .NET 10.0 SDK，统一编译全部 `net10.0` 项目。
 
 ### 3.3 还原依赖
 

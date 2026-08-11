@@ -47,7 +47,7 @@ E:\DockerData\ (Docker 数据)
 ## 环境依赖
 - Ollama: E:\Ollama\ollama serve → localhost:11434
 - 模型: qwen2.5:7b (默认) / llama3.1:8b / moondream / llava-llama3
-- .NET: 10.0.302 + net8.0 运行时
+- .NET: 10.0.302 + net10.0 运行时
 - Codex: E:\npm-global\codex (v0.146.1, deepseek-v4-flash)
 - Docker: 未运行
 5. **Sirius 集成** — SiriusClient 外部扫描器 + 自动回退内置引擎

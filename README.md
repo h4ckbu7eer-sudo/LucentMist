@@ -70,7 +70,7 @@ dotnet run --project src/LucentMist.Web
 
 ```bash
 # 国内网络建议指定华为云 NuGet 镜像
-docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.0 .
+docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.2 .
 
 # 启动 API + Web
 docker compose up -d
@@ -153,7 +153,7 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 
 | 组件 | 技术 | 版本 |
 |------|------|------|
-| 运行时 | .NET | API/Web/tests 10.0；Core/Tools/Agent/Scanning/CLI 8.0 |
+| 运行时 | .NET | 全部项目 net10.0 |
 | 数据库 | SQLite | 3.x |
 | LLM | Ollama + Claude API | — |
 | 测试 | xUnit | v3 |
