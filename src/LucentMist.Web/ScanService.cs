@@ -22,51 +22,63 @@ public class ScanService
         _ssl = new SslCertificateTool(loggerFactory.CreateLogger<SslCertificateTool>());
     }
 
-    public async Task<ScanServiceResult> PingScanAsync(string target)
+    public async Task<ScanServiceResult> PingScanAsync(string target, CancellationToken cancellationToken = default)
     {
         var r = await _ping.ExecuteAsync(
             new ToolArguments { ["target"] = target, ["timeout_ms"] = "2000" },
-            CancellationToken.None);
+            cancellationToken);
         return r.Success
             ? ScanServiceResult.Ok(Parse(r.Data))
             : ScanServiceResult.Fail(r.Error ?? "Ping 扫描失败");
     }
 
-    public async Task<ScanServiceResult> PortScanAsync(string target, string ports)
+    public async Task<ScanServiceResult> PortScanAsync(
+        string target,
+        string ports,
+        CancellationToken cancellationToken = default)
     {
         var r = await _port.ExecuteAsync(
             new ToolArguments { ["target"] = target, ["ports"] = ports, ["timeout_ms"] = "2000" },
-            CancellationToken.None);
+            cancellationToken);
         return r.Success
             ? ScanServiceResult.Ok(Parse(r.Data))
             : ScanServiceResult.Fail(r.Error ?? "TCP 扫描失败");
     }
 
-    public async Task<ScanServiceResult> UdpScanAsync(string target, string ports)
+    public async Task<ScanServiceResult> UdpScanAsync(
+        string target,
+        string ports,
+        CancellationToken cancellationToken = default)
     {
         var r = await _udp.ExecuteAsync(
             new ToolArguments { ["target"] = target, ["ports"] = ports, ["timeout_ms"] = "3000" },
-            CancellationToken.None);
+            cancellationToken);
         return r.Success
             ? ScanServiceResult.Ok(Parse(r.Data))
             : ScanServiceResult.Fail(r.Error ?? "UDP 扫描失败");
     }
 
-    public async Task<ScanServiceResult> ServiceIdentifyAsync(string target, int port)
+    public async Task<ScanServiceResult> ServiceIdentifyAsync(
+        string target,
+        int port,
+        CancellationToken cancellationToken = default)
     {
         var r = await _service.ExecuteAsync(
             new ToolArguments { ["target"] = target, ["port"] = port.ToString(), ["timeout_ms"] = "3000" },
-            CancellationToken.None);
+            cancellationToken);
         return r.Success
             ? ScanServiceResult.Ok(Parse(r.Data))
             : ScanServiceResult.Fail(r.Error ?? "服务识别失败");
     }
 
-    public async Task<ScanServiceResult> SslCheckAsync(string target, int port = 443)
+    public async Task<ScanServiceResult> SslCheckAsync(
+        string target,
+        int port = 443,
+        CancellationToken cancellationToken = default)
     {
         var r = await _ssl.ExecuteAsync(
             new ToolArguments { ["target"] = target, ["port"] = port.ToString(), ["timeout_ms"] = "5000" },
-            CancellationToken.None);
+            cancellationToken);
         return r.Success
             ? ScanServiceResult.Ok(Parse(r.Data))
             : ScanServiceResult.Fail(r.Error ?? "SSL 检查失败");

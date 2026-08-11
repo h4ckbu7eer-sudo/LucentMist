@@ -3,6 +3,7 @@
 @inject ScanService ScanService
 @inject AppState State
 @inject ILogger<SslCheck> Logger
+@implements IDisposable
 
 <PageTitle>SSL 证书校验 — LucentMist</PageTitle>
 <div class="page-header"><h2>🔒 SSL 证书校验</h2></div>
@@ -40,6 +41,7 @@
 }
 
 @code {
+    private readonly CancellationTokenSource _cts = new();
     private string _target="baidu.com", _port="443";
     private bool _busy;
     private string? _error;
@@ -48,7 +50,7 @@
         _busy=true;
         _error=null;
         try {
-            var result = await ScanService.SslCheckAsync(_target, int.Parse(_port));
+            var result = await ScanService.SslCheckAsync(_target, int.Parse(_port), _cts.Token);
             if (!result.Success || result.Data is not System.Text.Json.JsonElement d)
             {
                 _error = result.Error ?? "SSL 检查失败";
@@ -73,5 +75,11 @@
         } finally {
             _busy=false;
         }
+    }
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _cts.Dispose();
     }
 }
