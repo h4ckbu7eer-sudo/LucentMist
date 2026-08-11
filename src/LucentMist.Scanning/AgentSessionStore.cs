@@ -159,6 +159,34 @@ public class AgentSessionStore
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task<int> CleanupAsync(int retentionDays, bool vacuum = false)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-retentionDays).ToString("O");
+        using var conn = Open();
+        using var delMessages = conn.CreateCommand();
+        delMessages.CommandText = """
+            DELETE FROM agent_messages
+            WHERE session_id IN (
+                SELECT id FROM agent_sessions WHERE updated_at < $cutoff
+            )
+            """;
+        delMessages.Parameters.AddWithValue("$cutoff", cutoff);
+        await delMessages.ExecuteNonQueryAsync();
+
+        using var delSessions = conn.CreateCommand();
+        delSessions.CommandText = "DELETE FROM agent_sessions WHERE updated_at < $cutoff";
+        delSessions.Parameters.AddWithValue("$cutoff", cutoff);
+        var deleted = await delSessions.ExecuteNonQueryAsync();
+
+        if (vacuum && deleted > 0)
+        {
+            delSessions.CommandText = "VACUUM;";
+            await delSessions.ExecuteNonQueryAsync();
+        }
+
+        return deleted;
+    }
+
     public async Task UpdateTitleAsync(string sessionId, string title)
     {
         using var conn = Open();

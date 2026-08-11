@@ -159,6 +159,24 @@ public class ScanStore
         await cmd.ExecuteNonQueryAsync();
     }
 
+    public async Task<int> CleanupAsync(int retentionDays, bool vacuum = false)
+    {
+        var cutoff = DateTime.UtcNow.AddDays(-retentionDays).ToString("O");
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "DELETE FROM scan_tasks WHERE created_at < $cutoff";
+        cmd.Parameters.AddWithValue("$cutoff", cutoff);
+        var deleted = await cmd.ExecuteNonQueryAsync();
+
+        if (vacuum && deleted > 0)
+        {
+            cmd.CommandText = "VACUUM;";
+            await cmd.ExecuteNonQueryAsync();
+        }
+
+        return deleted;
+    }
+
     private async Task UpdateAsync(string id, string status,
         DateTime? startedAt = null, DateTime? completedAt = null,
         int? totalDevices = null, string? resultJson = null, string? errorMessage = null)

@@ -1,4 +1,5 @@
 using LucentMist.API.Middleware;
+using LucentMist.Core.Logging;
 using LucentMist.Scanning;
 using Microsoft.AspNetCore.Authorization;
 
@@ -12,7 +13,17 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Services.AddControllers();
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddLogging(b => b.AddConsole());
+builder.Services.AddLogging(b => b.AddConsole().AddSimpleFile(
+    Environment.GetEnvironmentVariable("LMIST_LOG_FILE") ?? Path.Combine("logs", "lucentmist-api.log")));
+
+builder.WebHost.ConfigureKestrel(options =>
+{
+    var maxConnections = int.TryParse(
+        Environment.GetEnvironmentVariable("LMIST_MAX_CONNECTIONS"),
+        out var parsed) ? parsed : 512;
+    options.Limits.MaxConcurrentConnections = Math.Max(16, maxConnections);
+    options.Limits.MaxConcurrentUpgradedConnections = Math.Max(8, maxConnections / 4);
+});
 
 // 扫描后台任务：持久化 + 队列 + worker
 builder.Services.AddSingleton(new ScanStore(
@@ -24,6 +35,7 @@ builder.Services.AddSingleton<IScanCoordinator>(sp =>
     sp.GetRequiredService<ScanCoordinator>());
 builder.Services.AddSingleton<IScanProgressPublisher>(_ => NullScanProgressPublisher.Instance);
 builder.Services.AddHostedService<ScanWorker>();
+builder.Services.AddHostedService<DatabaseMaintenanceService>();
 
 // Agent: LLM Provider + 工具注册（配置走环境变量，默认 Ollama）
 builder.Services.AddHttpClient("Ollama", client =>

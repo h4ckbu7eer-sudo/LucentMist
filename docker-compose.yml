@@ -23,6 +23,11 @@ services:
       - LMIST_LLM_APIKEY=${LMIST_LLM_APIKEY:-}
       - LMIST_BIND_ADDRESS=0.0.0.0
       - LMIST_API_TOKEN=${LMIST_API_TOKEN:-}
+      - LMIST_LOG_FILE=logs/lucentmist-api.log
+      - LMIST_MAX_CONNECTIONS=${LMIST_MAX_CONNECTIONS:-512}
+      - LMIST_RETENTION_DAYS=${LMIST_RETENTION_DAYS:-90}
+      - LMIST_CLEANUP_HOURS=${LMIST_CLEANUP_HOURS:-24}
+      - LMIST_DB_VACUUM=${LMIST_DB_VACUUM:-0}
     restart: unless-stopped
     networks:
       - lucentmist-net
@@ -49,6 +54,11 @@ services:
       - LMIST_WEB_BIND=0.0.0.0
       - LMIST_WEB_USER=${LMIST_WEB_USER:-}
       - LMIST_WEB_PASSWORD=${LMIST_WEB_PASSWORD:-}
+      - LMIST_LOG_FILE=logs/lucentmist-web.log
+      - LMIST_MAX_CONNECTIONS=${LMIST_MAX_CONNECTIONS:-512}
+      - LMIST_RETENTION_DAYS=${LMIST_RETENTION_DAYS:-90}
+      - LMIST_CLEANUP_HOURS=${LMIST_CLEANUP_HOURS:-24}
+      - LMIST_DB_VACUUM=${LMIST_DB_VACUUM:-0}
     command: ["dotnet", "web/LucentMist.Web.dll", "5051"]
     depends_on:
       lucentmist:
