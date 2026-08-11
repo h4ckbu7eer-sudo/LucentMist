@@ -1,6 +1,6 @@
 # LucentMist
 
-> 基于 ReAct 模式的智能网络分析助手 — C# .NET 8/10 + ReAct + Ollama/Claude
+> 基于 ReAct 模式的智能网络分析助手 — C# .NET 10 + ReAct + Ollama/Claude
 
 ## Agent skills
 

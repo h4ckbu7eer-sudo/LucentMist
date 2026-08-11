@@ -6,7 +6,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: lucentmist:0.9.0
+    image: lucentmist:0.9.2
     container_name: lucentmist-api
     ports:
       - "5050:5050"
@@ -34,7 +34,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: lucentmist:0.9.0
+    image: lucentmist:0.9.2
     container_name: lucentmist-web
     ports:
       - "5051:5051"
