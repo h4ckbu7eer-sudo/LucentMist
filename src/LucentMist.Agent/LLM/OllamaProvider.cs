@@ -105,6 +105,10 @@ public class OllamaProvider : ILLMProvider
                 throw new InvalidOperationException(
                     $"Ollama 服务不可达（{_http.BaseAddress}），请确认已运行：ollama serve");
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (OperationCanceledException)
         {
             throw new InvalidOperationException(

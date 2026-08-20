@@ -31,6 +31,7 @@ public class ScanStore
                 status         TEXT NOT NULL DEFAULT 'pending',
                 created_at     TEXT NOT NULL,
                 started_at     TEXT,
+                heartbeat_at   TEXT,
                 completed_at   TEXT,
                 total_devices  INTEGER DEFAULT 0,
                 result_json    TEXT,
@@ -41,6 +42,7 @@ public class ScanStore
         cmd.ExecuteNonQuery();
 
         EnsurePortsColumn(conn);
+        EnsureHeartbeatColumn(conn);
         EnableWal(conn);
     }
 
@@ -63,6 +65,18 @@ public class ScanStore
         migrate.ExecuteNonQuery();
     }
 
+    private static void EnsureHeartbeatColumn(SqliteConnection conn)
+    {
+        using var check = conn.CreateCommand();
+        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('scan_tasks') WHERE name = 'heartbeat_at'";
+        var hasHeartbeat = Convert.ToInt64(check.ExecuteScalar()) > 0;
+        if (hasHeartbeat) return;
+
+        using var migrate = conn.CreateCommand();
+        migrate.CommandText = "ALTER TABLE scan_tasks ADD COLUMN heartbeat_at TEXT";
+        migrate.ExecuteNonQuery();
+    }
+
     private SqliteConnection Open()
     {
         var conn = new SqliteConnection(_connectionString);
@@ -79,14 +93,15 @@ public class ScanStore
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
-            INSERT INTO scan_tasks (id, target, scan_type, ports, status, created_at)
-            VALUES ($id, $target, $scan_type, $ports, 'pending', $created_at)
+            INSERT INTO scan_tasks (id, target, scan_type, ports, status, created_at, heartbeat_at)
+            VALUES ($id, $target, $scan_type, $ports, 'pending', $created_at, $heartbeat_at)
             """;
         cmd.Parameters.AddWithValue("$id", rec.Id);
         cmd.Parameters.AddWithValue("$target", rec.Target);
         cmd.Parameters.AddWithValue("$scan_type", rec.ScanType);
         cmd.Parameters.AddWithValue("$ports", rec.Ports);
         cmd.Parameters.AddWithValue("$created_at", rec.CreatedAt.ToString("O"));
+        cmd.Parameters.AddWithValue("$heartbeat_at", rec.CreatedAt.ToString("O"));
         await cmd.ExecuteNonQueryAsync();
         return rec;
     }
@@ -130,6 +145,20 @@ public class ScanStore
     public async Task MarkRunningAsync(string id)
     {
         await UpdateAsync(id, "running", startedAt: DateTime.UtcNow);
+        await MarkHeartbeatAsync(id);
+    }
+
+    public async Task MarkHeartbeatAsync(string id)
+    {
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            UPDATE scan_tasks SET heartbeat_at = $heartbeat_at
+            WHERE id = $id AND status IN ('pending', 'running')
+            """;
+        cmd.Parameters.AddWithValue("$id", id);
+        cmd.Parameters.AddWithValue("$heartbeat_at", DateTime.UtcNow.ToString("O"));
+        await cmd.ExecuteNonQueryAsync();
     }
 
     public async Task MarkCompletedAsync(string id, int totalDevices, string resultJson)
@@ -143,8 +172,9 @@ public class ScanStore
         await UpdateAsync(id, "failed", errorMessage: error, completedAt: DateTime.UtcNow);
     }
 
-    public async Task MarkStaleTasksFailedAsync(string error)
+    public async Task MarkStaleTasksFailedAsync(string error, TimeSpan olderThan)
     {
+        var staleBefore = DateTime.UtcNow.Subtract(olderThan).ToString("O");
         using var conn = Open();
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
@@ -153,9 +183,11 @@ public class ScanStore
                 completed_at = COALESCE(completed_at, $now),
                 error_message = COALESCE(error_message, $error)
             WHERE status IN ('pending', 'running')
+              AND COALESCE(heartbeat_at, started_at, created_at) < $stale_before
             """;
         cmd.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O"));
         cmd.Parameters.AddWithValue("$error", error);
+        cmd.Parameters.AddWithValue("$stale_before", staleBefore);
         await cmd.ExecuteNonQueryAsync();
     }
 

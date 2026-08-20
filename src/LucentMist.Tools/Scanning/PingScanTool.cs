@@ -175,11 +175,15 @@ public class PingScanTool : ITool
             try
             {
                 using var ping = new Ping();
-                var reply = await ping.SendPingAsync(ip, timeoutMs);
+                var reply = await ping.SendPingAsync(ip, timeoutMs).WaitAsync(cancellationToken);
                 if (reply.Status == IPStatus.Success)
                     return true;
                 if (reply.Status != IPStatus.TimedOut)
                     return false;
+            }
+            catch (OperationCanceledException)
+            {
+                throw;
             }
             catch (PingException ex) when (IsPermissionError(ex))
             {
