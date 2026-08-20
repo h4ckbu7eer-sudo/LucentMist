@@ -62,7 +62,7 @@ app.MapRazorComponents<App>().AddInteractiveServerRenderMode();
 app.MapHub<ScanHub>("/scanhub");
 
 var port = args.Length > 0 ? args[0] : "5051";
-var bindAddress = Environment.GetEnvironmentVariable("LMIST_WEB_BIND") ?? "localhost";
+var bindAddress = Environment.GetEnvironmentVariable("LMIST_WEB_BIND") ?? "127.0.0.1";
 app.Urls.Add($"http://{bindAddress}:{port}");
 
 if (bindAddress is not ("127.0.0.1" or "localhost" or "::1") &&

@@ -18,17 +18,20 @@ public class AgentController : ControllerBase
     private readonly ToolRegistry _tools;
     private readonly AgentSessionStore _sessions;
     private readonly ILogger<AgentController> _logger;
+    private readonly ILoggerFactory _loggerFactory;
 
     public AgentController(
         ILLMProvider llm,
         ToolRegistry tools,
         AgentSessionStore sessions,
-        ILogger<AgentController> logger)
+        ILogger<AgentController> logger,
+        ILoggerFactory loggerFactory)
     {
         _llm = llm;
         _tools = tools;
         _sessions = sessions;
         _logger = logger;
+        _loggerFactory = loggerFactory;
     }
 
     /// <summary>
@@ -53,27 +56,39 @@ public class AgentController : ControllerBase
                 "Agent 会话",
                 Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b");
         await _sessions.AddMessageAsync(session.Id, "user", request.Message);
+        yield return Sse("session", Json(new { sessionId = session.Id }));
 
         // 注入本机 IP，防止 LLM 猜测错误网段（与 CLI 保持一致）
         var message = InjectLocalNetworkInfo(request.Message);
 
         var systemPrompt = LoadSystemPrompt();
 
-        var engine = new ReActEngine(_llm, _tools, systemPrompt, _logger as ILogger<ReActEngine>)
+        var engine = new ReActEngine(_llm, _tools, systemPrompt, _loggerFactory.CreateLogger<ReActEngine>())
         {
             MaxRounds = 5,
         };
 
         ReActResult? result = null;
         string? runError = null;
+        var canceled = false;
         try
         {
             result = await engine.RunAsync(message, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            canceled = true;
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Agent 执行失败");
             runError = ex.Message;
+        }
+
+        if (canceled)
+        {
+            yield return Sse("error", Json(new { content = "连接已断开", done = true }));
+            yield break;
         }
 
         if (runError != null)

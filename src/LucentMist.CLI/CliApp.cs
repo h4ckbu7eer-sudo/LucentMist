@@ -134,40 +134,44 @@ public class CliApp
             return 1;
         }
 
-        // 解析参数
         var target = "";
         var isUdp = false;
         var verbose = false;
         var tcpPorts = "";
         var svcPorts = "";
         var udpPorts = "53,123,161,500,514,1900";
-        foreach (var a in args)
+        var positionals = new List<string>();
+
+        for (var i = 0; i < args.Length; i++)
         {
+            var a = args[i];
             if (a == "--udp") isUdp = true;
             else if (a == "--verbose" || a == "-v") verbose = true;
-            else if (a == "--ports" || a == "-p") { /* handled below */ }
-            else if (a == "--service" || a == "-s") { /* handled below */ }
-            else if (a.StartsWith("--ports="))
-                tcpPorts = a.Split('=', 2)[1];
-            else if (a.StartsWith("-p="))
-                tcpPorts = a.Split('=', 2)[1];
-            else if (a.StartsWith("--service="))
-                svcPorts = a.Split('=', 2)[1];
-            else if (a.StartsWith("-s="))
-                svcPorts = a.Split('=', 2)[1];
-            else if (target == "" && !a.StartsWith("-"))
-                target = a;
-        }
-        // 处理 --ports <value> / --service <value> 格式
-        for (int i = 0; i < args.Length - 1; i++)
-        {
-            if (args[i] == "--ports" || args[i] == "-p")
+            else if (a == "--ports" || a == "-p")
             {
-                tcpPorts = args[i + 1];
-                udpPorts = args[i + 1];
+                if (i + 1 < args.Length)
+                {
+                    tcpPorts = args[++i];
+                    udpPorts = args[i];
+                }
             }
-            if (args[i] == "--service" || args[i] == "-s")
-                svcPorts = args[i + 1];
+            else if (a == "--service" || a == "-s")
+            {
+                if (i + 1 < args.Length)
+                    svcPorts = args[++i];
+            }
+            else if (a.StartsWith("--ports=")) tcpPorts = a.Split('=', 2)[1];
+            else if (a.StartsWith("-p=")) tcpPorts = a.Split('=', 2)[1];
+            else if (a.StartsWith("--service=")) svcPorts = a.Split('=', 2)[1];
+            else if (a.StartsWith("-s=")) svcPorts = a.Split('=', 2)[1];
+            else if (!a.StartsWith("-")) positionals.Add(a);
+        }
+
+        target = positionals.FirstOrDefault() ?? "";
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            AnsiConsole.MarkupLine("[red]请指定扫描目标[/]");
+            return 1;
         }
 
         var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
@@ -467,13 +471,25 @@ public class CliApp
         for (int i = 1; i < args.Length; i++)
         {
             if (args[i] == "--port" && i + 1 < args.Length)
-                port = int.Parse(args[++i]);
+            {
+                if (!int.TryParse(args[++i], out port) || port is < 1 or > 65535)
+                    return CliError("端口号必须是 1-65535 的整数");
+            }
             else if (args[i].StartsWith("--port="))
-                port = int.Parse(args[i].Split('=', 2)[1]);
+            {
+                if (!int.TryParse(args[i].Split('=', 2)[1], out port) || port is < 1 or > 65535)
+                    return CliError("端口号必须是 1-65535 的整数");
+            }
             else if (args[i] == "--timeout-ms" && i + 1 < args.Length)
-                timeout = int.Parse(args[++i]);
+            {
+                if (!int.TryParse(args[++i], out timeout) || timeout <= 0)
+                    return CliError("超时时间必须是正整数");
+            }
             else if (args[i].StartsWith("--timeout-ms="))
-                timeout = int.Parse(args[i].Split('=', 2)[1]);
+            {
+                if (!int.TryParse(args[i].Split('=', 2)[1], out timeout) || timeout <= 0)
+                    return CliError("超时时间必须是正整数");
+            }
         }
 
         var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
@@ -970,7 +986,9 @@ public class CliApp
             AnsiConsole.MarkupLine("[red]请指定目标 IP[/]");
             return 1;
         }
-        var target = args[0];
+        var target = args.FirstOrDefault(a => !a.StartsWith("-")) ?? "";
+        if (string.IsNullOrWhiteSpace(target))
+            return CliError("请指定目标 IP");
         var showAll = args.Any(a => a == "--all");
         var useNmap = args.Any(a => a == "--use-nmap");
 
@@ -1678,6 +1696,12 @@ public class CliApp
 
     private static string Escape(string text) =>
         Markup.Escape(text).Replace("[", "[[").Replace("]", "]]");
+
+    private static int CliError(string message)
+    {
+        AnsiConsole.MarkupLine($"[red]{Escape(message)}[/]");
+        return 1;
+    }
 
     private static string FindFile(string relativePath)
     {

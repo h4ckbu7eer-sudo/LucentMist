@@ -36,7 +36,7 @@ public class ReportGenerator
     };
 
     private static string ToJson(ScanReport r) => JsonSerializer.Serialize(r,
-        new JsonSerializerOptions { WriteIndented = true, Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping });
+        new JsonSerializerOptions { WriteIndented = true });
 
     // ==================== CSV ====================
     private static string ToCsv(ScanReport r)
@@ -50,13 +50,19 @@ public class ReportGenerator
             sb.AppendLine("无漏洞,,,,,,");
         return sb.ToString();
     }
-    private static string CsvEscape(string s) => $"\"{(s ?? "").Replace("\"", "\"\"")}\"";
+    private static string CsvEscape(string s)
+    {
+        var value = s ?? "";
+        if (value.Length > 0 && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r')
+            value = "'" + value;
+        return $"\"{value.Replace("\"", "\"\"")}\"";
+    }
 
     // ==================== MARKDOWN ====================
     private static string ToMarkdown(ScanReport r)
     {
         var sb = new StringBuilder();
-        sb.AppendLine($"# 🌫️ {r.Title}\n> {r.Target} · {r.GeneratedAt:yyyy-MM-dd HH:mm} · {r.ScanDuration}\n");
+        sb.AppendLine($"# 🌫️ {MdEscape(r.Title)}\n> {MdEscape(r.Target)} · {r.GeneratedAt:yyyy-MM-dd HH:mm} · {MdEscape(r.ScanDuration)}\n");
 
         // 层1: 摘要
         sb.AppendLine("## 📊 紧急摘要");
@@ -237,7 +243,7 @@ code{{background:var(--surface2);padding:.1rem .4rem;border-radius:3px;font-size
 footer{{text-align:center;padding:2rem 0;color:var(--muted);font-size:.75rem;border-top:1px solid rgba(255,255,255,.04);margin-top:3rem}}
 details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;background:var(--surface2);border-radius:8px;font-weight:600;font-size:.85rem;user-select:none;list-style:none}}details summary::before{{content:'▶ ';font-size:.7rem;margin-right:.4rem}}details[open] summary::before{{content:'▼ '}}details[open] summary{{border-radius:8px 8px 0 0}}details table{{margin-top:0}}details[open] table{{margin-top:0}}.nvd-link{{color:var(--cyan);text-decoration:none;word-break:break-all;font-size:.78rem}}.nvd-link:hover{{text-decoration:underline;color:#5ee8d4}}.filter-note{{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:.6rem 1rem;font-size:.82rem;color:#fbbf24;margin-top:.5rem;text-align:center}}@media(max-width:768px){{.stats,.urgent-summary{{grid-template-columns:repeat(2,1fr)}}.urgent-grid{{grid-template-columns:1fr}}h1{{font-size:1.5rem}}}}
 </style></head><body><div class='container'>
-<header><h1>🌫️ {E(r.Title)}</h1><p class='meta'>{E(r.Target)} · {r.GeneratedAt:yyyy-MM-dd HH:mm:ss} · 耗时 {r.ScanDuration}</p></header>
+<header><h1>🌫️ {E(r.Title)}</h1><p class='meta'>{E(r.Target)} · {r.GeneratedAt:yyyy-MM-dd HH:mm:ss} · 耗时 {E(r.ScanDuration)}</p></header>
 <div class='stats'>
   <div class='stat-card devices'><div class='val'>{r.TotalDevices}</div><div class='lbl'>总设备</div></div>
   <div class='stat-card online'><div class='val'>{r.OnlineDevices}</div><div class='lbl'>在线</div></div>
@@ -331,7 +337,12 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
     }
 
     private static string MdEscape(string s) =>
-        (s ?? "").Replace("|", "\\|").Replace("\r", " ").Replace("\n", " ");
+        (s ?? "")
+            .Replace("\\", "\\\\")
+            .Replace("`", "\\`")
+            .Replace("|", "\\|")
+            .Replace("\r", " ")
+            .Replace("\n", " ");
 
     private static string RiskEmoji(string r) => NormalizeRisk(r) switch
     {
