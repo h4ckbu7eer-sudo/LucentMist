@@ -7,6 +7,7 @@ using LucentMist.Web.Hubs;
 using Microsoft.AspNetCore.SignalR;
 
 var builder = WebApplication.CreateBuilder(args);
+var maintenanceOwner = Environment.GetEnvironmentVariable("LMIST_DB_MAINTENANCE_OWNER") ?? "both";
 
 builder.Services.AddRazorComponents().AddInteractiveServerComponents();
 builder.Services.AddSignalR();
@@ -44,7 +45,8 @@ builder.Services.AddSingleton<IScanCoordinator>(sp =>
 builder.Services.AddSingleton<IScanProgressPublisher>(sp =>
     new SignalRScanProgressPublisher(sp.GetRequiredService<IHubContext<ScanHub>>()));
 builder.Services.AddHostedService<ScanWorker>();
-builder.Services.AddHostedService<DatabaseMaintenanceService>();
+if (maintenanceOwner is "both" or "web")
+    builder.Services.AddHostedService<DatabaseMaintenanceService>();
 
 var app = builder.Build();
 

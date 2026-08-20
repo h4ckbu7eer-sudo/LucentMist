@@ -8,6 +8,7 @@ var llmProvider = Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? "o
 var llmModel = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b";
 var llmEndpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? "http://localhost:11434";
 var appVersion = LucentMist.Core.AppVersion.Current;
+var maintenanceOwner = Environment.GetEnvironmentVariable("LMIST_DB_MAINTENANCE_OWNER") ?? "both";
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -35,7 +36,8 @@ builder.Services.AddSingleton<IScanCoordinator>(sp =>
     sp.GetRequiredService<ScanCoordinator>());
 builder.Services.AddSingleton<IScanProgressPublisher>(_ => NullScanProgressPublisher.Instance);
 builder.Services.AddHostedService<ScanWorker>();
-builder.Services.AddHostedService<DatabaseMaintenanceService>();
+if (maintenanceOwner is "both" or "api")
+    builder.Services.AddHostedService<DatabaseMaintenanceService>();
 
 // Agent: LLM Provider + 工具注册（配置走环境变量，默认 Ollama）
 builder.Services.AddHttpClient("Ollama", client =>
