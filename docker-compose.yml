@@ -28,6 +28,7 @@ services:
       - LMIST_RETENTION_DAYS=${LMIST_RETENTION_DAYS:-90}
       - LMIST_CLEANUP_HOURS=${LMIST_CLEANUP_HOURS:-24}
       - LMIST_DB_VACUUM=${LMIST_DB_VACUUM:-0}
+      - LMIST_DB_MAINTENANCE_OWNER=api
     restart: unless-stopped
     networks:
       - lucentmist-net
@@ -59,6 +60,7 @@ services:
       - LMIST_RETENTION_DAYS=${LMIST_RETENTION_DAYS:-90}
       - LMIST_CLEANUP_HOURS=${LMIST_CLEANUP_HOURS:-24}
       - LMIST_DB_VACUUM=${LMIST_DB_VACUUM:-0}
+      - LMIST_DB_MAINTENANCE_OWNER=api
     command: ["dotnet", "web/LucentMist.Web.dll", "5051"]
     depends_on:
       lucentmist:
