@@ -53,28 +53,39 @@ public class ScanStore
         cmd.ExecuteNonQuery();
     }
 
-    private static void EnsurePortsColumn(SqliteConnection conn)
-    {
-        using var check = conn.CreateCommand();
-        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('scan_tasks') WHERE name = 'ports'";
-        var hasPorts = Convert.ToInt64(check.ExecuteScalar()) > 0;
-        if (hasPorts) return;
+    private static void EnsurePortsColumn(SqliteConnection conn) =>
+        AddColumnIfMissing(conn, "ports", "TEXT NOT NULL DEFAULT ''");
 
-        using var migrate = conn.CreateCommand();
-        migrate.CommandText = "ALTER TABLE scan_tasks ADD COLUMN ports TEXT NOT NULL DEFAULT ''";
-        migrate.ExecuteNonQuery();
+    private static void EnsureHeartbeatColumn(SqliteConnection conn) =>
+        AddColumnIfMissing(conn, "heartbeat_at", "TEXT");
+
+    private static void AddColumnIfMissing(
+        SqliteConnection conn, string column, string definition)
+    {
+        if (HasColumn(conn, column)) return;
+
+        try
+        {
+            using var migrate = conn.CreateCommand();
+            migrate.CommandText =
+                $"ALTER TABLE scan_tasks ADD COLUMN {column} {definition}";
+            migrate.ExecuteNonQuery();
+        }
+        catch (SqliteException)
+        {
+            // Another process may have completed the same migration between the
+            // existence check and ALTER TABLE. Re-check before surfacing errors.
+            if (!HasColumn(conn, column)) throw;
+        }
     }
 
-    private static void EnsureHeartbeatColumn(SqliteConnection conn)
+    private static bool HasColumn(SqliteConnection conn, string column)
     {
         using var check = conn.CreateCommand();
-        check.CommandText = "SELECT COUNT(*) FROM pragma_table_info('scan_tasks') WHERE name = 'heartbeat_at'";
-        var hasHeartbeat = Convert.ToInt64(check.ExecuteScalar()) > 0;
-        if (hasHeartbeat) return;
-
-        using var migrate = conn.CreateCommand();
-        migrate.CommandText = "ALTER TABLE scan_tasks ADD COLUMN heartbeat_at TEXT";
-        migrate.ExecuteNonQuery();
+        check.CommandText =
+            "SELECT COUNT(*) FROM pragma_table_info('scan_tasks') WHERE name = $column";
+        check.Parameters.AddWithValue("$column", column);
+        return Convert.ToInt64(check.ExecuteScalar()) > 0;
     }
 
     private SqliteConnection Open()
@@ -182,7 +193,7 @@ public class ScanStore
                 status = 'failed',
                 completed_at = COALESCE(completed_at, $now),
                 error_message = COALESCE(error_message, $error)
-            WHERE status IN ('pending', 'running')
+            WHERE status = 'running'
               AND COALESCE(heartbeat_at, started_at, created_at) < $stale_before
             """;
         cmd.Parameters.AddWithValue("$now", DateTime.UtcNow.ToString("O"));
