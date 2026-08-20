@@ -23,6 +23,7 @@ services:
       - LMIST_LLM_APIKEY=${LMIST_LLM_APIKEY:-}
       - LMIST_BIND_ADDRESS=0.0.0.0
       - LMIST_API_TOKEN=${LMIST_API_TOKEN:-}
+      - LMIST_DB=/app/data/lucentmist.db
       - LMIST_LOG_FILE=logs/lucentmist-api.log
       - LMIST_MAX_CONNECTIONS=${LMIST_MAX_CONNECTIONS:-512}
       - LMIST_RETENTION_DAYS=${LMIST_RETENTION_DAYS:-90}
@@ -55,6 +56,7 @@ services:
       - LMIST_WEB_BIND=0.0.0.0
       - LMIST_WEB_USER=${LMIST_WEB_USER:-}
       - LMIST_WEB_PASSWORD=${LMIST_WEB_PASSWORD:-}
+      - LMIST_DB=/app/data/lucentmist.db
       - LMIST_LOG_FILE=logs/lucentmist-web.log
       - LMIST_MAX_CONNECTIONS=${LMIST_MAX_CONNECTIONS:-512}
       - LMIST_RETENTION_DAYS=${LMIST_RETENTION_DAYS:-90}
