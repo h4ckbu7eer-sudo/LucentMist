@@ -100,6 +100,27 @@ public class ScanStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task MarkStaleTasksFailedAsync_DoesNotFailQueuedPendingTasks()
+    {
+        var rec = await _store.CreateAsync("10.0.0.1", "tcp", "80");
+
+        using (var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText =
+                "UPDATE scan_tasks SET created_at = $old, heartbeat_at = $old WHERE id = $id";
+            cmd.Parameters.AddWithValue("$old", DateTime.UtcNow.AddMinutes(-10).ToString("O"));
+            cmd.Parameters.AddWithValue("$id", rec.Id);
+            cmd.ExecuteNonQuery();
+        }
+
+        await _store.MarkStaleTasksFailedAsync("stale", TimeSpan.FromMinutes(2));
+
+        Assert.Equal("pending", (await _store.GetAsync(rec.Id))!.Status);
+    }
+
+    [Fact]
     public async Task ListAsync_ReturnsNewestFirst()
     {
         var a = await _store.CreateAsync("10.0.0.1", "ping", "");
