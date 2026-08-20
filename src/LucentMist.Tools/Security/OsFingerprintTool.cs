@@ -87,6 +87,10 @@ public class OsFingerprintTool : ITool
             _logger.LogInformation("OsFingerprint done: {Target} → {Os} ({Conf}%)", target, osFamily, confidence);
             return ToolResult.Ok(JsonSerializer.Serialize(result), sw.Elapsed);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             return ToolResult.Fail(ex.Message, sw.Elapsed);

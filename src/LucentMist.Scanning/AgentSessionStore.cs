@@ -204,7 +204,7 @@ public class AgentSessionStore
         cmd.CommandText = """
             SELECT id, title, model, created_at, updated_at, message_count, summary
             FROM agent_sessions
-            ORDER BY updated_at DESC
+            ORDER BY updated_at DESC, rowid DESC
             LIMIT $size OFFSET $offset
             """;
         cmd.Parameters.AddWithValue("$size", size);
@@ -260,7 +260,7 @@ public class AgentSessionStore
             SELECT id, session_id, role, content, tool_calls, created_at
             FROM agent_messages
             WHERE session_id = $id
-            ORDER BY created_at
+            ORDER BY created_at, rowid
             """;
         cmd.Parameters.AddWithValue("$id", sessionId);
 

@@ -48,6 +48,10 @@ public class SiriusTool : ITool
 
             return ToolResult.Ok(JsonSerializer.Serialize(data), sw.Elapsed);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             return ToolResult.Fail(ex.Message, sw.Elapsed);

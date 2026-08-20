@@ -45,9 +45,9 @@ public class OllamaProvider : ILLMProvider
         };
 
         var json = JsonSerializer.Serialize(body);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var response = await _http.PostAsync("/api/chat", content, ct);
+        using var response = await _http.PostAsync("/api/chat", content, ct);
         response.EnsureSuccessStatusCode();
 
         var responseJson = await response.Content.ReadAsStringAsync(ct);
@@ -82,9 +82,9 @@ public class OllamaProvider : ILLMProvider
         };
 
         var json = JsonSerializer.Serialize(body);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var response = await _http.PostAsync("/api/chat", content, ct);
+        using var response = await _http.PostAsync("/api/chat", content, ct);
         response.EnsureSuccessStatusCode();
 
         var responseJson = await response.Content.ReadAsStringAsync(ct);
@@ -100,7 +100,7 @@ public class OllamaProvider : ILLMProvider
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
             timeout.CancelAfter(TimeSpan.FromSeconds(2));
-            var response = await _http.GetAsync("/api/tags", timeout.Token);
+            using var response = await _http.GetAsync("/api/tags", timeout.Token);
             if (!response.IsSuccessStatusCode)
                 throw new InvalidOperationException(
                     $"Ollama 服务不可达（{_http.BaseAddress}），请确认已运行：ollama serve");

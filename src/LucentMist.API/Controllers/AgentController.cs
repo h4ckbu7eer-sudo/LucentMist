@@ -14,6 +14,8 @@ namespace LucentMist.API.Controllers;
 [Route("api/v1/agent")]
 public class AgentController : ControllerBase
 {
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> SessionLocks = new();
+
     private readonly ILLMProvider _llm;
     private readonly ToolRegistry _tools;
     private readonly AgentSessionStore _sessions;
@@ -55,81 +57,90 @@ public class AgentController : ControllerBase
             ?? await _sessions.CreateSessionAsync(
                 "Agent 会话",
                 Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b");
-        await _sessions.AddMessageAsync(session.Id, "user", request.Message);
-        yield return Sse("session", Json(new { sessionId = session.Id }));
-
-        // 注入本机 IP，防止 LLM 猜测错误网段（与 CLI 保持一致）
-        var message = InjectLocalNetworkInfo(request.Message);
-
-        var systemPrompt = LoadSystemPrompt();
-
-        var engine = new ReActEngine(_llm, _tools, systemPrompt, _loggerFactory.CreateLogger<ReActEngine>())
-        {
-            MaxRounds = 5,
-        };
-
-        ReActResult? result = null;
-        string? runError = null;
-        var canceled = false;
+        var sessionLock = SessionLocks.GetOrAdd(session.Id, _ => new SemaphoreSlim(1, 1));
+        await sessionLock.WaitAsync(ct);
         try
         {
-            result = await engine.RunAsync(message, ct);
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            canceled = true;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Agent 执行失败");
-            runError = ex.Message;
-        }
+            await _sessions.AddMessageAsync(session.Id, "user", request.Message);
+            yield return Sse("session", Json(new { sessionId = session.Id }));
 
-        if (canceled)
-        {
-            yield return Sse("error", Json(new { content = "连接已断开", done = true }));
-            yield break;
-        }
+            // 注入本机 IP，防止 LLM 猜测错误网段（与 CLI 保持一致）
+            var message = InjectLocalNetworkInfo(request.Message);
 
-        if (runError != null)
-        {
-            await _sessions.AddMessageAsync(session.Id, "assistant", $"Agent 执行失败: {runError}");
-            yield return Sse("error", Json(new { content = $"Agent 执行失败: {runError}", done = true }));
-            yield break;
-        }
+            var systemPrompt = LoadSystemPrompt();
 
-        // 回放推理过程（thought → action+observation）
-        for (int i = 0; i < engine.ThoughtLog.Count; i++)
-        {
-            await _sessions.AddMessageAsync(session.Id, "assistant", engine.ThoughtLog[i]);
-            yield return Sse("thought", Json(new { content = engine.ThoughtLog[i] }));
-
-            foreach (var obs in engine.ObservationsForRound(i + 1))
+            var engine = new ReActEngine(_llm, _tools, systemPrompt, _loggerFactory.CreateLogger<ReActEngine>())
             {
-                await _sessions.AddMessageAsync(
-                    session.Id,
-                    "tool",
-                    obs.Result,
-                    JsonSerializer.Serialize(new { tool = obs.ToolName, input = obs.Input, success = obs.Success }));
-                yield return Sse("action", Json(new
-                {
-                    tool = obs.ToolName,
-                    input = obs.Input,
-                    success = obs.Success,
-                }));
-                yield return Sse("observation", Json(new { content = obs.Result }));
+                MaxRounds = 5,
+            };
+
+            ReActResult? result = null;
+            string? runError = null;
+            var canceled = false;
+            try
+            {
+                result = await engine.RunAsync(message, ct);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                canceled = true;
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Agent 执行失败");
+                runError = "Agent 执行失败，请检查服务日志";
+            }
+
+            if (canceled)
+            {
+                yield return Sse("error", Json(new { content = "连接已断开", done = true }));
+                yield break;
+            }
+
+            if (runError != null)
+            {
+                await _sessions.AddMessageAsync(session.Id, "assistant", runError);
+                yield return Sse("error", Json(new { content = runError, done = true }));
+                yield break;
+            }
+
+            // 回放推理过程（thought → action+observation）
+            for (int i = 0; i < engine.ThoughtLog.Count; i++)
+            {
+                await _sessions.AddMessageAsync(session.Id, "assistant", engine.ThoughtLog[i]);
+                yield return Sse("thought", Json(new { content = engine.ThoughtLog[i] }));
+
+                foreach (var obs in engine.ObservationsForRound(i + 1))
+                {
+                    await _sessions.AddMessageAsync(
+                        session.Id,
+                        "tool",
+                        obs.Result,
+                        JsonSerializer.Serialize(new { tool = obs.ToolName, input = obs.Input, success = obs.Success }));
+                    yield return Sse("action", Json(new
+                    {
+                        tool = obs.ToolName,
+                        input = obs.Input,
+                        success = obs.Success,
+                    }));
+                    yield return Sse("observation", Json(new { content = obs.Result }));
+                }
+            }
+
+            var finalContent = result!.Success ? result.Answer : $"执行失败: {result.Error}";
+            await _sessions.AddMessageAsync(session.Id, "assistant", finalContent);
+            await _sessions.UpdateTitleAsync(session.Id, TitleFrom(request.Message));
+
+            yield return Sse("message", Json(new
+            {
+                content = finalContent,
+                done = true,
+            }));
         }
-
-        var finalContent = result!.Success ? result.Answer : $"执行失败: {result.Error}";
-        await _sessions.AddMessageAsync(session.Id, "assistant", finalContent);
-        await _sessions.UpdateTitleAsync(session.Id, TitleFrom(request.Message));
-
-        yield return Sse("message", Json(new
+        finally
         {
-            content = finalContent,
-            done = true,
-        }));
+            sessionLock.Release();
+        }
     }
 
     [HttpGet("sessions")]

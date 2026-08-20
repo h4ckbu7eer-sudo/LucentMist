@@ -54,7 +54,7 @@ public class SiriusClient : IDisposable
 
         try
         {
-            var resp = await _http.GetAsync("/health");
+            using var resp = await _http.GetAsync("/health");
             IsAvailable = resp.IsSuccessStatusCode;
             if (!IsAvailable) ErrorMessage = $"Sirius 响应异常: HTTP {resp.StatusCode}";
             return IsAvailable;
@@ -76,7 +76,7 @@ public class SiriusClient : IDisposable
         try
         {
             var body = new SiriusScanRequest(target, ports, timeout);
-            var resp = await _http.PostAsJsonAsync("/api/v1/scan", body);
+            using var resp = await _http.PostAsJsonAsync("/api/v1/scan", body);
             return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<SiriusScanResponse>() : null;
         }
         catch (Exception ex) { ErrorMessage = ex.Message; return null; }
@@ -89,7 +89,7 @@ public class SiriusClient : IDisposable
     {
         try
         {
-            var resp = await _http.GetAsync($"/api/v1/scan/{taskId}");
+            using var resp = await _http.GetAsync($"/api/v1/scan/{taskId}");
             return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<SiriusTaskStatus>() : null;
         }
         catch { return null; }
@@ -102,7 +102,7 @@ public class SiriusClient : IDisposable
     {
         try
         {
-            var resp = await _http.GetAsync($"/api/v1/scan/{taskId}/result");
+            using var resp = await _http.GetAsync($"/api/v1/scan/{taskId}/result");
             return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<SiriusResult>() : null;
         }
         catch { return null; }
@@ -220,7 +220,7 @@ public class SiriusClient : IDisposable
     {
         try
         {
-            var resp = await _http.GetAsync("/host");
+            using var resp = await _http.GetAsync("/host");
             if (!resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<List<HostInfo>>();
         }
@@ -232,7 +232,7 @@ public class SiriusClient : IDisposable
     {
         try
         {
-            var resp = await _http.GetAsync($"/host/{hid}");
+            using var resp = await _http.GetAsync($"/host/{hid}");
             if (!resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<HostDetail>();
         }
@@ -247,7 +247,7 @@ public class SiriusClient : IDisposable
             var body = new Dictionary<string, object>();
             if (hostId != null) body["host_id"] = hostId;
             if (cve != null) body["cve"] = cve;
-            var resp = await _http.PostAsJsonAsync("/vulnerability", body);
+            using var resp = await _http.PostAsJsonAsync("/vulnerability", body);
             if (!resp.IsSuccessStatusCode) return null;
             var json = await resp.Content.ReadAsStringAsync();
             return JsonDocument.Parse(json).RootElement;
@@ -260,7 +260,7 @@ public class SiriusClient : IDisposable
     {
         try
         {
-            var resp = await _http.GetAsync("/host");
+            using var resp = await _http.GetAsync("/host");
             if (!resp.IsSuccessStatusCode) return null;
             return await resp.Content.ReadFromJsonAsync<List<HostInfo>>();
         }

@@ -81,6 +81,10 @@ public class SslCertificateTool : ITool
                 target, port, result.daysRemaining);
             return ToolResult.Ok(JsonSerializer.Serialize(result), sw.Elapsed);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "SslCheck failed for {Target}:{Port}", target, port);
