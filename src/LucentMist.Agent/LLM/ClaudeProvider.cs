@@ -102,9 +102,9 @@ public class ClaudeProvider : ILLMProvider
     private async Task<string> SendRequestAsync(object body, CancellationToken ct)
     {
         var json = JsonSerializer.Serialize(body);
-        var content = new StringContent(json, Encoding.UTF8, "application/json");
+        using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        var response = await _http.PostAsync("messages", content, ct);
+        using var response = await _http.PostAsync("messages", content, ct);
         response.EnsureSuccessStatusCode();
 
         var responseJson = await response.Content.ReadAsStringAsync(ct);

@@ -70,10 +70,14 @@ public class ReActEngine
             {
                 step = await _llm.ReActAsync(_systemPrompt, userQuery, Observations, toolDefs, ct);
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "LLM 调用失败");
-                return ReActResult.Fail($"LLM 调用失败: {ex.Message}", ThoughtLog, Observations);
+                return ReActResult.Fail("LLM 调用失败，请检查服务日志", ThoughtLog, Observations);
             }
 
             ThoughtLog.Add(step.Thought);
@@ -144,6 +148,10 @@ public class ReActEngine
                 {
                     await AutoIdentifyServices(toolResult.Data, toolArgs, round, ct);
                 }
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {
@@ -225,6 +233,10 @@ public class ReActEngine
                     Success = svcResult.Success
                 };
                 Observations.Add(svcObs);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
             }
             catch (Exception ex)
             {

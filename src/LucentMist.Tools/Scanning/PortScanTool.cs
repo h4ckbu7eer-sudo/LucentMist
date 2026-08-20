@@ -78,6 +78,10 @@ public class PortScanTool : ITool
             _logger.LogInformation("PortScan 完成: Open={Open}/{Total}", openPorts.Count, ports.Count);
             return ToolResult.Ok(JsonSerializer.Serialize(result), sw.Elapsed);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "PortScan 失败");
@@ -100,6 +104,10 @@ public class PortScanTool : ITool
             if (client.Connected)
                 client.Client.LingerState = new LingerOption(true, 0);
             return client.Connected;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (OperationCanceledException) { return false; }
         catch { return false; }

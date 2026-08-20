@@ -113,7 +113,7 @@ public class CveApiClient
         try
         {
             var url = $"https://cvetodo.com/api/v1/cves/search?q={svcKey}";
-            var response = await _http.GetAsync(url);
+            using var response = await _http.GetAsync(url);
             if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadAsStringAsync();
@@ -143,7 +143,7 @@ public class CveApiClient
         try
         {
             var url = $"https://cvedb.shodan.io/cves?query={svcKey}";
-            var response = await _http.GetAsync(url);
+            using var response = await _http.GetAsync(url);
             if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadAsStringAsync();
@@ -180,7 +180,7 @@ public class CveApiClient
         try
         {
             var url = $"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={Uri.EscapeDataString(service)}&resultsPerPage=5";
-            var response = await _http.GetAsync(url);
+            using var response = await _http.GetAsync(url);
             if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadAsStringAsync();
@@ -245,7 +245,7 @@ public class CveApiClient
                 _ => service.ToLower()
             };
             var body = new { queries = new[] { new { package = new { name = pkgName, ecosystem = "Debian" }, version } } };
-            var response = await _http.PostAsJsonAsync("https://api.osv.dev/v1/querybatch", body);
+            using var response = await _http.PostAsJsonAsync("https://api.osv.dev/v1/querybatch", body);
             if (!response.IsSuccessStatusCode) return null;
 
             var json = await response.Content.ReadAsStringAsync();

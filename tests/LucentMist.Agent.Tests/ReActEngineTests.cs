@@ -222,6 +222,22 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public async Task RunAsync_CanceledToken_PropagatesCancellation()
+    {
+        using var cts = new CancellationTokenSource();
+        cts.Cancel();
+
+        var engine = new ReActEngine(
+            LLMProviderFactory.Create("ollama", "llama3.1:8b", "http://localhost:11434"),
+            CreateRegistry(),
+            "prompt",
+            NullLogger<ReActEngine>.Instance);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            engine.RunAsync("test", cts.Token));
+    }
+
+    [Fact]
     public async Task RunAsync_UnknownTool_ObservesFailure()
     {
         var mockLLM = CreateMockLLM(

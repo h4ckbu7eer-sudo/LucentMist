@@ -107,6 +107,10 @@ public class ServiceIdentifyTool : ITool
                 target, port, serviceName);
             return ToolResult.Ok(JsonSerializer.Serialize(result), sw.Elapsed);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "ServiceIdentify 失败");
@@ -319,6 +323,10 @@ public class ServiceIdentifyTool : ITool
                 ? Encoding.UTF8.GetString(buffer, 0, bytesRead).Replace("\r\n", " ").Replace('\0', ' ').Trim()
                 : null;
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch
         {
             return null;
@@ -333,9 +341,13 @@ public class ServiceIdentifyTool : ITool
             var scheme = port is 443 or 8443 ? "https" : "http";
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(timeoutMs);
-            var response = await Http.GetAsync($"{scheme}://{ip}:{port}/", cts.Token);
+            using var response = await Http.GetAsync($"{scheme}://{ip}:{port}/", cts.Token);
             var serverHeader = response.Headers.Server?.ToString();
             return $"HTTP {(int)response.StatusCode} {response.StatusCode}, Server: {serverHeader ?? "unknown"}";
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {

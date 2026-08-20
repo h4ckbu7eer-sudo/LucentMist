@@ -74,6 +74,10 @@ public class UdpScanTool : ITool
             _logger.LogInformation("UdpScan done: Open={Open}/{Total}", openPorts.Count, ports.Count);
             return ToolResult.Ok(JsonSerializer.Serialize(result), sw.Elapsed);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             _logger.LogError(ex, "UdpScan failed");
@@ -108,7 +112,15 @@ public class UdpScanTool : ITool
                 var response = await client.ReceiveAsync(cts.Token);
                 return response.Buffer.Length > 0;
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
             catch (OperationCanceledException) { return false; }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {

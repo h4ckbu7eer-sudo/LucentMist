@@ -13,7 +13,7 @@ namespace LucentMist.Tools.Scanning;
 public class PingScanTool : ITool
 {
     private readonly ILogger<PingScanTool> _logger;
-    private bool _icmpBlocked;
+    private int _icmpBlocked;
 
     public string Name => "ping_scan";
     public string Description => "探测网络中存活设备，支持 CIDR 子网（如 192.168.1.0/24）";
@@ -75,13 +75,17 @@ public class PingScanTool : ITool
                 hint = alive.Count == 0
                     ? $"目标 {target} 无设备响应。请确认：1) 子网是否与当前网卡匹配 2) 防火墙是否阻止 ICMP"
                     : null,
-                icmpFallback = _icmpBlocked
+                icmpFallback = Volatile.Read(ref _icmpBlocked) != 0
                     ? "ICMP 不可用，已使用 TCP 端口探测（80/443/22/445）"
                     : null,
             };
 
             _logger.LogInformation("PingScan 完成: Alive={Alive}/{Total}", alive.Count, ips.Count);
             return ToolResult.Ok(JsonSerializer.Serialize(result), sw.Elapsed);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -170,7 +174,7 @@ public class PingScanTool : ITool
     private async Task<bool> PingHostAsync(string ip, int timeoutMs, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (!_icmpBlocked)
+        if (Volatile.Read(ref _icmpBlocked) == 0)
         {
             try
             {
@@ -187,12 +191,12 @@ public class PingScanTool : ITool
             }
             catch (PingException ex) when (IsPermissionError(ex))
             {
-                _icmpBlocked = true;
+                Volatile.Write(ref _icmpBlocked, 1);
                 _logger.LogWarning("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
             }
             catch (UnauthorizedAccessException)
             {
-                _icmpBlocked = true;
+                Volatile.Write(ref _icmpBlocked, 1);
                 _logger.LogWarning("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
             }
             catch (Exception ex)
