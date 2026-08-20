@@ -87,7 +87,7 @@
         md.AppendLine("| 状态 | 目标 | 类型 | 创建时间 | 耗时 | 摘要 |");
         md.AppendLine("|------|------|------|----------|------|------|");
         foreach (var t in _tasks)
-            md.AppendLine($"| {StatusText(t.Status)} | {t.Target} | {t.ScanType} | {t.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss} | {Duration(t)} | {Summary(t)} |");
+            md.AppendLine($"| {MdEscape(StatusText(t.Status))} | {MdEscape(t.Target)} | {MdEscape(t.ScanType)} | {t.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss} | {MdEscape(Duration(t))} | {MdEscape(Summary(t))} |");
         await Js.InvokeVoidAsync("downloadFile", "scan-history.md", md.ToString(), "text/markdown");
     }
 
@@ -98,7 +98,7 @@
         html.AppendLine("<h1>LucentMist 扫描历史</h1><table border=\"1\" cellpadding=\"6\" cellspacing=\"0\">");
         html.AppendLine("<thead><tr><th>状态</th><th>目标</th><th>类型</th><th>创建时间</th><th>耗时</th><th>摘要</th></tr></thead><tbody>");
         foreach (var t in _tasks)
-            html.AppendLine($"<tr><td>{StatusText(t.Status)}</td><td>{System.Net.WebUtility.HtmlEncode(t.Target)}</td><td>{t.ScanType}</td><td>{t.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}</td><td>{Duration(t)}</td><td>{System.Net.WebUtility.HtmlEncode(Summary(t))}</td></tr>");
+            html.AppendLine($"<tr><td>{Html(StatusText(t.Status))}</td><td>{Html(t.Target)}</td><td>{Html(t.ScanType)}</td><td>{t.CreatedAt.ToLocalTime():yyyy-MM-dd HH:mm:ss}</td><td>{Html(Duration(t))}</td><td>{Html(Summary(t))}</td></tr>");
         html.AppendLine("</tbody></table></body></html>");
         await Js.InvokeVoidAsync("downloadFile", "scan-history.html", html.ToString(), "text/html");
     }
@@ -182,4 +182,14 @@
             return json;
         }
     }
+
+    private static string Html(string value) =>
+        System.Net.WebUtility.HtmlEncode(value ?? "");
+
+    private static string MdEscape(string value) =>
+        (value ?? "")
+            .Replace("\\", "\\\\")
+            .Replace("|", "\\|")
+            .Replace("\r", " ")
+            .Replace("\n", " ");
 }
