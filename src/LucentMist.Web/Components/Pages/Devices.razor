@@ -15,20 +15,20 @@
     </div>
 </div>
 
-@if (!string.IsNullOrEmpty(State.CurrentTaskId))
+@if (!string.IsNullOrEmpty(ScanTask.CurrentTaskId))
 {
     <div class="card" style="margin-bottom:1rem;">
-        <div class="card-title">任务 @State.CurrentTaskId[..8]</div>
-        <div>@State.CurrentStatus — @State.CurrentMessage</div>
+        <div class="card-title">任务 @ScanTask.CurrentTaskId[..8]</div>
+        <div>@ScanTask.CurrentStatus — @ScanTask.CurrentMessage</div>
         <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
-            <div style="height:100%;width:@(State.ProgressPercent)%;background:var(--green);transition:width .2s;"></div>
+            <div style="height:100%;width:@(ScanTask.ProgressPercent)%;background:var(--green);transition:width .2s;"></div>
         </div>
     </div>
 }
 
-@if (State.LastError != null)
+@if (ScanTask.LastError != null)
 {
-    <div class="card" style="margin-bottom:1rem;"><div style="color:var(--red);font-weight:600;">@State.LastError</div></div>
+    <div class="card" style="margin-bottom:1rem;"><div style="color:var(--red);font-weight:600;">@ScanTask.LastError</div></div>
 }
 
 @if (State.Devices.Count > 0)
@@ -70,19 +70,13 @@
         _scanningIp = null;
         State.Devices.Clear();
         State.DeviceScanTarget = _target;
-        State.LastError = null;
-        State.CurrentTaskId = "";
         try
         {
             await ScanTask.StartAsync(_target, "ping", "");
-            State.CurrentTaskId = ScanTask.TaskId;
-            State.CurrentStatus = "pending";
-            State.CurrentMessage = "等待队列";
-            State.ProgressPercent = 0;
         }
         catch (Exception ex)
         {
-            State.LastError = ex.Message;
+            ScanTask.SetStartupError(ex.Message);
             _busy = false;
         }
     }
@@ -91,28 +85,19 @@
     {
         _busy = true;
         _scanningIp = dev.Ip;
-        State.LastError = null;
-        State.CurrentTaskId = "";
         try
         {
             await ScanTask.StartAsync(dev.Ip, "tcp", "1-1000");
-            State.CurrentTaskId = ScanTask.TaskId;
-            State.CurrentStatus = "pending";
-            State.CurrentMessage = "等待队列";
-            State.ProgressPercent = 0;
         }
         catch (Exception ex)
         {
-            State.LastError = ex.Message;
+            ScanTask.SetStartupError(ex.Message);
             _busy = false;
         }
     }
 
     private void OnProgress(ScanProgressEvent evt)
     {
-        State.CurrentStatus = evt.Status;
-        State.CurrentMessage = evt.Message;
-        State.ProgressPercent = evt.Percent;
         _ = InvokeAsync(StateHasChanged);
     }
 
@@ -121,10 +106,6 @@
         try
         {
             _busy = false;
-            State.CurrentStatus = "completed";
-            State.CurrentMessage = "完成";
-            State.ProgressPercent = 100;
-            State.LastError = null;
 
             if (rec.ScanType == "ping")
                 ApplyDevices(rec);
@@ -133,7 +114,7 @@
         }
         catch (Exception ex)
         {
-            State.LastError = ex.Message;
+            ScanTask.SetStartupError(ex.Message);
         }
         finally
         {
@@ -146,10 +127,6 @@
         try
         {
             _busy = false;
-            State.CurrentStatus = "failed";
-            State.CurrentMessage = "失败";
-            State.ProgressPercent = 100;
-            State.LastError = error;
         }
         finally
         {

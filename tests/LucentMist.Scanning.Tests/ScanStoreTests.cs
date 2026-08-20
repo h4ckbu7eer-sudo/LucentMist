@@ -64,6 +64,42 @@ public class ScanStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task MarkStaleTasksFailedAsync_IgnoresRecentHeartbeat()
+    {
+        var rec = await _store.CreateAsync("10.0.0.1", "tcp", "80");
+        await _store.MarkRunningAsync(rec.Id);
+
+        await _store.MarkStaleTasksFailedAsync("stale", TimeSpan.FromMinutes(2));
+
+        var loaded = await _store.GetAsync(rec.Id);
+        Assert.Equal("running", loaded!.Status);
+    }
+
+    [Fact]
+    public async Task MarkStaleTasksFailedAsync_FailsOnlyHeartbeatsOlderThanCutoff()
+    {
+        var recent = await _store.CreateAsync("10.0.0.1", "tcp", "80");
+        var stale = await _store.CreateAsync("10.0.0.2", "tcp", "443");
+        await _store.MarkRunningAsync(recent.Id);
+        await _store.MarkRunningAsync(stale.Id);
+
+        using (var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False"))
+        {
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE scan_tasks SET heartbeat_at = $old WHERE id = $id";
+            cmd.Parameters.AddWithValue("$old", DateTime.UtcNow.AddMinutes(-3).ToString("O"));
+            cmd.Parameters.AddWithValue("$id", stale.Id);
+            cmd.ExecuteNonQuery();
+        }
+
+        await _store.MarkStaleTasksFailedAsync("stale", TimeSpan.FromMinutes(2));
+
+        Assert.Equal("running", (await _store.GetAsync(recent.Id))!.Status);
+        Assert.Equal("failed", (await _store.GetAsync(stale.Id))!.Status);
+    }
+
+    [Fact]
     public async Task ListAsync_ReturnsNewestFirst()
     {
         var a = await _store.CreateAsync("10.0.0.1", "ping", "");

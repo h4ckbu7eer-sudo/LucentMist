@@ -41,20 +41,20 @@
     </div>
 </div>
 
-@if (!string.IsNullOrEmpty(State.CurrentTaskId))
+@if (!string.IsNullOrEmpty(ScanTask.CurrentTaskId))
 {
     <div class="card">
-        <div class="card-title">任务 @State.CurrentTaskId[..8]</div>
-        <div>@State.CurrentStatus — @State.CurrentMessage</div>
+        <div class="card-title">任务 @ScanTask.CurrentTaskId[..8]</div>
+        <div>@ScanTask.CurrentStatus — @ScanTask.CurrentMessage</div>
         <div style="height:8px;background:var(--border);border-radius:4px;overflow:hidden;margin-top:0.5rem;">
-            <div style="height:100%;width:@(State.ProgressPercent)%;background:var(--green);transition:width .2s;"></div>
+            <div style="height:100%;width:@(ScanTask.ProgressPercent)%;background:var(--green);transition:width .2s;"></div>
         </div>
     </div>
 }
 
-@if (State.LastError != null)
+@if (ScanTask.LastError != null)
 {
-    <div class="card"><div style="color:var(--red);font-weight:600;">@State.LastError</div></div>
+    <div class="card"><div style="color:var(--red);font-weight:600;">@ScanTask.LastError</div></div>
 }
 
 @if (State.LastResults.Count > 0)
@@ -72,15 +72,20 @@
 @code {
     private string _target = "127.0.0.1";
     private bool _busy;
+    private bool _subscribed;
+    private bool _disposed;
     private Action<ScanTaskRecord>? _completedHandler;
     private Action<string>? _failedHandler;
 
     protected override async Task OnInitializedAsync()
     {
+        Subscribe();
+
         try
         {
             var client = HttpFactory.CreateClient("AgentApi");
             var cfg = await client.GetFromJsonAsync<JsonElement>("/api/v1/config");
+            if (_disposed) return;
             if (cfg.TryGetProperty("llm", out var llm) &&
                 llm.TryGetProperty("provider", out var provider))
                 State.LlmProvider = provider.GetString() ?? "ReAct + LLM";
@@ -89,7 +94,12 @@
         {
             // 配置读取失败时保留中性显示，不阻塞页面。
         }
+    }
 
+    private void Subscribe()
+    {
+        if (_subscribed) return;
+        _subscribed = true;
         ScanTask.Progress += OnProgress;
         _completedHandler = rec => _ = OnCompletedAsync(rec);
         _failedHandler = error => _ = OnFailedAsync(error);
@@ -101,28 +111,19 @@
     {
         _busy = true;
         State.LastResults.Clear();
-        State.LastError = null;
-        State.CurrentTaskId = "";
         try
         {
             await ScanTask.StartAsync(_target, "ping", "");
-            State.CurrentTaskId = ScanTask.TaskId;
-            State.CurrentStatus = "pending";
-            State.CurrentMessage = "等待队列";
-            State.ProgressPercent = 0;
         }
         catch (Exception ex)
         {
-            State.LastError = ex.Message;
+            ScanTask.SetStartupError(ex.Message);
             _busy = false;
         }
     }
 
     private void OnProgress(ScanProgressEvent evt)
     {
-        State.CurrentStatus = evt.Status;
-        State.CurrentMessage = evt.Message;
-        State.ProgressPercent = evt.Percent;
         _ = InvokeAsync(StateHasChanged);
     }
 
@@ -131,17 +132,13 @@
         try
         {
             _busy = false;
-            State.CurrentStatus = "completed";
-            State.CurrentMessage = "完成";
-            State.ProgressPercent = 100;
-            State.LastError = null;
             ApplyResult(rec);
             State.ScanCount++;
             State.LastScanTarget = rec.Target;
         }
         catch (Exception ex)
         {
-            State.LastError = ex.Message;
+            ScanTask.SetStartupError(ex.Message);
         }
         finally
         {
@@ -154,10 +151,6 @@
         try
         {
             _busy = false;
-            State.CurrentStatus = "failed";
-            State.CurrentMessage = "失败";
-            State.ProgressPercent = 100;
-            State.LastError = error;
         }
         finally
         {
@@ -195,6 +188,7 @@
 
     public async ValueTask DisposeAsync()
     {
+        _disposed = true;
         ScanTask.Progress -= OnProgress;
         if (_completedHandler != null) ScanTask.Completed -= _completedHandler;
         if (_failedHandler != null) ScanTask.Failed -= _failedHandler;

@@ -22,13 +22,6 @@ public class AppState
     public string ScanType { get; set; } = "tcp";
     public string LlmProvider { get; set; } = "Ollama";
 
-    // 当前后台任务
-    public string CurrentTaskId { get; set; } = "";
-    public string CurrentStatus { get; set; } = "";
-    public string CurrentMessage { get; set; } = "";
-    public int ProgressPercent { get; set; }
-    public string? LastError { get; set; }
-
     // SSL
     public SslState? SslResult { get; set; }
 

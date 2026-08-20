@@ -15,7 +15,12 @@ public sealed class ScanTaskClient : IAsyncDisposable
     private readonly NavigationManager _navigation;
     private readonly CancellationTokenSource _cts = new();
     private HubConnection? _hub;
+    private Task? _pollTask;
     private string _taskId = "";
+    private string _target = "";
+    private string _scanType = "";
+    private string _ports = "";
+    private int _version;
     private int _finalRaised;
     private bool _disposed;
 
@@ -30,6 +35,23 @@ public sealed class ScanTaskClient : IAsyncDisposable
     }
 
     public string TaskId => _taskId;
+    public string CurrentTaskId => _taskId;
+    public string CurrentStatus { get; private set; } = "";
+    public string CurrentMessage { get; private set; } = "";
+    public int ProgressPercent { get; private set; }
+    public string? LastError { get; private set; }
+
+    public void SetStartupError(string error)
+    {
+        _taskId = "";
+        _target = "";
+        _scanType = "";
+        _ports = "";
+        CurrentStatus = "failed";
+        CurrentMessage = "失败";
+        ProgressPercent = 0;
+        LastError = error;
+    }
 
     public event Action<ScanProgressEvent>? Progress;
     public event Action<ScanTaskRecord>? Completed;
@@ -39,9 +61,17 @@ public sealed class ScanTaskClient : IAsyncDisposable
         string target, string scanType, string ports, CancellationToken ct = default)
     {
         var hub = await GetHubAsync(ct);
+        var version = Interlocked.Increment(ref _version);
         _taskId = await _coordinator.StartAsync(target, scanType, ports, ct);
+        _target = target;
+        _scanType = scanType;
+        _ports = ports;
         _finalRaised = 0;
-        _ = PollUntilFinalAsync();
+        CurrentStatus = "pending";
+        CurrentMessage = "等待队列";
+        ProgressPercent = 0;
+        LastError = null;
+        _pollTask = PollUntilFinalAsync(_taskId, version);
         await hub.InvokeAsync("JoinScanGroup", _taskId, ct);
         return _taskId;
     }
@@ -55,14 +85,27 @@ public sealed class ScanTaskClient : IAsyncDisposable
             .WithAutomaticReconnect()
             .Build();
 
+        _hub.Reconnected += _ => RejoinScanGroupAsync();
+
         _hub.On<ScanProgressEvent>("ScanProgress", evt =>
         {
             if (evt.TaskId != _taskId) return;
+            CurrentStatus = evt.Status;
+            CurrentMessage = evt.Message;
+            ProgressPercent = evt.Percent;
             Progress?.Invoke(evt);
             if (evt.Status is "completed" or "failed")
             {
                 if (evt.Status == "completed")
-                    RaiseFinal(new ScanTaskRecord { Id = _taskId, Status = "completed", ResultJson = evt.ResultJson });
+                    RaiseFinal(new ScanTaskRecord
+                    {
+                        Id = _taskId,
+                        Target = _target,
+                        ScanType = _scanType,
+                        Ports = _ports,
+                        Status = "completed",
+                        ResultJson = evt.ResultJson
+                    });
                 else
                     RaiseFinal(null, evt.Message);
             }
@@ -72,16 +115,32 @@ public sealed class ScanTaskClient : IAsyncDisposable
         return _hub;
     }
 
-    private async Task PollUntilFinalAsync()
+    private async Task RejoinScanGroupAsync()
+    {
+        if (_disposed || _hub is null || string.IsNullOrEmpty(_taskId)) return;
+
+        try
+        {
+            await _hub.InvokeAsync("JoinScanGroup", _taskId);
+        }
+        catch
+        {
+            // The client keeps its polling fallback, so a failed rejoin is not fatal.
+        }
+    }
+
+    private async Task PollUntilFinalAsync(string taskId, int version)
     {
         try
         {
-            while (!_cts.IsCancellationRequested)
+            while (!_cts.IsCancellationRequested &&
+                   version == Volatile.Read(ref _version))
             {
-                var rec = await _store.GetAsync(_taskId);
+                var rec = await _store.GetAsync(taskId);
                 if (rec is null) return;
                 if (rec.Status is "completed" or "failed")
                 {
+                    if (version != Volatile.Read(ref _version)) return;
                     if (rec.Status == "completed")
                         RaiseFinal(rec);
                     else
@@ -94,10 +153,11 @@ public sealed class ScanTaskClient : IAsyncDisposable
         }
         catch (OperationCanceledException)
         {
-            // 页面已关闭，正常结束。
+            // Page or client disposed; the polling task is expected to stop.
         }
         catch (Exception ex)
         {
+            if (_disposed) return;
             RaiseFinal(null, ex.Message);
         }
     }
@@ -107,9 +167,21 @@ public sealed class ScanTaskClient : IAsyncDisposable
         if (Interlocked.Exchange(ref _finalRaised, 1) == 1) return;
 
         if (rec is { Status: "completed" } && rec.ResultJson is not null)
+        {
+            CurrentStatus = "completed";
+            CurrentMessage = "完成";
+            ProgressPercent = 100;
+            LastError = null;
             Completed?.Invoke(rec);
+        }
         else
-            Failed?.Invoke(error ?? "扫描未完成");
+        {
+            CurrentStatus = "failed";
+            CurrentMessage = "失败";
+            ProgressPercent = 100;
+            LastError = error ?? "扫描未完成";
+            Failed?.Invoke(LastError);
+        }
     }
 
     public async ValueTask DisposeAsync()
@@ -118,6 +190,17 @@ public sealed class ScanTaskClient : IAsyncDisposable
         _disposed = true;
 
         _cts.Cancel();
+        if (_pollTask is not null)
+        {
+            try
+            {
+                await _pollTask;
+            }
+            catch
+            {
+                // Polling is best-effort and is being torn down.
+            }
+        }
         if (_hub is not null)
         {
             await _hub.DisposeAsync();

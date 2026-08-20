@@ -43,7 +43,9 @@ public sealed class ScanWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _logger.LogInformation("ScanWorker 启动，等待扫描任务");
-        await _store.MarkStaleTasksFailedAsync("服务重启，未完成的任务已标记失败");
+        await _store.MarkStaleTasksFailedAsync(
+            "服务重启，未收到心跳的旧任务已标记失败",
+            TimeSpan.FromMinutes(2));
 
         await foreach (var req in _coordinator.Reader.ReadAllAsync(stoppingToken))
         {
@@ -81,6 +83,9 @@ public sealed class ScanWorker : BackgroundService
         await _store.MarkRunningAsync(req.TaskId);
         await PublishAsync(req.TaskId, "running", "任务开始", 5, ct);
 
+        using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        var heartbeatTask = HeartbeatAsync(req.TaskId, heartbeatCts.Token);
+
         try
         {
             var lf = _loggerFactory;
@@ -117,6 +122,18 @@ public sealed class ScanWorker : BackgroundService
             _logger.LogError(ex, "扫描异常: TaskId={TaskId}", req.TaskId);
             await _store.MarkFailedAsync(req.TaskId, ex.Message);
             await PublishAsync(req.TaskId, "failed", ex.Message, 100, CancellationToken.None);
+        }
+        finally
+        {
+            heartbeatCts.Cancel();
+            try
+            {
+                await heartbeatTask;
+            }
+            catch
+            {
+                // Heartbeat is best-effort and stops with the scan.
+            }
         }
     }
 
@@ -195,6 +212,25 @@ public sealed class ScanWorker : BackgroundService
         });
 
         return new ScanOutcome(resultJson, totalDevices);
+    }
+
+    private async Task HeartbeatAsync(string taskId, CancellationToken ct)
+    {
+        try
+        {
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(30), ct);
+                await _store.MarkHeartbeatAsync(taskId);
+            }
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "扫描心跳更新失败: TaskId={TaskId}", taskId);
+        }
     }
 
     private async Task<ScanOutcome> RunTcpAsync(
