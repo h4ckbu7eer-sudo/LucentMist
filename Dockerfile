@@ -71,6 +71,9 @@ RUN mkdir -p /app/data /app/logs && chown app:app /app/data /app/logs
 # 容器内默认监听所有接口，直接 docker run -p 也能访问
 ENV LMIST_BIND_ADDRESS=0.0.0.0
 ENV LMIST_WEB_BIND=0.0.0.0
+ENV LMIST_API_TOKEN=lucentmist-local
+ENV LMIST_WEB_USER=admin
+ENV LMIST_WEB_PASSWORD=lucentmist-local
 
 # 非 root 运行，降低容器被攻破后的提权风险
 USER app

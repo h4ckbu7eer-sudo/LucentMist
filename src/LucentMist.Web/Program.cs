@@ -63,9 +63,14 @@ app.MapHub<ScanHub>("/scanhub");
 
 var port = args.Length > 0 ? args[0] : "5051";
 var bindAddress = Environment.GetEnvironmentVariable("LMIST_WEB_BIND") ?? "127.0.0.1";
+var aspnetUrls = Environment.GetEnvironmentVariable("ASPNETCORE_URLS");
+var remoteViaUrls = !string.IsNullOrWhiteSpace(aspnetUrls) &&
+    aspnetUrls.Split(';', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        .Any(url => !Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
+                    parsed.Host is not ("localhost" or "127.0.0.1" or "::1"));
 app.Urls.Add($"http://{bindAddress}:{port}");
 
-if (bindAddress is not ("127.0.0.1" or "localhost" or "::1") &&
+if ((bindAddress is not ("127.0.0.1" or "localhost" or "::1") || remoteViaUrls) &&
     (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_WEB_USER")) ||
      string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_WEB_PASSWORD"))))
 {

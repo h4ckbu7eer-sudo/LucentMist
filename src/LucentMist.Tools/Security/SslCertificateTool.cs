@@ -4,6 +4,7 @@ using System.Net.Sockets;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
+using LucentMist.Core.Networking;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Security;
@@ -36,6 +37,8 @@ public class SslCertificateTool : ITool
             return ToolResult.Fail("必须指定目标", sw.Elapsed);
         if (port is < 1 or > 65535)
             return ToolResult.Fail("端口号必须在 1-65535 之间", sw.Elapsed);
+        if (!await TargetGuard.IsAllowedAsync(target, cancellationToken))
+            return ToolResult.Fail("扫描目标被安全策略拒绝", sw.Elapsed);
 
         try
         {
