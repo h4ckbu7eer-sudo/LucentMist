@@ -328,6 +328,34 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public async Task RunAsync_ForbiddenTarget_IsRejectedBeforeToolExecution()
+    {
+        var mockLLM = CreateMockLLM(
+            new ReActStep
+            {
+                Thought = "尝试访问云元数据",
+                Action = "port_scan",
+                ActionInput = @"{""target"":""169.254.169.254"",""ports"":""80""}",
+            },
+            new ReActStep
+            {
+                Thought = "被阻止",
+                Action = "final_answer",
+                ActionInput = "安全策略已阻止",
+            });
+
+        var engine = new ReActEngine(mockLLM.Object, CreateRegistry(), "prompt",
+            NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.True(result.Success);
+        Assert.Single(result.Observations);
+        Assert.False(result.Observations[0].Success);
+        Assert.Contains("安全策略拒绝", result.Observations[0].Result);
+    }
+
+    [Fact]
     public async Task RunAsync_EmptyThoughtLog_Initially()
     {
         var mockLLM = CreateMockLLM(

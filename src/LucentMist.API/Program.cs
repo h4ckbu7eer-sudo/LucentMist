@@ -134,10 +134,10 @@ app.MapGet("/api/v1/config", () => Results.Ok(new
     {
         pingTimeoutMs = 3000,
         pingConcurrency = 50,
-        portTimeoutMs = 2000,
-        portConcurrency = 100,
+        portTimeoutMs = 5000,
+        portConcurrency = 50,
         udpTimeoutMs = 3000,
-        udpConcurrency = 20,
+        udpConcurrency = 50,
     }
 }));
 
@@ -148,7 +148,10 @@ app.Urls.Add($"http://{bindAddress}:{port}");
 if (bindAddress is not ("127.0.0.1" or "localhost" or "::1") &&
     string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_API_TOKEN")))
 {
-    Console.Error.WriteLine("WARNING: API 正在监听非回环地址但未设置 LMIST_API_TOKEN，生产环境必须启用认证。");
+    Console.Error.WriteLine(
+        "拒绝启动：API 监听非回环地址时必须设置 LMIST_API_TOKEN。");
+    throw new InvalidOperationException(
+        "API 监听非回环地址时必须设置 LMIST_API_TOKEN");
 }
 
 Console.WriteLine($"""

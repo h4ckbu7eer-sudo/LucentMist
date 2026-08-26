@@ -28,6 +28,17 @@ public class ScanController : ControllerBase
         if (string.IsNullOrWhiteSpace(request.Target))
             return BadRequest(new { error = new { code = "INVALID_TARGET", message = "必须指定扫描目标" } });
 
+        var scanType = request.ScanType ?? "ping";
+        if (scanType.ToLowerInvariant() is not ("ping" or "tcp" or "udp"))
+            return BadRequest(new
+            {
+                error = new
+                {
+                    code = "INVALID_SCAN_TYPE",
+                    message = "scanType 必须是 ping、tcp 或 udp",
+                },
+            });
+
         if (!IsValidTarget(request.Target))
             return BadRequest(new
             {
@@ -41,7 +52,18 @@ public class ScanController : ControllerBase
         string taskId;
         try
         {
-            taskId = await _coordinator.StartAsync(request.Target, request.ScanType, request.Ports, ct);
+            taskId = await _coordinator.StartAsync(request.Target, scanType, request.Ports, ct);
+        }
+        catch (InvalidScanTargetException ex)
+        {
+            return BadRequest(new
+            {
+                error = new
+                {
+                    code = "INVALID_TARGET",
+                    message = ex.Message,
+                },
+            });
         }
         catch (ScanQueueFullException ex)
         {
@@ -56,6 +78,7 @@ public class ScanController : ControllerBase
         }
         _logger.LogInformation("扫描任务已入队: TaskId={TaskId}, Target={Target}", taskId, request.Target);
 
+        Response.Headers.Location = $"/api/v1/scan/{Uri.EscapeDataString(taskId)}";
         return Accepted(new { taskId, status = "pending", message = "扫描任务已创建" });
     }
 

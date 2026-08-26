@@ -1,4 +1,5 @@
 using System.Threading.Channels;
+using LucentMist.Core.Networking;
 
 namespace LucentMist.Scanning;
 
@@ -33,6 +34,9 @@ public class ScanCoordinator : IScanCoordinator
         string ports = "",
         CancellationToken ct = default)
     {
+        if (!await TargetGuard.IsAllowedAsync(target, ct))
+            throw new InvalidScanTargetException("扫描目标被安全策略拒绝");
+
         var rec = await _store.CreateAsync(target, scanType, ports);
         if (!_channel.Writer.TryWrite(new ScanJob(rec.Id, target, scanType, ports)))
         {
@@ -47,4 +51,9 @@ public class ScanCoordinator : IScanCoordinator
 public sealed class ScanQueueFullException : Exception
 {
     public ScanQueueFullException(string message) : base(message) { }
+}
+
+public sealed class InvalidScanTargetException : Exception
+{
+    public InvalidScanTargetException(string message) : base(message) { }
 }

@@ -1372,13 +1372,16 @@ public class CliApp
             message = BuildHistoryContext(history) + userMessage;
         }
 
-        // 自动检测本机 IP，注入到提示中，防止 LLM 猜测
-        var entries = LocalNetworkInfo.GetEntries();
-        if (entries.Count > 0)
+        // 默认不泄露本机拓扑；仅显式开启时注入。
+        if (Environment.GetEnvironmentVariable("LMIST_INJECT_NETWORK_INFO") == "true")
         {
-            var ipInfo = string.Join("; ", entries.Select(e =>
-                $"{e.Ip}/{e.Prefix} (接口: {e.Name}, 网关: {e.Gateway})"));
-            message = $"[本机网络信息: {ipInfo}] {message}";
+            var entries = LocalNetworkInfo.GetEntries();
+            if (entries.Count > 0)
+            {
+                var ipInfo = string.Join("; ", entries.Select(e =>
+                    $"{e.Ip}/{e.Prefix} (接口: {e.Name}, 网关: {e.Gateway})"));
+                message = $"[本机网络信息: {ipInfo}] {message}";
+            }
         }
 
         var promptPath = FindFile("config/prompts/system_prompt.txt");

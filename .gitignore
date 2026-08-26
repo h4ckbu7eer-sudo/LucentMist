@@ -25,6 +25,7 @@ Thumbs.db
 # Config (sensitive)
 config/secrets.json
 appsettings.Development.json
+.claude/settings.local.json
 
 # Database
 *.db
