@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LucentMist.Agent.LLM;
+using LucentMist.Core.Networking;
 using LucentMist.Tools;
 using Microsoft.Extensions.Logging;
 
@@ -132,6 +133,24 @@ public class ReActEngine
 
             try
             {
+                var target = toolArgs.GetOrDefault("target");
+                if (string.IsNullOrWhiteSpace(target)) target = toolArgs.GetOrDefault("host");
+                if (string.IsNullOrWhiteSpace(target)) target = toolArgs.GetOrDefault("ip");
+                if (!string.IsNullOrWhiteSpace(target) &&
+                    !await TargetGuard.IsAllowedAsync(target, ct))
+                {
+                    var blocked = new ReActObservation
+                    {
+                        Step = round,
+                        ToolName = step.Action,
+                        Input = step.ActionInput,
+                        Result = "扫描目标被安全策略拒绝",
+                        Success = false,
+                    };
+                    Observations.Add(blocked);
+                    continue;
+                }
+
                 var toolResult = await tool.ExecuteAsync(toolArgs, ct);
                 var obs = new ReActObservation
                 {

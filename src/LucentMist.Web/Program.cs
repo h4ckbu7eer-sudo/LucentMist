@@ -69,7 +69,10 @@ if (bindAddress is not ("127.0.0.1" or "localhost" or "::1") &&
     (string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_WEB_USER")) ||
      string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_WEB_PASSWORD"))))
 {
-    Console.Error.WriteLine("WARNING: Web 正在监听非回环地址但未设置 LMIST_WEB_USER/LMIST_WEB_PASSWORD，生产环境必须启用认证。");
+    Console.Error.WriteLine(
+        "拒绝启动：Web 监听非回环地址时必须同时设置 LMIST_WEB_USER 和 LMIST_WEB_PASSWORD。");
+    throw new InvalidOperationException(
+        "Web 监听非回环地址时必须同时设置 LMIST_WEB_USER 和 LMIST_WEB_PASSWORD");
 }
 
 Console.WriteLine($"""

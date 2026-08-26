@@ -65,7 +65,9 @@ public class AgentController : ControllerBase
             yield return Sse("session", Json(new { sessionId = session.Id }));
 
             // 注入本机 IP，防止 LLM 猜测错误网段（与 CLI 保持一致）
-            var message = InjectLocalNetworkInfo(request.Message);
+            var message = Environment.GetEnvironmentVariable("LMIST_INJECT_NETWORK_INFO") == "true"
+                ? InjectLocalNetworkInfo(request.Message)
+                : request.Message;
 
             var systemPrompt = LoadSystemPrompt();
 
