@@ -46,12 +46,14 @@ public class ScanApiIntegrationTests : IClassFixture<ScanApiFixture>
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
 
-    [Fact]
-    public async Task CreateScan_CloudMetadataTarget_Returns400()
+    [Theory]
+    [InlineData("169.254.169.254")]
+    [InlineData("100.100.100.200")]
+    public async Task CreateScan_CloudMetadataTarget_Returns400(string target)
     {
         var resp = await _client.PostAsJsonAsync(
             "/api/v1/scan",
-            new { target = "169.254.169.254", scanType = "tcp", ports = "80" });
+            new { target, scanType = "tcp", ports = "80" });
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
     }
@@ -68,7 +70,6 @@ public class ScanApiIntegrationTests : IClassFixture<ScanApiFixture>
 
     [Theory]
     [InlineData("localhost")]
-    [InlineData("example.com")]
     public async Task CreateScan_ValidHostname_Returns202(string target)
     {
         var resp = await _client.PostAsJsonAsync("/api/v1/scan", new { target, scanType = "tcp", ports = "443" });

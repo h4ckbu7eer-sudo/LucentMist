@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
+using LucentMist.Core.Networking;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Scanning;
@@ -38,6 +39,8 @@ public class PingScanTool : ITool
 
         if (string.IsNullOrWhiteSpace(target))
             return ToolResult.Fail("必须指定目标子网", sw.Elapsed);
+        if (!await TargetGuard.IsAllowedAsync(target, cancellationToken))
+            return ToolResult.Fail("扫描目标被安全策略拒绝", sw.Elapsed);
 
         try
         {

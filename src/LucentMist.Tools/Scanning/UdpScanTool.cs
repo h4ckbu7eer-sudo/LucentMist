@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Net.Sockets;
 using System.Text.Json;
+using LucentMist.Core.Networking;
 using LucentMist.Tools.Common;
 using Microsoft.Extensions.Logging;
 
@@ -32,6 +33,8 @@ public class UdpScanTool : ITool
 
         if (string.IsNullOrWhiteSpace(target))
             return ToolResult.Fail("必须指定目标 IP", sw.Elapsed);
+        if (!await TargetGuard.IsAllowedAsync(target, cancellationToken))
+            return ToolResult.Fail("扫描目标被安全策略拒绝", sw.Elapsed);
 
         try
         {

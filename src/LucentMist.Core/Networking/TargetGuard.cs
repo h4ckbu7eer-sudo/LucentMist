@@ -45,8 +45,7 @@ public static class TargetGuard
         }
         catch
         {
-            // 扫描目标可能依赖本地 hosts 或稍后解析，保持原有容错。
-            return true;
+            return false;
         }
     }
 
@@ -58,6 +57,7 @@ public static class TargetGuard
         if (b.Length != 4) return true;
         if (b[0] == 0) return true;
         if (b[0] == 169 && b[1] == 254) return true;
+        if (b[0] == 100 && b[1] is >= 64 and <= 127) return true;
         if (b[0] >= 224) return true;
         if (b is [255, 255, 255, 255]) return true;
         return false;
