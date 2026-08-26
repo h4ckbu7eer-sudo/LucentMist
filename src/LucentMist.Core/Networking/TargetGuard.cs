@@ -49,6 +49,37 @@ public static class TargetGuard
         }
     }
 
+    public static async Task<string?> ResolveSingleTargetAsync(
+        string target, CancellationToken ct = default)
+    {
+        if (string.IsNullOrWhiteSpace(target) || target.Length > 253) return null;
+        if (target.IndexOfAny(['\0', '\n', '\r']) >= 0) return null;
+
+        if (IPAddress.TryParse(target, out var address))
+        {
+            return address.AddressFamily == AddressFamily.InterNetwork &&
+                   !IsForbiddenIp(address)
+                ? address.ToString()
+                : null;
+        }
+
+        if (target.Contains('/') || !IsValidHostname(target)) return null;
+
+        try
+        {
+            var addresses = await Dns.GetHostAddressesAsync(target, ct);
+            return addresses
+                .Where(a => a.AddressFamily == AddressFamily.InterNetwork)
+                .Where(a => !IsForbiddenIp(a))
+                .Select(a => a.ToString())
+                .FirstOrDefault();
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     private static bool IsForbiddenIp(IPAddress address)
     {
         if (address.AddressFamily != AddressFamily.InterNetwork) return true;

@@ -51,8 +51,10 @@ public class ServiceIdentifyTool : ITool
             return ToolResult.Fail("必须指定目标 IP", sw.Elapsed);
         if (port is < 1 or > 65535)
             return ToolResult.Fail("端口号必须在 1-65535 之间", sw.Elapsed);
-        if (!await TargetGuard.IsAllowedAsync(target, cancellationToken))
+        var resolvedTarget = await TargetGuard.ResolveSingleTargetAsync(target, cancellationToken);
+        if (resolvedTarget == null)
             return ToolResult.Fail("扫描目标被安全策略拒绝", sw.Elapsed);
+        target = resolvedTarget;
 
         try
         {

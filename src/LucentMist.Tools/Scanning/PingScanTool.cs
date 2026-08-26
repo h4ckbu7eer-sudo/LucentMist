@@ -34,13 +34,23 @@ public class PingScanTool : ITool
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
+        var requestedTarget = target;
         var timeout = Math.Clamp(args.GetInt("timeout_ms", 3000), 100, 60_000);
         var concurrency = Math.Clamp(args.GetInt("concurrency", 50), 1, 500);
 
         if (string.IsNullOrWhiteSpace(target))
             return ToolResult.Fail("必须指定目标子网", sw.Elapsed);
-        if (!await TargetGuard.IsAllowedAsync(target, cancellationToken))
+        if (!target.Contains('/') && !IPAddress.TryParse(target, out _))
+        {
+            var resolvedTarget = await TargetGuard.ResolveSingleTargetAsync(target, cancellationToken);
+            if (resolvedTarget == null)
+                return ToolResult.Fail("扫描目标被安全策略拒绝", sw.Elapsed);
+            target = resolvedTarget;
+        }
+        else if (!await TargetGuard.IsAllowedAsync(target, cancellationToken))
+        {
             return ToolResult.Fail("扫描目标被安全策略拒绝", sw.Elapsed);
+        }
 
         try
         {
@@ -71,12 +81,12 @@ public class PingScanTool : ITool
 
             var result = new
             {
-                target,
+                target = requestedTarget,
                 total = ips.Count,
                 alive = alive.Count,
                 devices = alive,
                 hint = alive.Count == 0
-                    ? $"目标 {target} 无设备响应。请确认：1) 子网是否与当前网卡匹配 2) 防火墙是否阻止 ICMP"
+                    ? $"目标 {requestedTarget} 无设备响应。请确认：1) 子网是否与当前网卡匹配 2) 防火墙是否阻止 ICMP"
                     : null,
                 icmpFallback = Volatile.Read(ref _icmpBlocked) != 0
                     ? "ICMP 不可用，已使用 TCP 端口探测（80/443/22/445）"
