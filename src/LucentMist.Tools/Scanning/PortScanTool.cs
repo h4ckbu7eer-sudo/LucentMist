@@ -39,8 +39,10 @@ public class PortScanTool : ITool
 
         if (string.IsNullOrWhiteSpace(target))
             return ToolResult.Fail("必须指定目标 IP", sw.Elapsed);
-        if (!await TargetGuard.IsAllowedAsync(target, cancellationToken))
+        var resolvedTarget = await TargetGuard.ResolveSingleTargetAsync(target, cancellationToken);
+        if (resolvedTarget == null)
             return ToolResult.Fail("扫描目标被安全策略拒绝", sw.Elapsed);
+        target = resolvedTarget;
 
         try
         {

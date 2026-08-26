@@ -30,6 +30,7 @@ public class SslCertificateTool : ITool
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
+        var requestedTarget = target;
         var port = args.GetInt("port", 443);
         var timeout = args.GetInt("timeout_ms", 5000);
 
@@ -37,7 +38,8 @@ public class SslCertificateTool : ITool
             return ToolResult.Fail("必须指定目标", sw.Elapsed);
         if (port is < 1 or > 65535)
             return ToolResult.Fail("端口号必须在 1-65535 之间", sw.Elapsed);
-        if (!await TargetGuard.IsAllowedAsync(target, cancellationToken))
+        var connectTarget = await TargetGuard.ResolveSingleTargetAsync(target, cancellationToken);
+        if (connectTarget == null)
             return ToolResult.Fail("扫描目标被安全策略拒绝", sw.Elapsed);
 
         try
@@ -48,13 +50,13 @@ public class SslCertificateTool : ITool
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(timeout);
             using var client = new TcpClient();
-            await client.ConnectAsync(target, port, cts.Token);
+            await client.ConnectAsync(connectTarget, port, cts.Token);
 
             using var ssl = new SslStream(client.GetStream(), false,
                 (sender, certificate, chain, errors) => true);
             await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
             {
-                TargetHost = target,
+                TargetHost = requestedTarget,
                 CertificateRevocationCheckMode = X509RevocationMode.NoCheck
             }, cts.Token);
 
@@ -65,7 +67,7 @@ public class SslCertificateTool : ITool
 
             var result = new
             {
-                target,
+                target = requestedTarget,
                 port,
                 subject = cert.Subject,
                 issuer = cert.Issuer,
