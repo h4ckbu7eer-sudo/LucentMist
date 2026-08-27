@@ -1,8 +1,8 @@
 # LucentMist 会话状态 — 下次恢复只需读这个文件
 
-> 最后更新: 2026-08-07
-> 当前版本: v0.4.1
-> 状态: 全部完成，8 个项目 + 139 测试 + 30 文档
+> 最后更新: 2026-08-28
+> 当前版本: v0.9.3
+> 状态: 0.9.3 工程交付；Agent 分析保持实验性
 
 ---
 
@@ -68,9 +68,10 @@ E:\LucentMist\
 │   ├── LucentMist.API/        ← REST API
 │   └── LucentMist.Web/        ← Blazor Server 仪表板
 ├── tests/
-│   ├── LucentMist.Core.Tests/   ← 13
-│   ├── LucentMist.Tools.Tests/  ← 78
-│   └── LucentMist.Agent.Tests/  ← 43
+│   ├── LucentMist.Tools.Tests/
+│   ├── LucentMist.Agent.Tests/
+│   ├── LucentMist.Scanning.Tests/
+│   └── LucentMist.API.Tests/
 ├── .github/workflows/ci.yml
 ├── config/
 ├── docs/ (30 files)
@@ -78,9 +79,9 @@ E:\LucentMist\
 
 ### 关键指标
 - 编译: 0 errors, 0 warnings
-- 测试: 132/132 离线通过 (Core 13 + Tools 75 + Agent 44；另有 7 个外网 SSL 用例)
+- 测试: CI 218/218 通过；本地全量另含外部 SSL 用例
 - CLI 命令: scan / ssl-check / os-fingerprint / vuln-scan / vuln-detail / sirius-scan / report / agent / config / status / help
-- 工具: ping_scan / port_scan / udp_scan / service_identify / device_query / os_fingerprint / vuln_scan / ssl_check
+- 工具: ping_scan / port_scan / udp_scan / service_identify / os_fingerprint / vuln_scan / ssl_check / sirius_scan
 
 ### 环境
 - .NET SDK: 10.0.302

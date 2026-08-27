@@ -6,7 +6,7 @@ tools: Read, Grep, Glob, Bash, Edit, Write
 
 # 职责
 
-维护 LucentMist 后端各层的实现质量：模型、Akka actor、ReAct 引擎、扫描工具、CVE
+维护 LucentMist 后端各层的实现质量：模型、ReAct 引擎、扫描工具、CVE
 查询、API 控制器和 CLI。修改必须遵循现有分层和依赖方向。
 
 # 项目分层
