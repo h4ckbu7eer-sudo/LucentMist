@@ -23,10 +23,13 @@ Questions:
 1. How do you currently check which ports/services your network exposes?
 2. Have you used Nmap? If not, what blocked you: barrier, English, CLI?
 3. Would a 5-minute tool that tells you "these exposures exist, this one is most urgent" be useful? Would you pay?
+4. Have you tried an online exposure/security SaaS? What stopped you or what did you dislike?
+5. At what monthly price would this be worth paying? At what price would you not bother?
 
 Pass:
 
 - At least half report a real current pain point, not "sounds nice".
+- At least half state a concrete price point and a concrete alternative they currently use or reject.
 
 Fail:
 
@@ -41,7 +44,9 @@ Participants:
 
 Task:
 
-- Give each participant `docs/validation-report.html`.
+- Use a report generated against a controlled target with known findings (for example a deliberately vulnerable test VM), not the empty 127.0.0.1 report.
+- Enable CVE data for the validation run so the report is not artificially "safe".
+- Give each participant the report with findings.
 - Ask:
   1. Does this report tell you whether the network has a problem? Is severity ordered?
   2. Can you decide whether and what to handle first?
@@ -80,6 +85,13 @@ Pass:
 
 - LucentMist identifies common service versions, such as OpenSSH or nginx.
 
+Important:
+
+- LucentMist may use Nmap itself through NmapEnhancer. The comparison must split:
+  - Built-in heuristic identification without Nmap.
+  - Nmap-backed identification.
+  Otherwise the comparison is Nmap versus Nmap.
+
 Fail:
 
 - Version detection remains broken. Direction A must then decide whether the report can work with service category plus common-risk hints instead of exact versions.
@@ -88,3 +100,11 @@ Fail:
 
 - All three pass: Direction A stands; report redesign and guided interaction become the next engineering phase.
 - Any critical validation fails: stop or pivot to Direction B.
+
+## Core Value Measurement
+
+Direction A is "5-minute self-check". The protocols above only measure correctness. Add a task-level measurement:
+
+- Install to first report: measure how long a non-expert takes from install to reading a prioritized report.
+- Understanding: ask the participant to state the top risk and the recommended next action.
+- Pass: a non-expert can complete install, scan, and decision in about 5 minutes without contributor help.
