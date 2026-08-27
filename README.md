@@ -147,6 +147,7 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 | [部署运维手册](docs/部署运维手册.md) | Docker/systemd、日志、备份、升级 |
 | [常见问题](docs/常见问题.md) | FAQ 故障排查 |
 | [Agent 实验状态](docs/agent-experimental.md) | Agent 深化能力边界与验证状态 |
+| [产品验证协议](docs/product-validation-protocols.md) | 方向 A 的用户需求、报告、网段验证 |
 
 ---
 
