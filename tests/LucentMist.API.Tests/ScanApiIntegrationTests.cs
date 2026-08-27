@@ -145,6 +145,8 @@ public class ScanApiFixture : IDisposable
         // 用临时库，避免污染开发数据库
         var tempDb = Path.Combine(Path.GetTempPath(), $"lmist-test-{Guid.NewGuid():N}.db");
         Environment.SetEnvironmentVariable("LMIST_DB", tempDb);
+        Environment.SetEnvironmentVariable("LMIST_RATE_LIMIT_RPS", "10000");
+        Environment.SetEnvironmentVariable("LMIST_RATE_LIMIT_BURST", "10000");
 
         var factory = new WebApplicationFactory<Program>()
             .WithWebHostBuilder(b => b.UseSetting("environment", "Production"));
