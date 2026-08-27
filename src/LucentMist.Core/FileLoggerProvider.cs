@@ -33,19 +33,26 @@ public sealed class SimpleFileLoggerProvider : ILoggerProvider
 
     public void Write(string line)
     {
-        lock (_lock)
+        try
         {
-            var dir = Path.GetDirectoryName(_path);
-            if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-
-            if (File.Exists(_path) && new FileInfo(_path).Length >= _maxBytes)
+            lock (_lock)
             {
-                var rotated = $"{_path}.1";
-                if (File.Exists(rotated)) File.Delete(rotated);
-                File.Move(_path, rotated);
-            }
+                var dir = Path.GetDirectoryName(_path);
+                if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
 
-            File.AppendAllText(_path, line + Environment.NewLine);
+                if (File.Exists(_path) && new FileInfo(_path).Length >= _maxBytes)
+                {
+                    var rotated = $"{_path}.1";
+                    if (File.Exists(rotated)) File.Delete(rotated);
+                    File.Move(_path, rotated);
+                }
+
+                File.AppendAllText(_path, line + Environment.NewLine);
+            }
+        }
+        catch
+        {
+            // Logging must never take down the host when the disk is full or locked.
         }
     }
 

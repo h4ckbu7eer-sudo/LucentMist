@@ -15,12 +15,20 @@ public class ScanStore
         var dir = Path.GetDirectoryName(dbPath);
         if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
         _connectionString = $"Data Source={dbPath};Pooling=False";
-        Initialize();
+        try
+        {
+            Initialize();
+        }
+        catch (SqliteException ex) when (IsCorruption(ex) && TryQuarantine(dbPath))
+        {
+            Initialize();
+        }
     }
 
     private void Initialize()
     {
         using var conn = Open();
+        EnsureHealthy(conn);
         using var cmd = conn.CreateCommand();
         cmd.CommandText = """
             CREATE TABLE IF NOT EXISTS scan_tasks (
@@ -51,6 +59,43 @@ public class ScanStore
         using var cmd = conn.CreateCommand();
         cmd.CommandText = "PRAGMA journal_mode=WAL;";
         cmd.ExecuteNonQuery();
+    }
+
+    private static void EnsureHealthy(SqliteConnection conn)
+    {
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = "PRAGMA quick_check;";
+        var result = Convert.ToString(cmd.ExecuteScalar()) ?? "";
+        if (!result.Equals("ok", StringComparison.OrdinalIgnoreCase))
+            throw new SqliteException($"SQLite integrity check failed: {result}", 11);
+    }
+
+    private static bool IsCorruption(SqliteException ex) =>
+        ex.SqliteErrorCode is 11 or 26;
+
+    private static bool TryQuarantine(string dbPath)
+    {
+        var stamp = DateTime.UtcNow.ToString("yyyyMMddHHmmss");
+        try
+        {
+            foreach (var suffix in new[] { "", "-wal", "-shm" })
+            {
+                var source = dbPath + suffix;
+                if (!File.Exists(source)) continue;
+                var target = $"{source}.corrupt-{stamp}";
+                if (File.Exists(target)) File.Delete(target);
+                File.Move(source, target);
+            }
+            Console.Error.WriteLine(
+                $"SQLite database was corrupt and has been quarantined: {dbPath}");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"Failed to quarantine corrupt SQLite database {dbPath}: {ex.Message}");
+            return false;
+        }
     }
 
     private static void EnsurePortsColumn(SqliteConnection conn) =>
