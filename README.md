@@ -18,7 +18,7 @@
 - 🛡️ **漏洞扫描** — 多源 CVE API + OS 指纹识别 + 风险验证
 - 📊 **报告导出** — HTML/Markdown/CSV/JSON 多格式报告
 - 🏷️ **服务识别** — Banner 抓取 + HTTP/SSH 检测 + 进程信息
-- 🤖 **AI 推理** — ReAct 模式，自动调用工具分析网络
+- 🤖 **AI 推理（实验性）** — ReAct 模式，自动调用工具分析网络
 - 🔄 **双 LLM** — Ollama 本地推理 + Claude API 云端推理，随时切换
 - 🌐 **Web 管理界面** — Blazor Server 仪表板，实时监控 + 扫描控制
 - 📡 **双接口** — CLI 命令行 + RESTful API (SSE 流式)
@@ -146,6 +146,7 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 | [用户手册](docs/用户手册.md) | 安装、CLI 命令、场景示例 |
 | [部署运维手册](docs/部署运维手册.md) | Docker/systemd、日志、备份、升级 |
 | [常见问题](docs/常见问题.md) | FAQ 故障排查 |
+| [Agent 实验状态](docs/agent-experimental.md) | Agent 深化能力边界与验证状态 |
 
 ---
 
