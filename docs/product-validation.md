@@ -52,3 +52,5 @@ This is the first limited product validation, not a proof of product value:
 - Agent analysis remains experimental and has not been proven with a capable model.
 
 The product value question remains open until a real Nmap comparison and an external report usability review are performed.
+
+The validation protocols and their pass/fail criteria are defined in [product-validation-protocols.md](product-validation-protocols.md).
