@@ -70,7 +70,7 @@ dotnet run --project src/LucentMist.Web
 
 ```bash
 # 国内网络建议指定华为云 NuGet 镜像
-docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.2 .
+docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.3 .
 
 # 启动 API + Web
 docker compose up -d
