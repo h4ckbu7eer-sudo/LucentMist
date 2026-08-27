@@ -220,7 +220,7 @@ GET /api/v1/health
 ```json
 {
   "status": "healthy",
-  "version": "0.9.2",
+  "version": "0.9.3",
   "uptime": "2h 15m"
 }
 ```
