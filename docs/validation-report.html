@@ -1,0 +1,81 @@
+<!DOCTYPE html><html lang='zh-CN'>
+<head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>
+<title>LucentMist 扫描报告</title>
+<style>
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#0a0e17;--surface:#111827;--surface2:#1a2236;--text:#e2e8f0;--muted:#64748b;--cyan:#2dd4bf;--cyan-glow:rgba(45,212,191,.15)}
+body{font-family:system-ui,-apple-system,'Segoe UI',Roboto,'Helvetica Neue',Arial,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;
+  background-image:radial-gradient(ellipse at 20% 0%,rgba(45,212,191,.06) 0%,transparent 60%),
+                    radial-gradient(ellipse at 80% 100%,rgba(99,102,241,.04) 0%,transparent 60%),
+                    linear-gradient(180deg,#0a0e17 0%,#0f172a 100%)}
+.container{max-width:1024px;margin:0 auto;padding:2rem 1.5rem}
+header{text-align:center;padding:3rem 0 2rem;position:relative}
+header::after{content:'';position:absolute;bottom:0;left:25%;right:25%;height:1px;background:linear-gradient(90deg,transparent,var(--cyan),transparent)}
+h1{font-size:2.2rem;font-weight:900;background:linear-gradient(135deg,#2dd4bf 0%,#818cf8 50%,#2dd4bf 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;margin-bottom:.5rem;letter-spacing:-.03em}
+.meta{color:var(--muted);font-size:.85rem;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:1rem;margin:1.5rem 0}
+.stat-card{background:var(--surface);border:1px solid rgba(255,255,255,.06);border-radius:12px;padding:1.2rem;text-align:center;transition:all .2s}
+.stat-card:hover{transform:translateY(-2px);border-color:rgba(45,212,191,.2);box-shadow:0 4px 20px rgba(0,0,0,.3)}
+.stat-card .val{font-size:1.8rem;font-weight:900;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.stat-card .lbl{font-size:.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:.1em;margin-top:.3rem}
+.stat-card.devices .val{color:#818cf8}.stat-card.online .val{color:#4ade80}.stat-card.ports .val{color:#2dd4bf}.stat-card.risk .val{color:#4ade80}
+
+.urgent-summary{display:grid;grid-template-columns:repeat(5,1fr);gap:.8rem;margin:1.5rem 0 2rem}
+.sum-card{background:var(--surface);border:1px solid rgba(255,255,255,.05);border-radius:10px;padding:1rem;text-align:center}
+.sum-card .val{font-size:1.5rem;font-weight:900;font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.sum-card .lbl{font-size:.7rem;margin-top:.2rem}
+.sum-card.severe .val{color:#ef4444}.sum-card.high .val{color:#f87171}.sum-card.medium .val{color:#fbbf24}.sum-card.low .val{color:var(--muted)}.sum-card.total .val{color:var(--cyan)}
+
+.section{margin:2rem 0}
+.section h2{font-size:1.2rem;font-weight:700;color:var(--text);margin-bottom:1rem;display:flex;align-items:center;gap:.5rem}
+.section h2::after{content:'';flex:1;height:1px;background:linear-gradient(90deg,rgba(255,255,255,.1),transparent)}
+.urgent-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:.8rem}
+.urgent-card{background:var(--surface);border:1px solid rgba(255,255,255,.06);border-radius:10px;padding:1rem;border-left:3px solid}
+.urgent-card.critical{border-left-color:#ef4444;background:linear-gradient(135deg,rgba(239,68,68,.08),var(--surface))}
+.urgent-card.high{border-left-color:#f87171;background:linear-gradient(135deg,rgba(248,113,113,.05),var(--surface))}
+.urgent-badge{font-size:.75rem;font-weight:700;margin-bottom:.4rem}
+.urgent-title{font-weight:600;margin-bottom:.3rem}
+.urgent-meta{font-size:.8rem;color:var(--muted);margin-bottom:.3rem}
+.urgent-fix{font-size:.8rem;color:#4ade80}
+
+table{width:100%;border-collapse:collapse;margin:.8rem 0 1.5rem;font-size:.84rem}
+th{background:var(--surface2);color:var(--muted);padding:.6rem .8rem;text-align:left;font-weight:600;text-transform:uppercase;font-size:.7rem;letter-spacing:.05em}
+td{padding:.55rem .8rem;border-bottom:1px solid rgba(255,255,255,.04)}
+tr.row-critical td{background:rgba(239,68,68,.06)}
+tr.row-high td{background:rgba(248,113,113,.03)}
+tr:hover td{background:rgba(45,212,191,.04)!important}
+code{background:var(--surface2);padding:.1rem .4rem;border-radius:3px;font-size:.8rem;color:var(--cyan)}
+.badge{display:inline-flex;align-items:center;gap:.3rem;padding:.15rem .55rem;border-radius:5px;font-size:.72rem;font-weight:700}
+.badge-critical{background:rgba(239,68,68,.15);color:#ef4444}
+.badge-high{background:rgba(248,113,113,.12);color:#f87171}
+.badge-medium{background:rgba(251,191,36,.12);color:#fbbf24}
+.badge-low{background:rgba(148,163,184,.1);color:#94a3b8}
+.fix-cell{font-size:.78rem;color:#94a3b8;max-width:250px}
+.safe-msg{color:#4ade80;text-align:center;padding:2rem}
+.fix-list{display:flex;flex-direction:column;gap:.5rem}
+.fix-item{background:var(--surface);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:.8rem 1rem;font-size:.84rem;border-left:3px solid var(--cyan)}
+.fix-item::before{content:'🔧 '}
+footer{text-align:center;padding:2rem 0;color:var(--muted);font-size:.75rem;border-top:1px solid rgba(255,255,255,.04);margin-top:3rem}
+details{margin:.4rem 0}details summary{cursor:pointer;padding:.6rem .8rem;background:var(--surface2);border-radius:8px;font-weight:600;font-size:.85rem;user-select:none;list-style:none}details summary::before{content:'▶ ';font-size:.7rem;margin-right:.4rem}details[open] summary::before{content:'▼ '}details[open] summary{border-radius:8px 8px 0 0}details table{margin-top:0}details[open] table{margin-top:0}.nvd-link{color:var(--cyan);text-decoration:none;word-break:break-all;font-size:.78rem}.nvd-link:hover{text-decoration:underline;color:#5ee8d4}.filter-note{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:.6rem 1rem;font-size:.82rem;color:#fbbf24;margin-top:.5rem;text-align:center}@media(max-width:768px){.stats,.urgent-summary{grid-template-columns:repeat(2,1fr)}.urgent-grid{grid-template-columns:1fr}h1{font-size:1.5rem}}
+</style></head><body><div class='container'>
+<header><h1>🌫️ LucentMist 扫描报告</h1><p class='meta'>127.0.0.1 · 2026-08-28 05:27:06 · 耗时 28.9s</p></header>
+<div class='stats'>
+  <div class='stat-card devices'><div class='val'>1</div><div class='lbl'>总设备</div></div>
+  <div class='stat-card online'><div class='val'>1</div><div class='lbl'>在线</div></div>
+  <div class='stat-card ports'><div class='val'>4</div><div class='lbl'>开放端口</div></div>
+  <div class='stat-card risk'><div class='val'>安全</div><div class='lbl'>综合风险</div></div>
+</div>
+
+<div class='urgent-summary'>
+  <div class='sum-card severe'><div class='val'>0</div><div class='lbl'>🔴 严重</div></div>
+  <div class='sum-card high'><div class='val'>0</div><div class='lbl'>🟡 高危</div></div>
+  <div class='sum-card medium'><div class='val'>0</div><div class='lbl'>🟢 中危</div></div>
+  <div class='sum-card low'><div class='val'>0</div><div class='lbl'>⚪ 低危</div></div>
+  <div class='sum-card total'><div class='val'>0</div><div class='lbl'>📊 相关</div></div>
+</div>
+
+<div class='section'><h2>📋 漏洞详情</h2></div>
+<div class='section'><h2>🖥️ 设备清单</h2><table><thead><tr><th>IP</th><th>状态</th><th>OS</th></tr></thead><tbody><tr><td>127.0.0.1</td><td>✅ 在线</td><td>Windows</td></tr></tbody></table></div>
+
+<footer>LucentMist v0.9.3 · 2026-08-28 05:27:06 · AI-Powered Network Security Scanner</footer>
+</div></body></html>
