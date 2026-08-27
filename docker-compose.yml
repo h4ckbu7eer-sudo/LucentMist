@@ -22,7 +22,7 @@ services:
       - LMIST_LLM_ENDPOINT=${LMIST_LLM_ENDPOINT:-http://host.docker.internal:11434}
       - LMIST_LLM_APIKEY=${LMIST_LLM_APIKEY:-}
       - LMIST_BIND_ADDRESS=0.0.0.0
-      - LMIST_API_TOKEN=${LMIST_API_TOKEN:-}
+      - LMIST_API_TOKEN=${LMIST_API_TOKEN:-lucentmist-local}
       - LMIST_DB=/app/data/lucentmist.db
       - LMIST_LOG_FILE=logs/lucentmist-api.log
       - LMIST_MAX_CONNECTIONS=${LMIST_MAX_CONNECTIONS:-512}
@@ -52,10 +52,10 @@ services:
       - lucentmist-logs:/app/logs
     environment:
       - LMIST_API_URL=http://lucentmist:5050
-      - LMIST_API_TOKEN=${LMIST_API_TOKEN:-}
+      - LMIST_API_TOKEN=${LMIST_API_TOKEN:-lucentmist-local}
       - LMIST_WEB_BIND=0.0.0.0
-      - LMIST_WEB_USER=${LMIST_WEB_USER:-}
-      - LMIST_WEB_PASSWORD=${LMIST_WEB_PASSWORD:-}
+      - LMIST_WEB_USER=${LMIST_WEB_USER:-admin}
+      - LMIST_WEB_PASSWORD=${LMIST_WEB_PASSWORD:-lucentmist-local}
       - LMIST_DB=/app/data/lucentmist.db
       - LMIST_LOG_FILE=logs/lucentmist-web.log
       - LMIST_MAX_CONNECTIONS=${LMIST_MAX_CONNECTIONS:-512}

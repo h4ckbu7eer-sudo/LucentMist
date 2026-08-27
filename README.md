@@ -4,7 +4,7 @@
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/tests-226%2F226%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/ci-tests-218%2F218%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -86,6 +86,8 @@ curl -X POST http://localhost:5050/api/v1/scan \
   -H "Content-Type: application/json" \
   -d '{"target":"127.0.0.1","scanType":"ping"}'
 ```
+
+默认 compose 使用本地演示凭据（API `lucentmist-local`，Web `admin/lucentmist-local`）。公网或生产部署必须通过 `.env` 显式设置 `LMIST_API_TOKEN`、`LMIST_WEB_USER`、`LMIST_WEB_PASSWORD`。
 
 ---
 
