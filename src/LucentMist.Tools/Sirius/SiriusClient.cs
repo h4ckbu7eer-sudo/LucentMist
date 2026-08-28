@@ -44,7 +44,7 @@ public class SiriusClient : IDisposable
     /// <summary>
     /// 验证 Sirius 服务是否可用
     /// </summary>
-    public async Task<bool> CheckAvailabilityAsync()
+    public async Task<bool> CheckAvailabilityAsync(CancellationToken ct = default)
     {
         if (!_enabled)
         {
@@ -54,10 +54,14 @@ public class SiriusClient : IDisposable
 
         try
         {
-            using var resp = await _http.GetAsync("/health");
+            using var resp = await _http.GetAsync("/health", ct);
             IsAvailable = resp.IsSuccessStatusCode;
             if (!IsAvailable) ErrorMessage = $"Sirius 响应异常: HTTP {resp.StatusCode}";
             return IsAvailable;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
         }
         catch
         {
@@ -70,41 +74,60 @@ public class SiriusClient : IDisposable
     /// <summary>
     /// 提交扫描任务
     /// </summary>
-    public async Task<SiriusScanResponse?> SubmitScanAsync(string target, string[]? ports = null, int timeout = 300)
+    public async Task<SiriusScanResponse?> SubmitScanAsync(
+        string target,
+        string[]? ports = null,
+        int timeout = 300,
+        CancellationToken ct = default)
     {
         if (!_enabled) { ErrorMessage = "Sirius 已禁用"; return null; }
         try
         {
             var body = new SiriusScanRequest(target, ports, timeout);
-            using var resp = await _http.PostAsJsonAsync("/api/v1/scan", body);
-            return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<SiriusScanResponse>() : null;
+            using var resp = await _http.PostAsJsonAsync("/api/v1/scan", body, ct);
+            return resp.IsSuccessStatusCode
+                ? await resp.Content.ReadFromJsonAsync<SiriusScanResponse>(ct)
+                : null;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) { ErrorMessage = ex.Message; return null; }
     }
 
     /// <summary>
     /// 查询扫描状态
     /// </summary>
-    public async Task<SiriusTaskStatus?> GetTaskStatusAsync(string taskId)
+    public async Task<SiriusTaskStatus?> GetTaskStatusAsync(
+        string taskId,
+        CancellationToken ct = default)
     {
         try
         {
-            using var resp = await _http.GetAsync($"/api/v1/scan/{taskId}");
-            return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<SiriusTaskStatus>() : null;
+            var id = Uri.EscapeDataString(taskId);
+            using var resp = await _http.GetAsync($"/api/v1/scan/{id}", ct);
+            return resp.IsSuccessStatusCode
+                ? await resp.Content.ReadFromJsonAsync<SiriusTaskStatus>(ct)
+                : null;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 
     /// <summary>
     /// 获取扫描结果
     /// </summary>
-    public async Task<SiriusResult?> GetResultAsync(string taskId)
+    public async Task<SiriusResult?> GetResultAsync(
+        string taskId,
+        CancellationToken ct = default)
     {
         try
         {
-            using var resp = await _http.GetAsync($"/api/v1/scan/{taskId}/result");
-            return resp.IsSuccessStatusCode ? await resp.Content.ReadFromJsonAsync<SiriusResult>() : null;
+            var id = Uri.EscapeDataString(taskId);
+            using var resp = await _http.GetAsync($"/api/v1/scan/{id}/result", ct);
+            return resp.IsSuccessStatusCode
+                ? await resp.Content.ReadFromJsonAsync<SiriusResult>(ct)
+                : null;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 
@@ -114,10 +137,10 @@ public class SiriusClient : IDisposable
     public async Task<(SiriusResult? Result, string? Error)> RunScanAsync(
         string target, Action<string, int>? onProgress = null, CancellationToken ct = default)
     {
-        if (!await CheckAvailabilityAsync())
+        if (!await CheckAvailabilityAsync(ct))
             return (null, ErrorMessage);
 
-        var submit = await SubmitScanAsync(target);
+        var submit = await SubmitScanAsync(target, ct: ct);
         if (submit == null)
             return (null, "提交扫描任务失败");
 
@@ -126,23 +149,31 @@ public class SiriusClient : IDisposable
         // Poll for completion
         var maxWait = TimeSpan.FromMinutes(5);
         var start = DateTime.UtcNow;
+        var completed = false;
         while (DateTime.UtcNow - start < maxWait && !ct.IsCancellationRequested)
         {
-            var status = await GetTaskStatusAsync(submit.TaskId);
-            if (status == null) break;
+            var status = await GetTaskStatusAsync(submit.TaskId, ct);
+            if (status == null) return (null, "查询扫描状态失败");
 
             onProgress?.Invoke(status.Message ?? $"进度 {status.Progress}%", status.Progress);
 
             if (status.Status is "completed" or "done")
+            {
+                completed = true;
                 break;
+            }
             if (status.Status is "failed" or "error")
                 return (null, status.Message ?? "扫描失败");
 
             await Task.Delay(2000, ct);
         }
 
+        ct.ThrowIfCancellationRequested();
+        if (!completed)
+            return (null, $"扫描在 {maxWait.TotalMinutes:0} 分钟内未完成");
+
         onProgress?.Invoke("正在获取结果...", 90);
-        var result = await GetResultAsync(submit.TaskId);
+        var result = await GetResultAsync(submit.TaskId, ct);
         return result != null ? (result, null) : (null, "获取扫描结果失败");
     }
 
@@ -216,54 +247,62 @@ public class SiriusClient : IDisposable
     public record VulnFinding(string Cve, string Name, string Risk, double Cvss, string Description, string Fix, bool Verified);
 
     /// <summary>获取所有主机列表</summary>
-    public async Task<List<HostInfo>?> GetHostsAsync()
+    public async Task<List<HostInfo>?> GetHostsAsync(CancellationToken ct = default)
     {
         try
         {
-            using var resp = await _http.GetAsync("/host");
+            using var resp = await _http.GetAsync("/host", ct);
             if (!resp.IsSuccessStatusCode) return null;
-            return await resp.Content.ReadFromJsonAsync<List<HostInfo>>();
+            return await resp.Content.ReadFromJsonAsync<List<HostInfo>>(ct);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 
     /// <summary>获取主机详情（含端口和漏洞）</summary>
-    public async Task<HostDetail?> GetHostDetailAsync(string hid)
+    public async Task<HostDetail?> GetHostDetailAsync(string hid, CancellationToken ct = default)
     {
         try
         {
-            using var resp = await _http.GetAsync($"/host/{hid}");
+            var id = Uri.EscapeDataString(hid);
+            using var resp = await _http.GetAsync($"/host/{id}", ct);
             if (!resp.IsSuccessStatusCode) return null;
-            return await resp.Content.ReadFromJsonAsync<HostDetail>();
+            return await resp.Content.ReadFromJsonAsync<HostDetail>(ct);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 
     /// <summary>查询漏洞（POST /vulnerability）</summary>
-    public async Task<JsonElement?> QueryVulnerabilitiesAsync(string? hostId = null, string? cve = null)
+    public async Task<JsonElement?> QueryVulnerabilitiesAsync(
+        string? hostId = null,
+        string? cve = null,
+        CancellationToken ct = default)
     {
         try
         {
             var body = new Dictionary<string, object>();
             if (hostId != null) body["host_id"] = hostId;
             if (cve != null) body["cve"] = cve;
-            using var resp = await _http.PostAsJsonAsync("/vulnerability", body);
+            using var resp = await _http.PostAsJsonAsync("/vulnerability", body, ct);
             if (!resp.IsSuccessStatusCode) return null;
-            var json = await resp.Content.ReadAsStringAsync();
+            var json = await resp.Content.ReadAsStringAsync(ct);
             return JsonDocument.Parse(json).RootElement;
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 
     /// <summary>获取扫描任务状态（解析 /host 列表中的最新扫描）</summary>
-    public async Task<List<HostInfo>?> GetScansAsync()
+    public async Task<List<HostInfo>?> GetScansAsync(CancellationToken ct = default)
     {
         try
         {
-            using var resp = await _http.GetAsync("/host");
+            using var resp = await _http.GetAsync("/host", ct);
             if (!resp.IsSuccessStatusCode) return null;
-            return await resp.Content.ReadFromJsonAsync<List<HostInfo>>();
+            return await resp.Content.ReadFromJsonAsync<List<HostInfo>>(ct);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 
