@@ -30,6 +30,14 @@ public class CveDatabaseTests
     }
 
     [Fact]
+    public void Match_OpenSsh92_IsFlaggedAsVulnerable()
+    {
+        var matches = CveDatabase.Match(22, "SSH-2.0-OpenSSH_9.2p1");
+
+        Assert.Contains(matches, e => e.Cve == "CVE-2023-38408");
+    }
+
+    [Fact]
     public void Match_OpenSshForWindows_UsesProductVersion()
     {
         var matches = CveDatabase.Match(22, "SSH-2.0-OpenSSH_for_Windows_8.1");

@@ -64,6 +64,8 @@ COPY --from=build --chown=app:app /app/cli ./cli
 
 # 复制配置模板
 COPY --chown=app:app config/ ./config/
+COPY --chown=app:app docker-entrypoint.sh /app/docker-entrypoint.sh
+RUN chmod +x /app/docker-entrypoint.sh
 
 # 创建数据目录
 RUN mkdir -p /app/data /app/logs && chown app:app /app/data /app/logs
@@ -81,6 +83,8 @@ EXPOSE 5050 5051
 # 健康检查
 HEALTHCHECK --interval=30s --timeout=3s --start-period=30s --retries=3 \
   CMD curl -f http://localhost:5050/api/v1/health || exit 1
+
+ENTRYPOINT ["/app/docker-entrypoint.sh"]
 
 # 默认启动 API 服务；Web 服务通过 command 覆盖为 web/LucentMist.Web.dll 5051
 CMD ["dotnet", "api/LucentMist.API.dll"]

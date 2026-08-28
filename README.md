@@ -87,7 +87,7 @@ curl -X POST http://localhost:5050/api/v1/scan \
   -d '{"target":"127.0.0.1","scanType":"ping"}'
 ```
 
-默认 compose 使用本地演示凭据（API `lucentmist-local`，Web `admin/lucentmist-local`）。公网或生产部署必须通过 `.env` 显式设置 `LMIST_API_TOKEN`、`LMIST_WEB_USER`、`LMIST_WEB_PASSWORD`。
+默认 compose 会在启动时自动生成随机 API token 和 Web 凭据，并打印到容器日志。生产部署仍应通过 `.env` 显式设置 `LMIST_API_TOKEN`、`LMIST_WEB_USER`、`LMIST_WEB_PASSWORD`。
 
 ---
 
@@ -150,6 +150,7 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 | [常见问题](docs/常见问题.md) | FAQ 故障排查 |
 | [Agent 实验状态](docs/agent-experimental.md) | Agent 深化能力边界与验证状态 |
 | [产品验证协议](docs/product-validation-protocols.md) | 方向 A 的用户需求、报告、网段验证 |
+| [已知问题](docs/known-issues.md) | 产品、Agent、测试、部署的已知边界 |
 
 ---
 

@@ -29,8 +29,8 @@ public static class CveDatabase
             "安装补丁 KB4551762，启用 SMB 签名"),
 
         new("CVE-2023-38408", "OpenSSH RCE", 22, "SSH",
-            "high", "OpenSSH < 9.0", "openssh_version",
-            "升级 OpenSSH 到 9.0p1+"),
+            "high", "OpenSSH < 9.3.2", "openssh_version",
+            "升级 OpenSSH 到 9.3p2+"),
 
         new("CVE-2023-44487", "HTTP/2 Rapid Reset", 80, "HTTP",
             "high", "nginx < 1.25.3", "http_version",

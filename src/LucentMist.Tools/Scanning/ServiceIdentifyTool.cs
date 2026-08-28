@@ -221,8 +221,13 @@ public class ServiceIdentifyTool : ITool
             var parts = Regex.Split(trimmed, @"\s+");
             if (parts.Length < 4) continue;
 
-            var local = parts[2];
             var processPart = parts[^1];
+            var local = parts
+                .Skip(2)
+                .FirstOrDefault(part =>
+                    part.Contains(':') &&
+                    part is not ("0.0.0.0:*" or "[::]:*"));
+            if (local == null) continue;
             var portMatch = Regex.Match(local, @":(\d+)$");
             var pidMatch = Regex.Match(processPart, @"pid=(\d+)");
             if (!portMatch.Success || !pidMatch.Success) continue;
