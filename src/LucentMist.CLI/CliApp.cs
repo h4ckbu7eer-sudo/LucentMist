@@ -794,6 +794,7 @@ public class CliApp
         };
 
         var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        var sslTool = new SslCertificateTool(lf.CreateLogger<SslCertificateTool>());
         var scanStart = DateTime.Now;
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -848,6 +849,11 @@ public class CliApp
                                 Logger.LogWarning(ex, "Failed to parse port scan result for report");
                             }
                         }
+
+                        // Only probe ports that conventionally carry TLS. This fills the
+                        // certificate section without repeating failed TLS handshakes on
+                        // every open port.
+                        await CollectSslInfoAsync(report, ip, sslTool);
 
                         // OS fingerprint
                         string osGuess = "";
@@ -937,6 +943,62 @@ public class CliApp
         AnsiConsole.MarkupLine($"[green]报告已生成: {Escape(output)}[/]");
         AnsiConsole.MarkupLine($"[grey]格式: {format} | 大小: {content.Length} 字符[/]");
         return 0;
+    }
+
+    private static async Task CollectSslInfoAsync(
+        ReportGenerator.ScanReport report,
+        string target,
+        SslCertificateTool sslTool)
+    {
+        var tlsPorts = report.OpenPorts
+            .Where(port => port.Target == target && PortHelper.IsLikelyTlsPort(port.Port))
+            .Select(port => port.Port)
+            .Distinct()
+            .Order()
+            .ToArray();
+
+        foreach (var port in tlsPorts)
+        {
+            var result = await sslTool.ExecuteAsync(new ToolArguments
+            {
+                ["target"] = target,
+                ["port"] = port.ToString(),
+                ["timeout_ms"] = "3000"
+            });
+            if (!result.Success) continue;
+
+            try
+            {
+                using var doc = JsonDocument.Parse(result.Data);
+                var root = doc.RootElement;
+                report.SslInfo.Add(new ReportGenerator.SslEntry
+                {
+                    Target = root.TryGetProperty("target", out var tlsTarget)
+                        ? tlsTarget.GetString() ?? target
+                        : target,
+                    Port = root.TryGetProperty("port", out var tlsPort)
+                        ? tlsPort.GetInt32()
+                        : port,
+                    Subject = root.TryGetProperty("subject", out var subject)
+                        ? subject.GetString() ?? ""
+                        : "",
+                    Issuer = root.TryGetProperty("issuer", out var issuer)
+                        ? issuer.GetString() ?? ""
+                        : "",
+                    NotAfter = root.TryGetProperty("notAfter", out var notAfter)
+                        ? notAfter.GetString() ?? ""
+                        : "",
+                    DaysRemaining = root.TryGetProperty("daysRemaining", out var days)
+                        ? days.GetInt32()
+                        : 0,
+                    IsExpired = root.TryGetProperty("isExpired", out var expired) && expired.GetBoolean()
+                });
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                Logger.LogWarning(ex, "Failed to parse TLS certificate result for report");
+            }
+        }
     }
 
     // ========================================

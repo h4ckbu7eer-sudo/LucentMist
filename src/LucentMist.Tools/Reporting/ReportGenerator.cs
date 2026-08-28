@@ -17,7 +17,7 @@ public class ReportGenerator
         public int OnlineDevices { get; set; }
         public List<DeviceEntry> Devices { get; set; } = new();
         public List<PortEntry> OpenPorts { get; set; } = new();
-        public SslEntry? SslInfo { get; set; }
+        public List<SslEntry> SslInfo { get; set; } = new();
         public VulnSummary? VulnInfo { get; set; }
     }
     public class DeviceEntry { public string Ip { get; set; } = ""; public bool IsAlive { get; set; } public string OsGuess { get; set; } = ""; }
@@ -42,12 +42,56 @@ public class ReportGenerator
     private static string ToCsv(ScanReport r)
     {
         var sb = new StringBuilder();
-        sb.AppendLine("端口,服务,CVE,风险,CVSS,描述,修复建议,来源");
+        sb.AppendLine("记录类型,目标,端口,服务,状态,CVE,风险,CVSS,描述,修复建议,来源");
+        foreach (var port in r.OpenPorts)
+        {
+            sb.AppendLine(string.Join(",",
+                CsvEscape("开放端口"),
+                CsvEscape(port.Target),
+                port.Port,
+                CsvEscape(port.Service),
+                CsvEscape(port.State),
+                CsvEscape("-"),
+                CsvEscape("-"),
+                CsvEscape("-"),
+                CsvEscape($"目标对外提供 {port.Service} 服务"),
+                CsvEscape(PortAdvice(port)),
+                CsvEscape("端口扫描")));
+        }
+
+        foreach (var ssl in r.SslInfo)
+        {
+            var state = ssl.IsExpired ? "已过期" : ssl.DaysRemaining <= 30 ? "即将过期" : "有效";
+            sb.AppendLine(string.Join(",",
+                CsvEscape("TLS 证书"),
+                CsvEscape(ssl.Target),
+                ssl.Port,
+                CsvEscape("TLS"),
+                CsvEscape(state),
+                CsvEscape("-"),
+                CsvEscape(ssl.IsExpired ? "high" : ssl.DaysRemaining <= 30 ? "medium" : "low"),
+                CsvEscape("-"),
+                CsvEscape($"主体: {ssl.Subject}; 签发者: {ssl.Issuer}; 到期: {ssl.NotAfter}"),
+                CsvEscape(ssl.IsExpired || ssl.DaysRemaining <= 30 ? "尽快更换或续期证书" : "保持自动续期并定期检查"),
+                CsvEscape("TLS 检查")));
+        }
+
         if (r.VulnInfo?.Findings != null)
             foreach (var f in r.VulnInfo.Findings)
-                sb.AppendLine($"{f.Port},{CsvEscape(f.Service)},{CsvEscape("-")},{SafeZhRisk(f.Risk)},{CsvEscape("-")},{CsvEscape(f.Description)},{CsvEscape(f.Fix)},{CsvEscape("-")}");
+                sb.AppendLine(string.Join(",",
+                    CsvEscape("漏洞"),
+                    CsvEscape("-"),
+                    f.Port,
+                    CsvEscape(f.Service),
+                    CsvEscape("-"),
+                    CsvEscape("-"),
+                    CsvEscape(SafeZhRisk(f.Risk)),
+                    CsvEscape("-"),
+                    CsvEscape(f.Description),
+                    CsvEscape(f.Fix),
+                    CsvEscape("-")));
         if (r.VulnInfo?.Findings is not { Count: > 0 })
-            sb.AppendLine("无漏洞,,,,,,");
+            sb.AppendLine($"{CsvEscape("漏洞")},,,,,,,,{CsvEscape("无漏洞")},,");
         return sb.ToString();
     }
     private static string CsvEscape(string s)
@@ -63,6 +107,22 @@ public class ReportGenerator
     {
         var sb = new StringBuilder();
         sb.AppendLine($"# 🌫️ {MdEscape(r.Title)}\n> {MdEscape(r.Target)} · {r.GeneratedAt:yyyy-MM-dd HH:mm} · {MdEscape(r.ScanDuration)}\n");
+
+        sb.AppendLine("## 🌐 网络暴露\n");
+        if (r.OpenPorts.Count == 0)
+        {
+            sb.AppendLine("未发现开放端口。\n");
+        }
+        else
+        {
+            sb.AppendLine("| 目标 | 端口 | 服务 | 状态 | 建议 |");
+            sb.AppendLine("|------|------|------|------|------|");
+            foreach (var port in r.OpenPorts)
+                sb.AppendLine($"| {MdEscape(port.Target)} | `{port.Port}` | {MdEscape(port.Service)} | {MdEscape(port.State)} | {MdEscape(PortAdvice(port))} |");
+            sb.AppendLine();
+        }
+
+        AppendSslMarkdown(sb, r.SslInfo);
 
         // 层1: 摘要
         sb.AppendLine("## 📊 紧急摘要");
@@ -106,8 +166,6 @@ public class ReportGenerator
     private static string ToHtml(ScanReport r)
     {
         var v = r.VulnInfo;
-        var osGuess = r.Devices.FirstOrDefault()?.OsGuess ?? "";
-        var filteredCount = v?.Findings != null ? FilterAndCount(v.Findings, osGuess) : 0;
         var overallRisk = NormalizeRisk(v?.OverallRisk ?? "");
         var riskBg = overallRisk switch
         {
@@ -123,8 +181,6 @@ public class ReportGenerator
             "medium" => "#fb923c",
             _ => "#4ade80"
         };
-        var filterNote = filteredCount > 0 ? $"<div class='filter-note'>🔍 已过滤 {filteredCount} 个历史漏洞（与当前 OS 无关）</div>" : "";
-
         // 层1: 摘要
         var summary = $@"
 <div class='urgent-summary'>
@@ -133,7 +189,7 @@ public class ReportGenerator
   <div class='sum-card medium'><div class='val'>{v?.MediumCount ?? 0}</div><div class='lbl'>🟢 中危</div></div>
   <div class='sum-card low'><div class='val'>{v?.LowCount ?? 0}</div><div class='lbl'>⚪ 低危</div></div>
   <div class='sum-card total'><div class='val'>{v?.Findings.Count ?? 0}</div><div class='lbl'>📊 相关</div></div>
-</div>{filterNote}";
+</div>";
 
         // 层2: 紧急漏洞
         var urgentHtml = "";
@@ -237,11 +293,12 @@ code{{background:var(--surface2);padding:.1rem .4rem;border-radius:3px;font-size
 .badge-low{{background:rgba(148,163,184,.1);color:#94a3b8}}
 .fix-cell{{font-size:.78rem;color:#94a3b8;max-width:250px}}
 .safe-msg{{color:#4ade80;text-align:center;padding:2rem}}
+.tls-status{{font-weight:700}}.tls-valid{{color:#4ade80}}.tls-warning{{color:#fbbf24}}.tls-expired{{color:#ef4444}}
 .fix-list{{display:flex;flex-direction:column;gap:.5rem}}
 .fix-item{{background:var(--surface);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:.8rem 1rem;font-size:.84rem;border-left:3px solid var(--cyan)}}
 .fix-item::before{{content:'🔧 '}}
 footer{{text-align:center;padding:2rem 0;color:var(--muted);font-size:.75rem;border-top:1px solid rgba(255,255,255,.04);margin-top:3rem}}
-details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;background:var(--surface2);border-radius:8px;font-weight:600;font-size:.85rem;user-select:none;list-style:none}}details summary::before{{content:'▶ ';font-size:.7rem;margin-right:.4rem}}details[open] summary::before{{content:'▼ '}}details[open] summary{{border-radius:8px 8px 0 0}}details table{{margin-top:0}}details[open] table{{margin-top:0}}.nvd-link{{color:var(--cyan);text-decoration:none;word-break:break-all;font-size:.78rem}}.nvd-link:hover{{text-decoration:underline;color:#5ee8d4}}.filter-note{{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:.6rem 1rem;font-size:.82rem;color:#fbbf24;margin-top:.5rem;text-align:center}}@media(max-width:768px){{.stats,.urgent-summary{{grid-template-columns:repeat(2,1fr)}}.urgent-grid{{grid-template-columns:1fr}}h1{{font-size:1.5rem}}}}
+details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;background:var(--surface2);border-radius:8px;font-weight:600;font-size:.85rem;user-select:none;list-style:none}}details summary::before{{content:'▶ ';font-size:.7rem;margin-right:.4rem}}details[open] summary::before{{content:'▼ '}}details[open] summary{{border-radius:8px 8px 0 0}}details table{{margin-top:0}}details[open] table{{margin-top:0}}.nvd-link{{color:var(--cyan);text-decoration:none;word-break:break-all;font-size:.78rem}}.nvd-link:hover{{text-decoration:underline;color:#5ee8d4}}@media(max-width:768px){{.stats,.urgent-summary{{grid-template-columns:repeat(2,1fr)}}.urgent-grid{{grid-template-columns:1fr}}h1{{font-size:1.5rem}}}}
 </style></head><body><div class='container'>
 <header><h1>🌫️ {E(r.Title)}</h1><p class='meta'>{E(r.Target)} · {r.GeneratedAt:yyyy-MM-dd HH:mm:ss} · 耗时 {E(r.ScanDuration)}</p></header>
 <div class='stats'>
@@ -250,10 +307,11 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
   <div class='stat-card ports'><div class='val'>{r.OpenPorts.Count}</div><div class='lbl'>开放端口</div></div>
   <div class='stat-card risk'><div class='val'>{E(v?.OverallRisk ?? "-")}</div><div class='lbl'>综合风险</div></div>
 </div>
+{OpenPortsTable(r)}
+{SslTable(r)}
 {summary}
 {urgentHtml}
 {tableSection}
-{OpenPortsTable(r)}
 {DeviceTable(r)}
 {fixList}
 <footer>LucentMist v{LucentMist.Core.AppVersion.Current} · {r.GeneratedAt:yyyy-MM-dd HH:mm:ss} · AI-Powered Network Security Scanner</footer>
@@ -283,37 +341,51 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
     {
         if (r.OpenPorts.Count == 0) return "";
         var rows = string.Join("", r.OpenPorts.Select(port =>
-            $"<tr><td><code>{port.Port}</code></td><td>{E(port.Service)}</td><td>{E(port.Target)}</td></tr>"));
-        return $"<div class='section'><h2>🌐 开放端口</h2><table><thead><tr><th>端口</th><th>服务</th><th>目标</th></tr></thead><tbody>{rows}</tbody></table></div>";
+            $"<tr><td>{E(port.Target)}</td><td><code>{port.Port}</code></td><td>{E(port.Service)}</td><td>{E(port.State)}</td><td class='fix-cell'>{E(PortAdvice(port))}</td></tr>"));
+        return $"<div class='section'><h2>🌐 网络暴露</h2><table><thead><tr><th>目标</th><th>端口</th><th>服务</th><th>状态</th><th>建议</th></tr></thead><tbody>{rows}</tbody></table></div>";
     }
 
-    private static int ExtractYear(string desc)
+    private static string SslTable(ScanReport r)
     {
-        if (string.IsNullOrEmpty(desc)) return 0;
-        // Try CVE-YEAR-NNNN pattern
-        var m = System.Text.RegularExpressions.Regex.Match(desc, @"CVE-(\d{4})-\d+");
-        if (m.Success) return int.Parse(m.Groups[1].Value);
-        // Try a standalone year in description: "Windows 95", "SunOS 4.1.1", etc.
-        m = System.Text.RegularExpressions.Regex.Match(desc, @"\b(19\d{2}|20\d{2})\b");
-        return m.Success ? int.Parse(m.Groups[1].Value) : 0;
+        if (r.SslInfo.Count == 0) return "";
+        var rows = string.Join("", r.SslInfo.Select(ssl =>
+        {
+            var (label, css) = SslStatus(ssl);
+            return $"<tr><td>{E(ssl.Target)}</td><td><code>{ssl.Port}</code></td><td>{E(ssl.Subject)}</td><td>{E(ssl.Issuer)}</td><td>{E(ssl.NotAfter)}</td><td class='tls-status {css}'>{E(label)}</td></tr>";
+        }));
+        return $"<div class='section'><h2>🔐 TLS 证书</h2><table><thead><tr><th>目标</th><th>端口</th><th>证书主体</th><th>签发者</th><th>到期时间</th><th>状态</th></tr></thead><tbody>{rows}</tbody></table></div>";
     }
 
-    private static int OsThreshold(string os) => os switch
+    private static void AppendSslMarkdown(StringBuilder sb, List<SslEntry> entries)
     {
-        var x when x.Contains("Windows") && (x.Contains("10") || x.Contains("11")) => 2015,
-        var x when x.Contains("Windows") => 2012,
-        var x when x.Contains("macOS") || x.Contains("iOS") => 2015,
-        var x when x.Contains("Android") => 2015,
-        var x when x.Contains("Linux") => 2010,
-        _ => 2010
+        if (entries.Count == 0) return;
+
+        sb.AppendLine("## 🔐 TLS 证书\n");
+        sb.AppendLine("| 目标 | 端口 | 证书主体 | 签发者 | 到期时间 | 状态 |");
+        sb.AppendLine("|------|------|----------|--------|----------|------|");
+        foreach (var ssl in entries)
+        {
+            var (label, _) = SslStatus(ssl);
+            sb.AppendLine($"| {MdEscape(ssl.Target)} | `{ssl.Port}` | {MdEscape(ssl.Subject)} | {MdEscape(ssl.Issuer)} | {MdEscape(ssl.NotAfter)} | {MdEscape(label)} |");
+        }
+        sb.AppendLine();
+    }
+
+    private static (string Label, string Css) SslStatus(SslEntry ssl)
+    {
+        if (ssl.IsExpired) return ("❌ 已过期", "tls-expired");
+        if (ssl.DaysRemaining <= 30) return ($"⚠️ {ssl.DaysRemaining} 天后到期", "tls-warning");
+        return ($"✅ 有效（剩余 {ssl.DaysRemaining} 天）", "tls-valid");
+    }
+
+    private static string PortAdvice(PortEntry port) => port.Port switch
+    {
+        21 or 23 or 80 or 110 or 143 => "明文协议；如非必需请关闭，或改用加密协议",
+        22 or 3389 => "管理入口；限制来源 IP，启用强认证和登录审计",
+        445 => "文件共享；不应暴露到互联网，限制在受信网络内",
+        2375 or 3306 or 5432 or 6379 or 9200 or 27017 => "高价值后端服务；使用防火墙限制访问并启用认证",
+        _ => "确认业务必要性，并仅允许受信来源访问"
     };
-
-    private static int FilterAndCount(List<VulnFinding> findings, string osGuess)
-    {
-        if (string.IsNullOrEmpty(osGuess)) return 0;
-        var threshold = OsThreshold(osGuess);
-        return findings.Count(f => { var y = ExtractYear(f.Description); return y > 0 && y < threshold; });
-    }
 
     private static string NormalizeRisk(string risk) =>
         (risk ?? "").Trim().ToLowerInvariant() switch

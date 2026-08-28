@@ -228,6 +228,10 @@ public static class PortHelper
     public static string? GetServiceName(int port) =>
         GetTcpServiceName(port) ?? GetUdpServiceName(port);
 
+    public static bool IsLikelyTlsPort(int port) => port is
+        443 or 465 or 636 or 989 or 990 or 993 or 995 or
+        2376 or 4443 or 5671 or 5986 or 6443 or 8443 or 8883 or 9443;
+
     public static string? GetServiceKey(int port) =>
         ServiceKeys.TryGetValue(port, out var key) ? key : null;
 }
