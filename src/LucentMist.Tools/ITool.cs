@@ -56,6 +56,12 @@ public interface ITool
 }
 
 /// <summary>
+/// 标记工具的 target/host/ip 参数表示真实网络地址，ReAct 才应对其执行目标安全策略。
+/// 例如 Sirius 的 target 是数据库主机 ID，不实现此接口。
+/// </summary>
+public interface INetworkTargetTool : ITool;
+
+/// <summary>
 /// 工具参数定义
 /// </summary>
 public record ToolParameter

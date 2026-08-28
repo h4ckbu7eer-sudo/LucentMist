@@ -59,13 +59,13 @@ public class ReActEngine
         ThoughtLog.Clear();
 
         _logger.LogInformation("ReAct 开始: Query={Query}, MaxRounds={Max}", userQuery, MaxRounds);
+        var toolDefs = _toolRegistry.ExportForLLM();
 
         for (var round = 1; round <= MaxRounds; round++)
         {
             _logger.LogDebug("ReAct Round {Round}/{Max}", round, MaxRounds);
 
             // 1. 调用 LLM 推理
-            var toolDefs = _toolRegistry.ExportForLLM();
             ReActStep step;
             try
             {
@@ -91,6 +91,17 @@ public class ReActEngine
                 return ReActResult.Ok(step.ActionInput, ThoughtLog, Observations);
             }
 
+            // 检测整个会话中的重复操作，而不只是上一条。JSON 属性顺序或数字/字符串
+            // 表示不同也会归一化，避免 LLM 绕一轮后再次执行相同扫描。
+            var operationKey = OperationKey(step.Action, step.ActionInput);
+            if (Observations.Any(obs => OperationKey(obs.ToolName, obs.Input) == operationKey))
+            {
+                _logger.LogWarning("检测到重复操作: {Action}({Input})，终止循环", step.Action, step.ActionInput);
+                // 汇总所有已完成的观察结果作为最终结论
+                var summary = SummarizeObservations(Observations);
+                return ReActResult.Ok(summary, ThoughtLog, Observations);
+            }
+
             // 3. 执行工具
             var tool = _toolRegistry.Get(step.Action);
             if (tool == null)
@@ -100,23 +111,10 @@ public class ReActEngine
                     Step = round,
                     ToolName = step.Action,
                     Input = step.ActionInput,
-                    Result = $"未知工具: {step.Action}。可用: {_toolRegistry.ExportForLLM()}",
+                    Result = $"未知工具: {step.Action}。可用: {toolDefs}",
                     Success = false
                 });
                 continue;
-            }
-
-            // 检测重复操作（同样的 action + input）
-            var lastObs = Observations.LastOrDefault();
-            if (lastObs != null &&
-                lastObs.ToolName == step.Action &&
-                lastObs.Input == step.ActionInput &&
-                lastObs.Success)
-            {
-                _logger.LogWarning("检测到重复操作: {Action}({Input})，终止循环", step.Action, step.ActionInput);
-                // 汇总所有已完成的观察结果作为最终结论
-                var summary = SummarizeObservations(Observations);
-                return ReActResult.Ok(summary, ThoughtLog, Observations);
             }
 
             // 4. 解析参数并调用工具
@@ -133,10 +131,15 @@ public class ReActEngine
 
             try
             {
-                var target = toolArgs.GetOrDefault("target");
-                if (string.IsNullOrWhiteSpace(target)) target = toolArgs.GetOrDefault("host");
-                if (string.IsNullOrWhiteSpace(target)) target = toolArgs.GetOrDefault("ip");
-                if (!string.IsNullOrWhiteSpace(target) &&
+                var target = tool is INetworkTargetTool
+                    ? toolArgs.GetOrDefault("target")
+                    : "";
+                if (tool is INetworkTargetTool && string.IsNullOrWhiteSpace(target))
+                    target = toolArgs.GetOrDefault("host");
+                if (tool is INetworkTargetTool && string.IsNullOrWhiteSpace(target))
+                    target = toolArgs.GetOrDefault("ip");
+                if (tool is INetworkTargetTool &&
+                    !string.IsNullOrWhiteSpace(target) &&
                     !await TargetGuard.IsAllowedAsync(target, ct))
                 {
                     var blocked = new ReActObservation
@@ -157,7 +160,9 @@ public class ReActEngine
                     Step = round,
                     ToolName = step.Action,
                     Input = step.ActionInput,
-                    Result = toolResult.Data,
+                    Result = toolResult.Success
+                        ? toolResult.Data
+                        : toolResult.Error ?? toolResult.Data,
                     Success = toolResult.Success
                 };
                 Observations.Add(obs);
@@ -228,40 +233,54 @@ public class ReActEngine
         _logger.LogInformation("自动服务识别: Target={Target}, Ports={Ports}",
             target, string.Join(",", openPorts));
 
-        var limit = Math.Max(1, MaxAutoIdentifyPorts);
+        var limit = Math.Max(0, MaxAutoIdentifyPorts);
+        if (limit == 0) return;
         if (openPorts.Count > limit)
             _logger.LogWarning("自动服务识别超出上限 {Limit}，仅处理前 {Count} 个端口", limit, limit);
 
-        foreach (var port in openPorts.Take(limit))
-        {
-            try
+        var selectedPorts = openPorts.Take(limit).ToArray();
+        var serviceObservations = new ReActObservation?[selectedPorts.Length];
+        await Parallel.ForEachAsync(
+            Enumerable.Range(0, selectedPorts.Length),
+            new ParallelOptions
             {
-                var svcArgs = new ToolArguments
+                MaxDegreeOfParallelism = Math.Min(4, selectedPorts.Length),
+                CancellationToken = ct,
+            },
+            async (index, token) =>
+            {
+                var port = selectedPorts[index];
+                try
                 {
-                    ["target"] = target,
-                    ["port"] = port.ToString()
-                };
-                var svcResult = await svcTool.ExecuteAsync(svcArgs, ct);
+                    var svcArgs = new ToolArguments
+                    {
+                        ["target"] = target,
+                        ["port"] = port.ToString()
+                    };
+                    var svcResult = await svcTool.ExecuteAsync(svcArgs, token);
 
-                var svcObs = new ReActObservation
+                    serviceObservations[index] = new ReActObservation
+                    {
+                        Step = round,
+                        ToolName = "service_identify",
+                        Input = JsonSerializer.Serialize(svcArgs),
+                        Result = svcResult.Success
+                            ? svcResult.Data
+                            : svcResult.Error ?? svcResult.Data,
+                        Success = svcResult.Success
+                    };
+                }
+                catch (OperationCanceledException) when (token.IsCancellationRequested)
                 {
-                    Step = round,
-                    ToolName = "service_identify",
-                    Input = $"{target}:{port}",
-                    Result = svcResult.Data,
-                    Success = svcResult.Success
-                };
-                Observations.Add(svcObs);
-            }
-            catch (OperationCanceledException) when (ct.IsCancellationRequested)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "自动服务识别失败: {Target}:{Port}", target, port);
-            }
-        }
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "自动服务识别失败: {Target}:{Port}", target, port);
+                }
+            });
+
+        Observations.AddRange(serviceObservations.OfType<ReActObservation>());
     }
 
     /// <summary>
@@ -317,6 +336,27 @@ public class ReActEngine
         }
 
         return sb.ToString().TrimEnd();
+    }
+
+    private static string OperationKey(string toolName, string input)
+    {
+        try
+        {
+            var values = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(input);
+            if (values != null)
+            {
+                var normalized = values
+                    .OrderBy(pair => pair.Key, StringComparer.OrdinalIgnoreCase)
+                    .Select(pair => $"{pair.Key.ToLowerInvariant()}={pair.Value.ToString()}");
+                return $"{toolName.ToLowerInvariant()}|{string.Join("&", normalized)}";
+            }
+        }
+        catch (JsonException)
+        {
+            // 非 JSON 输入仍按去除首尾空白后的原文比较。
+        }
+
+        return $"{toolName.ToLowerInvariant()}|{input.Trim()}";
     }
 }
 

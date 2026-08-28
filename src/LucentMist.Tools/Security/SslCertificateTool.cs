@@ -12,7 +12,7 @@ namespace LucentMist.Tools.Security;
 /// <summary>
 /// SSL/TLS 证书校验工具 — 获取证书信息，检查有效期、SAN、证书链
 /// </summary>
-public class SslCertificateTool : ITool
+public class SslCertificateTool : INetworkTargetTool
 {
     private readonly ILogger<SslCertificateTool> _logger;
 

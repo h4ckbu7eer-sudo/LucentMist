@@ -15,7 +15,7 @@ namespace LucentMist.Tools.Scanning;
 /// <summary>
 /// 服务识别工具 — Banner 抓取 + 服务识别 + 本机进程信息
 /// </summary>
-public class ServiceIdentifyTool : ITool
+public class ServiceIdentifyTool : INetworkTargetTool
 {
     private readonly ILogger<ServiceIdentifyTool> _logger;
     private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };

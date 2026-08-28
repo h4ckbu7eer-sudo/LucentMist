@@ -10,7 +10,7 @@ namespace LucentMist.Tools.Scanning;
 /// <summary>
 /// 端口扫描工具 — TCP SYN/Connect 端口扫描
 /// </summary>
-public class PortScanTool : ITool
+public class PortScanTool : INetworkTargetTool
 {
     private readonly ILogger<PortScanTool> _logger;
 

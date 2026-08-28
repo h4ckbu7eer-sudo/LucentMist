@@ -299,6 +299,63 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public async Task RunAsync_NonAdjacentEquivalentOperation_IsNotExecutedAgain()
+    {
+        var first = new Mock<ITool>();
+        first.Setup(t => t.Name).Returns("first");
+        first.Setup(t => t.Description).Returns("first");
+        first.Setup(t => t.Parameters).Returns([]);
+        first.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok("{}", TimeSpan.Zero));
+
+        var second = new Mock<ITool>();
+        second.Setup(t => t.Name).Returns("second");
+        second.Setup(t => t.Description).Returns("second");
+        second.Setup(t => t.Parameters).Returns([]);
+        second.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok("{}", TimeSpan.Zero));
+
+        var llm = CreateMockLLM(
+            new ReActStep { Action = "first", ActionInput = "{\"b\":2,\"a\":\"1\"}" },
+            new ReActStep { Action = "second", ActionInput = "{}" },
+            new ReActStep { Action = "first", ActionInput = "{\"a\":1,\"b\":\"2\"}" });
+        var engine = new ReActEngine(
+            llm.Object,
+            new ToolRegistry().Register(first.Object).Register(second.Object),
+            "prompt",
+            NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.True(result.Success);
+        Assert.Equal(2, result.Observations.Count);
+        first.Verify(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task RunAsync_ToolFailure_ExposesErrorToNextRound()
+    {
+        var tool = new Mock<ITool>();
+        tool.Setup(t => t.Name).Returns("failing");
+        tool.Setup(t => t.Description).Returns("failing");
+        tool.Setup(t => t.Parameters).Returns([]);
+        tool.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Fail("连接超时", TimeSpan.Zero));
+        var llm = CreateMockLLM(
+            new ReActStep { Action = "failing", ActionInput = "{}" },
+            new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(
+            llm.Object,
+            new ToolRegistry().Register(tool.Object),
+            "prompt",
+            NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.Equal("连接超时", Assert.Single(result.Observations).Result);
+    }
+
+    [Fact]
     public async Task RunAsync_ToolThrowsException_ObservesFailure()
     {
         // Register a tool that throws
@@ -353,6 +410,34 @@ public class ReActEngineTests
         Assert.Single(result.Observations);
         Assert.False(result.Observations[0].Success);
         Assert.Contains("安全策略拒绝", result.Observations[0].Result);
+    }
+
+    [Fact]
+    public async Task RunAsync_NonNetworkTargetParameter_IsNotDnsValidated()
+    {
+        var tool = new Mock<ITool>();
+        tool.Setup(t => t.Name).Returns("record_lookup");
+        tool.Setup(t => t.Description).Returns("lookup record by id");
+        tool.Setup(t => t.Parameters).Returns([]);
+        tool.Setup(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok("{}", TimeSpan.Zero));
+        var llm = CreateMockLLM(
+            new ReActStep
+            {
+                Action = "record_lookup",
+                ActionInput = "{\"target\":\"host-record-42\"}"
+            },
+            new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(
+            llm.Object,
+            new ToolRegistry().Register(tool.Object),
+            "prompt",
+            NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.True(Assert.Single(result.Observations).Success);
+        tool.Verify(t => t.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
