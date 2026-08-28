@@ -91,6 +91,19 @@ public class ReportGeneratorTests
     }
 
     [Fact]
+    public void Generate_Html_ContainsOpenPortList()
+    {
+        var gen = new ReportGenerator();
+        var report = CreateSampleReport();
+        var html = gen.Generate(report, ReportGenerator.Format.Html);
+
+        Assert.Contains("开放端口", html);
+        Assert.Contains("<code>22</code>", html);
+        Assert.Contains("<code>445</code>", html);
+        Assert.Contains("<code>80</code>", html);
+    }
+
+    [Fact]
     public void Generate_EmptyReport_DoesNotCrash()
     {
         var gen = new ReportGenerator();

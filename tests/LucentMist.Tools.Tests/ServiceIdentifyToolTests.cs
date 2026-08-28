@@ -94,6 +94,17 @@ public class ServiceIdentifyToolTests
         Assert.Equal(456, map[80]);
     }
 
+    [Fact]
+    public void ParseLinuxSs_HandlesRealRecvSendColumns()
+    {
+        var map = ServiceIdentifyTool.ParseLinuxSs("""
+            Netid State   Recv-Q Send-Q  Local Address:Port  Peer Address:Port  Process
+            tcp   LISTEN  0      0       0.0.0.0:22           0.0.0.0:*           users:(("sshd",pid=123,fd=3))
+            """);
+
+        Assert.Equal(123, map[22]);
+    }
+
     private static ServiceIdentifyTool CreateTool() =>
         new(Microsoft.Extensions.Logging.Abstractions.NullLogger<ServiceIdentifyTool>.Instance);
 }

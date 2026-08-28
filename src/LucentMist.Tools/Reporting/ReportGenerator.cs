@@ -253,6 +253,7 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
 {summary}
 {urgentHtml}
 {tableSection}
+{OpenPortsTable(r)}
 {DeviceTable(r)}
 {fixList}
 <footer>LucentMist v{LucentMist.Core.AppVersion.Current} · {r.GeneratedAt:yyyy-MM-dd HH:mm:ss} · AI-Powered Network Security Scanner</footer>
@@ -276,6 +277,14 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
         var rows = string.Join("", r.Devices.Select(d =>
             $"<tr><td>{E(d.Ip)}</td><td>{(d.IsAlive ? "✅ 在线" : "离线")}</td><td>{E(d.OsGuess)}</td></tr>"));
         return $"<div class='section'><h2>🖥️ 设备清单</h2><table><thead><tr><th>IP</th><th>状态</th><th>OS</th></tr></thead><tbody>{rows}</tbody></table></div>";
+    }
+
+    private static string OpenPortsTable(ScanReport r)
+    {
+        if (r.OpenPorts.Count == 0) return "";
+        var rows = string.Join("", r.OpenPorts.Select(port =>
+            $"<tr><td><code>{port.Port}</code></td><td>{E(port.Service)}</td><td>{E(port.Target)}</td></tr>"));
+        return $"<div class='section'><h2>🌐 开放端口</h2><table><thead><tr><th>端口</th><th>服务</th><th>目标</th></tr></thead><tbody>{rows}</tbody></table></div>";
     }
 
     private static int ExtractYear(string desc)
