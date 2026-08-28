@@ -54,3 +54,41 @@ This is the first limited product validation, not a proof of product value:
 The product value question remains open until a real Nmap comparison and an external report usability review are performed.
 
 The validation protocols and their pass/fail criteria are defined in [product-validation-protocols.md](product-validation-protocols.md).
+
+## 4. Core Vulnerability Detection Follow-up
+
+Date: 2026-08-29
+
+### Real Windows SMB target
+
+The local Windows host was used as an authorized real SMB target at `192.168.2.9:445`.
+This was the Windows `LanmanServer` service, not a TCP response simulator.
+
+Read-only environment checks reported:
+
+- Windows build: `22631`
+- `EnableSMB1Protocol`: `False`
+- `EnableSMB2Protocol`: `True`
+- Port `445`: listening
+
+`lmist vuln-scan 192.168.2.9` produced:
+
+- Port `445` service: `SMB`
+- Negotiated version: `SMBv3.1.1`
+- EternalBlue (`CVE-2017-0144`): not reported
+- SMBGhost (`CVE-2020-0796`): reported as a **candidate**, not a verified finding
+
+This confirms the SMB2-first negotiation path works against a real modern Windows
+server and that an SMBv3 target is not misclassified as EternalBlue. The SMBGhost
+result must remain a candidate because a dialect banner alone does not prove the
+Windows patch level.
+
+### Validation still pending
+
+- No real SMBv1 target was available. The positive SMBv1 path is covered by a local
+  TCP test server that verifies the SMB2-first attempt, reconnect fallback, and the
+  SMB1 dialect index at byte offset 37. It must not be described as real-target proof.
+- No real OpenSSH `9.0`-`9.3p1` or `9.3p2+` target was available. The local `sshd`
+  service was stopped and no Docker daemon was running. Banner regression tests pin
+  `9.0p1`, `9.1`, `9.2p1`, and `9.3p1` as candidates, and `9.3p2` and `9.4` as not
+  matching `CVE-2023-38408`; real-service validation remains pending.
