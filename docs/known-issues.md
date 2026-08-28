@@ -10,6 +10,9 @@ Current status as of 0.9.3.
   service. A real SMBv1 positive target and real OpenSSH 9.0-9.3p2 boundary targets
   are still needed; current coverage for those paths uses constructed SMB responses
   and OpenSSH banner regression tests.
+- The bundled verifier currently reports SMBv1 exposure only as a candidate. It does
+  not confirm EternalBlue patch state or exploitability; the verifier interface is an
+  extension point for future evidence-backed checks.
 
 ## Agent
 
