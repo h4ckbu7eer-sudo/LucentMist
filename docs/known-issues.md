@@ -6,7 +6,10 @@ Current status as of 0.9.3.
 
 - Built-in CVE database is small and heuristic. It is not equivalent to Nmap/Nessus fingerprinting.
 - Service version detection depends on banner format; many real-world banners will not produce exact versions.
-- SMB dialect and OpenSSH thresholds have been corrected, but the full detection pipeline still needs controlled-network validation.
+- SMB2-first dialect detection has been validated against a real Windows SMBv3.1.1
+  service. A real SMBv1 positive target and real OpenSSH 9.0-9.3p2 boundary targets
+  are still needed; current coverage for those paths uses constructed SMB responses
+  and OpenSSH banner regression tests.
 
 ## Agent
 
