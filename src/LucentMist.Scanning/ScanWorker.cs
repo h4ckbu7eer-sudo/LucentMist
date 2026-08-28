@@ -17,7 +17,6 @@ public sealed class ScanWorker : BackgroundService
     private readonly ScanStore _store;
     private readonly IScanProgressPublisher _progress;
     private readonly ILogger<ScanWorker> _logger;
-    private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ILoggerFactory _loggerFactory;
     private readonly PingScanTool _pingTool;
     private readonly PortScanTool _portTool;
@@ -58,15 +57,6 @@ public sealed class ScanWorker : BackgroundService
         {
             try
             {
-                await _gate.WaitAsync(stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                await _store.MarkFailedAsync(req.TaskId, "服务关闭，任务未执行");
-                throw;
-            }
-            try
-            {
                 await ExecuteOneAsync(req, stoppingToken);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
@@ -79,17 +69,21 @@ public sealed class ScanWorker : BackgroundService
                 _logger.LogError(ex, "扫描任务执行崩溃: TaskId={TaskId}", req.TaskId);
                 await TryMarkFailedAsync(req.TaskId, ex.Message);
             }
-            finally
-            {
-                _gate.Release();
-            }
         }
     }
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
         _coordinator.Complete();
-        await base.StopAsync(cancellationToken);
+        try
+        {
+            await base.StopAsync(cancellationToken);
+        }
+        finally
+        {
+            while (_coordinator.Reader.TryRead(out var pending))
+                await TryMarkFailedAsync(pending.TaskId, "服务关闭，队列中的任务未执行");
+        }
     }
 
     private async Task TryMarkFailedAsync(string taskId, string error)
@@ -117,12 +111,11 @@ public sealed class ScanWorker : BackgroundService
 
         try
         {
-            var lf = _loggerFactory;
             var outcome = req.ScanType.ToLowerInvariant() switch
             {
-                "ping" => await RunPingAsync(req, startedAt, lf, ct),
-                "tcp" => await RunTcpAsync(req, startedAt, lf, ct),
-                "udp" => await RunUdpAsync(req, startedAt, lf, ct),
+                "ping" => await RunPingAsync(req, startedAt, ct),
+                "tcp" => await RunTcpAsync(req, startedAt, ct),
+                "udp" => await RunUdpAsync(req, startedAt, ct),
                 var other => new ScanOutcome(null, 0, $"不支持的扫描类型: {other}"),
             };
 
@@ -167,7 +160,7 @@ public sealed class ScanWorker : BackgroundService
     }
 
     private async Task<ScanOutcome> RunPingAsync(
-        ScanJob req, DateTime startedAt, ILoggerFactory lf, CancellationToken ct)
+        ScanJob req, DateTime startedAt, CancellationToken ct)
     {
         var pingResult = await _pingTool.ExecuteAsync(new ToolArguments
         {
@@ -183,7 +176,7 @@ public sealed class ScanWorker : BackgroundService
 
         var totalDevices = 0;
         var discovered = new List<string>();
-        var openPortsByIp = new Dictionary<string, int[]>();
+        var openPortsByIp = new System.Collections.Concurrent.ConcurrentDictionary<string, int[]>();
         try
         {
             using var doc = JsonDocument.Parse(pingResult.Data);
@@ -197,32 +190,45 @@ public sealed class ScanWorker : BackgroundService
                     .Where(x => !string.IsNullOrEmpty(x))
                     .Cast<string>());
 
-                var candidates = devices.EnumerateArray().Take(5).ToArray();
-                for (var i = 0; i < candidates.Length; i++)
-                {
-                    var ip = candidates[i].GetString();
-                    if (string.IsNullOrEmpty(ip)) continue;
-
-                    await PublishAsync(req.TaskId, "running",
-                        $"端口识别 {i + 1}/{candidates.Length}", 40 + 10 * (i + 1), ct);
-
-                    var portResult = await _portTool.ExecuteAsync(new ToolArguments
+                var candidates = devices.EnumerateArray()
+                    .Take(5)
+                    .Select(item => item.GetString())
+                    .Where(ip => !string.IsNullOrEmpty(ip))
+                    .Cast<string>()
+                    .ToArray();
+                var identified = 0;
+                await Parallel.ForEachAsync(
+                    candidates,
+                    new ParallelOptions
                     {
-                        ["target"] = ip,
-                        ["ports"] = "22,80,443,3389,8080,8443",
-                        ["timeout_ms"] = "2000",
-                        ["concurrency"] = "20",
-                    }, ct);
-
-                    if (portResult.Success)
+                        MaxDegreeOfParallelism = Math.Min(3, Math.Max(1, candidates.Length)),
+                        CancellationToken = ct,
+                    },
+                    async (ip, token) =>
                     {
-                        using var pdoc = JsonDocument.Parse(portResult.Data);
-                        var ports = pdoc.RootElement.TryGetProperty("openPorts", out var p)
-                            ? p.EnumerateArray().Select(x => x.GetInt32()).ToArray()
-                            : [];
-                        openPortsByIp[ip] = ports;
-                    }
-                }
+                        var portResult = await _portTool.ExecuteAsync(new ToolArguments
+                        {
+                            ["target"] = ip,
+                            ["ports"] = "22,80,443,3389,8080,8443",
+                            ["timeout_ms"] = "2000",
+                            ["concurrency"] = "20",
+                        }, token);
+
+                        if (portResult.Success)
+                        {
+                            using var pdoc = JsonDocument.Parse(portResult.Data);
+                            var ports = pdoc.RootElement.TryGetProperty("openPorts", out var p)
+                                ? p.EnumerateArray().Select(x => x.GetInt32()).ToArray()
+                                : [];
+                            openPortsByIp[ip] = ports;
+                        }
+
+                        var done = Interlocked.Increment(ref identified);
+                        await PublishAsync(req.TaskId, "running",
+                            $"端口识别 {done}/{candidates.Length}",
+                            40 + 10 * done,
+                            token);
+                    });
             }
         }
         catch (Exception ex)
@@ -263,7 +269,7 @@ public sealed class ScanWorker : BackgroundService
     }
 
     private async Task<ScanOutcome> RunTcpAsync(
-        ScanJob req, DateTime startedAt, ILoggerFactory lf, CancellationToken ct)
+        ScanJob req, DateTime startedAt, CancellationToken ct)
     {
         await PublishAsync(req.TaskId, "running", "TCP 扫描进行中", 50, ct);
         var result = await _portTool.ExecuteAsync(new ToolArguments
@@ -281,7 +287,7 @@ public sealed class ScanWorker : BackgroundService
     }
 
     private async Task<ScanOutcome> RunUdpAsync(
-        ScanJob req, DateTime startedAt, ILoggerFactory lf, CancellationToken ct)
+        ScanJob req, DateTime startedAt, CancellationToken ct)
     {
         await PublishAsync(req.TaskId, "running", "UDP 扫描进行中", 50, ct);
         var result = await _udpTool.ExecuteAsync(new ToolArguments
