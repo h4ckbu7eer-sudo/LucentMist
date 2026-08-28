@@ -14,6 +14,7 @@ public sealed class ScanTaskClient : IAsyncDisposable
     private readonly ScanStore _store;
     private readonly NavigationManager _navigation;
     private readonly CancellationTokenSource _cts = new();
+    private readonly SemaphoreSlim _hubGate = new(1, 1);
     private HubConnection? _hub;
     private Task? _pollTask;
     private string _taskId = "";
@@ -60,7 +61,7 @@ public sealed class ScanTaskClient : IAsyncDisposable
     public async Task<string> StartAsync(
         string target, string scanType, string ports, CancellationToken ct = default)
     {
-        var hub = await GetHubAsync(ct);
+        var previousTaskId = _taskId;
         var version = Interlocked.Increment(ref _version);
         _taskId = await _coordinator.StartAsync(target, scanType, ports, ct);
         _target = target;
@@ -72,47 +73,79 @@ public sealed class ScanTaskClient : IAsyncDisposable
         ProgressPercent = 0;
         LastError = null;
         _pollTask = PollUntilFinalAsync(_taskId, version);
-        await hub.InvokeAsync("JoinScanGroup", _taskId, ct);
+        await TryJoinHubAsync(previousTaskId);
         return _taskId;
     }
 
     private async Task<HubConnection> GetHubAsync(CancellationToken ct)
     {
-        if (_hub is not null) return _hub;
-
-        _hub = new HubConnectionBuilder()
-            .WithUrl(_navigation.ToAbsoluteUri("/scanhub"))
-            .WithAutomaticReconnect()
-            .Build();
-
-        _hub.Reconnected += _ => RejoinScanGroupAsync();
-
-        _hub.On<ScanProgressEvent>("ScanProgress", evt =>
+        await _hubGate.WaitAsync(ct);
+        try
         {
-            if (evt.TaskId != _taskId) return;
-            CurrentStatus = evt.Status;
-            CurrentMessage = evt.Message;
-            ProgressPercent = evt.Percent;
-            Progress?.Invoke(evt);
-            if (evt.Status is "completed" or "failed")
-            {
-                if (evt.Status == "completed")
-                    RaiseFinal(new ScanTaskRecord
-                    {
-                        Id = _taskId,
-                        Target = _target,
-                        ScanType = _scanType,
-                        Ports = _ports,
-                        Status = "completed",
-                        ResultJson = evt.ResultJson
-                    });
-                else
-                    RaiseFinal(null, evt.Message);
-            }
-        });
+            if (_hub is { State: not HubConnectionState.Disconnected }) return _hub;
 
-        await _hub.StartAsync(ct);
-        return _hub;
+            if (_hub is null)
+            {
+                _hub = new HubConnectionBuilder()
+                    .WithUrl(_navigation.ToAbsoluteUri("/scanhub"))
+                    .WithAutomaticReconnect()
+                    .Build();
+
+                _hub.Reconnected += _ => RejoinScanGroupAsync();
+
+                _hub.On<ScanProgressEvent>("ScanProgress", evt =>
+                {
+                    if (evt.TaskId != _taskId) return;
+                    CurrentStatus = evt.Status;
+                    CurrentMessage = evt.Message;
+                    ProgressPercent = evt.Percent;
+                    Progress?.Invoke(evt);
+                    if (evt.Status is "completed" or "failed")
+                    {
+                        if (evt.Status == "completed")
+                            RaiseFinal(new ScanTaskRecord
+                            {
+                                Id = _taskId,
+                                Target = _target,
+                                ScanType = _scanType,
+                                Ports = _ports,
+                                Status = "completed",
+                                ResultJson = evt.ResultJson
+                            });
+                        else
+                            RaiseFinal(null, evt.Message);
+                    }
+                });
+            }
+
+            await _hub.StartAsync(ct);
+            return _hub;
+        }
+        finally
+        {
+            _hubGate.Release();
+        }
+    }
+
+    private async Task TryJoinHubAsync(string previousTaskId)
+    {
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            timeout.CancelAfter(TimeSpan.FromSeconds(2));
+            var hub = await GetHubAsync(timeout.Token);
+            if (!string.IsNullOrEmpty(previousTaskId))
+                await hub.InvokeAsync("LeaveScanGroup", previousTaskId, timeout.Token);
+            await hub.InvokeAsync("JoinScanGroup", _taskId, timeout.Token);
+        }
+        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        {
+            // Client disposed; polling is stopping as well.
+        }
+        catch
+        {
+            // SignalR is an optimization. SQLite polling remains the source of truth.
+        }
     }
 
     private async Task RejoinScanGroupAsync()
@@ -207,5 +240,6 @@ public sealed class ScanTaskClient : IAsyncDisposable
             _hub = null;
         }
         _cts.Dispose();
+        _hubGate.Dispose();
     }
 }
