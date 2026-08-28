@@ -103,7 +103,11 @@ public sealed class ScanWorker : BackgroundService
         _logger.LogInformation("执行扫描: TaskId={TaskId}, Target={Target}, Type={Type}",
             req.TaskId, req.Target, req.ScanType);
         var startedAt = DateTime.UtcNow;
-        await _store.MarkRunningAsync(req.TaskId);
+        if (!await _store.MarkRunningAsync(req.TaskId))
+        {
+            _logger.LogWarning("任务已进入终态或不存在，跳过执行: TaskId={TaskId}", req.TaskId);
+            return;
+        }
         await PublishAsync(req.TaskId, "running", "任务开始", 5, ct);
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
@@ -121,29 +125,29 @@ public sealed class ScanWorker : BackgroundService
 
             if (outcome.Error != null)
             {
-                await _store.MarkFailedAsync(req.TaskId, outcome.Error);
-                await PublishAsync(req.TaskId, "failed", outcome.Error, 100, ct);
+                if (await _store.MarkFailedAsync(req.TaskId, outcome.Error))
+                    await PublishTerminalAsync(req.TaskId, "failed", outcome.Error);
                 _logger.LogWarning("扫描失败: TaskId={TaskId}, Error={Error}", req.TaskId, outcome.Error);
                 return;
             }
 
             var resultJson = outcome.ResultJson
                 ?? throw new InvalidOperationException("扫描成功但缺少结果");
-            await _store.MarkCompletedAsync(req.TaskId, outcome.TotalDevices, resultJson);
-            await PublishAsync(req.TaskId, "completed", "扫描完成", 100, ct, resultJson);
+            await PersistCompletedAndPublishAsync(
+                req.TaskId, outcome.TotalDevices, resultJson);
             _logger.LogInformation("扫描完成: TaskId={TaskId}, Alive={Alive}",
                 req.TaskId, outcome.TotalDevices);
         }
         catch (OperationCanceledException)
         {
-            await _store.MarkFailedAsync(req.TaskId, "扫描被取消");
-            await PublishAsync(req.TaskId, "failed", "扫描被取消", 100, CancellationToken.None);
+            if (await _store.MarkFailedAsync(req.TaskId, "扫描被取消"))
+                await PublishTerminalAsync(req.TaskId, "failed", "扫描被取消");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "扫描异常: TaskId={TaskId}", req.TaskId);
-            await _store.MarkFailedAsync(req.TaskId, ex.Message);
-            await PublishAsync(req.TaskId, "failed", ex.Message, 100, CancellationToken.None);
+            if (await _store.MarkFailedAsync(req.TaskId, ex.Message))
+                await PublishTerminalAsync(req.TaskId, "failed", ex.Message);
         }
         finally
         {
@@ -350,6 +354,50 @@ public sealed class ScanWorker : BackgroundService
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "推送扫描进度失败: TaskId={TaskId}", taskId);
+        }
+    }
+
+    internal async Task PersistCompletedAndPublishAsync(
+        string taskId,
+        int totalDevices,
+        string resultJson)
+    {
+        if (!await _store.MarkCompletedAsync(taskId, totalDevices, resultJson))
+        {
+            _logger.LogWarning("任务已进入其他终态，忽略完成结果: TaskId={TaskId}", taskId);
+            return;
+        }
+
+        await PublishTerminalAsync(taskId, "completed", "扫描完成", resultJson);
+    }
+
+    private async Task PublishTerminalAsync(
+        string taskId,
+        string status,
+        string message,
+        string? resultJson = null)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+        try
+        {
+            await _progress.PublishAsync(
+                new ScanProgressEvent(taskId, status, message, 100, resultJson),
+                timeout.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            _logger.LogWarning(
+                "终态已持久化，但进度通知超时或被取消: TaskId={TaskId}, Status={Status}",
+                taskId,
+                status);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "终态已持久化，但进度通知失败: TaskId={TaskId}, Status={Status}",
+                taskId,
+                status);
         }
     }
 

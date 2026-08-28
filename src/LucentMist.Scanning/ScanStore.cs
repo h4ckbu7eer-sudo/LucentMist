@@ -198,10 +198,12 @@ public class ScanStore
         return list;
     }
 
-    public async Task MarkRunningAsync(string id)
+    public async Task<bool> MarkRunningAsync(string id)
     {
-        await UpdateAsync(id, "running", startedAt: DateTime.UtcNow);
-        await MarkHeartbeatAsync(id);
+        var changed = await UpdateAsync(
+            id, "running", "status = 'pending'", startedAt: DateTime.UtcNow);
+        if (changed) await MarkHeartbeatAsync(id);
+        return changed;
     }
 
     public async Task MarkHeartbeatAsync(string id)
@@ -217,15 +219,18 @@ public class ScanStore
         await cmd.ExecuteNonQueryAsync();
     }
 
-    public async Task MarkCompletedAsync(string id, int totalDevices, string resultJson)
+    public async Task<bool> MarkCompletedAsync(string id, int totalDevices, string resultJson)
     {
-        await UpdateAsync(id, "completed", totalDevices: totalDevices,
+        return await UpdateAsync(
+            id, "completed", "status = 'running'", totalDevices: totalDevices,
             resultJson: resultJson, completedAt: DateTime.UtcNow);
     }
 
-    public async Task MarkFailedAsync(string id, string error)
+    public async Task<bool> MarkFailedAsync(string id, string error)
     {
-        await UpdateAsync(id, "failed", errorMessage: error, completedAt: DateTime.UtcNow);
+        return await UpdateAsync(
+            id, "failed", "status IN ('pending', 'running')",
+            errorMessage: error, completedAt: DateTime.UtcNow);
     }
 
     public async Task MarkStaleTasksFailedAsync(string error, TimeSpan olderThan)
@@ -265,13 +270,13 @@ public class ScanStore
         return deleted;
     }
 
-    private async Task UpdateAsync(string id, string status,
+    private async Task<bool> UpdateAsync(string id, string status, string expectedStateSql,
         DateTime? startedAt = null, DateTime? completedAt = null,
         int? totalDevices = null, string? resultJson = null, string? errorMessage = null)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
-        cmd.CommandText = """
+        cmd.CommandText = $"""
             UPDATE scan_tasks SET
                 status = $status,
                 started_at = COALESCE($started_at, started_at),
@@ -279,7 +284,7 @@ public class ScanStore
                 total_devices = COALESCE($total_devices, total_devices),
                 result_json = COALESCE($result_json, result_json),
                 error_message = COALESCE($error_message, error_message)
-            WHERE id = $id
+            WHERE id = $id AND {expectedStateSql}
             """;
         cmd.Parameters.AddWithValue("$id", id);
         cmd.Parameters.AddWithValue("$status", status);
@@ -288,7 +293,7 @@ public class ScanStore
         cmd.Parameters.AddWithValue("$total_devices", totalDevices ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$result_json", resultJson ?? (object)DBNull.Value);
         cmd.Parameters.AddWithValue("$error_message", errorMessage ?? (object)DBNull.Value);
-        await cmd.ExecuteNonQueryAsync();
+        return await cmd.ExecuteNonQueryAsync() == 1;
     }
 
     private static ScanTaskRecord ReadRecord(SqliteDataReader reader)
