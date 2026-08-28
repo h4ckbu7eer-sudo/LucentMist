@@ -19,6 +19,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\LucentMist.API\LucentMist.API.csproj" />
+    <ProjectReference Include="..\..\src\LucentMist.Web\LucentMist.Web.csproj"
+                      Aliases="LucentMistWeb" />
   </ItemGroup>
 
 </Project>

@@ -75,7 +75,7 @@
     private bool _subscribed;
     private bool _disposed;
     private Action<ScanTaskRecord>? _completedHandler;
-    private Action<string>? _failedHandler;
+    private Action<string, string>? _failedHandler;
 
     protected override async Task OnInitializedAsync()
     {
@@ -101,8 +101,14 @@
         if (_subscribed) return;
         _subscribed = true;
         ScanTask.Progress += OnProgress;
-        _completedHandler = rec => _ = OnCompletedAsync(rec);
-        _failedHandler = error => _ = OnFailedAsync(error);
+        _completedHandler = rec =>
+        {
+            if (rec.Id == ScanTask.CurrentTaskId) _ = OnCompletedAsync(rec);
+        };
+        _failedHandler = (taskId, error) =>
+        {
+            if (taskId == ScanTask.CurrentTaskId) _ = OnFailedAsync(error);
+        };
         ScanTask.Completed += _completedHandler;
         ScanTask.Failed += _failedHandler;
     }
@@ -124,6 +130,7 @@
 
     private void OnProgress(ScanProgressEvent evt)
     {
+        if (evt.TaskId != ScanTask.CurrentTaskId) return;
         _ = InvokeAsync(StateHasChanged);
     }
 
