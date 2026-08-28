@@ -30,14 +30,18 @@ public class CveApiClient
     /// <summary>
     /// 按端口查询所有 API（并行），合并去重。每个 API 失败重试 1 次。
     /// </summary>
-    public static async Task<List<CveDetail>> QueryAsync(string service, string? version, int port)
+    public static async Task<List<CveDetail>> QueryAsync(
+        string service,
+        string? version,
+        int port,
+        CancellationToken ct = default)
     {
         if (Environment.GetEnvironmentVariable("LMIST_CVE_EXTERNAL") != "true")
             return [];
 
         var cacheKey = $"{service}|{version}|{port}";
         if (Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
-            return hit.Items;
+            return hit.Items.ToList();
 
         var svcKey = ServiceKey(port);
         var seen = new HashSet<string>();
@@ -46,18 +50,18 @@ public class CveApiClient
         // 并行调用 4 个源（每个带重试）
         var tasks = new Task<List<CveDetail>?>[]
         {
-            WithRetry(() => TryCveTodo(svcKey), "CVETodo"),
-            WithRetry(() => TryShodanServiceSearch(svcKey), "Shodan"),
-            WithRetry(() => TryNvdSearch(svcKey), "NVD"),
-            WithRetry(() => TryOsvSearch(service, version), "OSV"),
+            WithRetry(TryCveTodo, svcKey, "CVETodo", ct),
+            WithRetry(TryShodanServiceSearch, svcKey, "Shodan", ct),
+            WithRetry(TryNvdSearch, svcKey, "NVD", ct),
+            WithRetry((_, token) => TryOsvSearch(service, version, token), "", "OSV", ct),
         };
 
-        await Task.WhenAll(tasks);
+        var sourceResults = await Task.WhenAll(tasks);
 
-        foreach (var list in tasks)
+        foreach (var list in sourceResults)
         {
-            if (list.Result == null) continue;
-            foreach (var cve in list.Result)
+            if (list == null) continue;
+            foreach (var cve in list)
             {
                 if (seen.Add(cve.Cve))
                     results.Add(cve);
@@ -91,13 +95,29 @@ public class CveApiClient
             .ToArray();
         foreach (var key in expired)
             Cache.TryRemove(key, out _);
+
+        var excess = Cache.Count - 256;
+        if (excess <= 0) return;
+        foreach (var key in Cache
+                     .OrderBy(kv => kv.Value.ExpiresAt)
+                     .Take(excess)
+                     .Select(kv => kv.Key))
+        {
+            Cache.TryRemove(key, out _);
+        }
     }
 
-    private static async Task<List<CveDetail>?> WithRetry(Func<Task<List<CveDetail>?>> fn, string source)
+    private static async Task<List<CveDetail>?> WithRetry(
+        Func<string, CancellationToken, Task<List<CveDetail>?>> fn,
+        string argument,
+        string source,
+        CancellationToken ct)
     {
-        try { return await fn(); }
-        catch (Exception ex) { LogSourceFailure(source, ex); await Task.Delay(500); }
-        try { return await fn(); }
+        try { return await fn(argument, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) { LogSourceFailure(source, ex); await Task.Delay(500, ct); }
+        try { return await fn(argument, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch (Exception ex) { LogSourceFailure(source, ex); return null; }
     }
 
@@ -108,15 +128,15 @@ public class CveApiClient
     }
 
     // ========== CVETodo (服务名搜索) ==========
-    private static async Task<List<CveDetail>?> TryCveTodo(string svcKey)
+    private static async Task<List<CveDetail>?> TryCveTodo(string svcKey, CancellationToken ct)
     {
         try
         {
             var url = $"https://cvetodo.com/api/v1/cves/search?q={svcKey}";
-            using var response = await _http.GetAsync(url);
+            using var response = await _http.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode) return null;
 
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("data", out var data)) return null;
 
@@ -134,19 +154,22 @@ public class CveApiClient
             }
             return results;
         }
-        catch { return null; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (HttpRequestException) { throw; }
+        catch (TaskCanceledException) { throw; }
+        catch (JsonException) { return null; }
     }
 
     // ========== Shodan CVEDB (服务名搜索) ==========
-    private static async Task<List<CveDetail>?> TryShodanServiceSearch(string svcKey)
+    private static async Task<List<CveDetail>?> TryShodanServiceSearch(string svcKey, CancellationToken ct)
     {
         try
         {
             var url = $"https://cvedb.shodan.io/cves?query={svcKey}";
-            using var response = await _http.GetAsync(url);
+            using var response = await _http.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode) return null;
 
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
             var items = doc.RootElement.ValueKind == JsonValueKind.Array
                 ? doc.RootElement
@@ -171,19 +194,22 @@ public class CveApiClient
             }
             return results;
         }
-        catch { return null; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (HttpRequestException) { throw; }
+        catch (TaskCanceledException) { throw; }
+        catch (JsonException) { return null; }
     }
 
     // ========== NVD (NIST) ==========
-    private static async Task<List<CveDetail>?> TryNvdSearch(string service)
+    private static async Task<List<CveDetail>?> TryNvdSearch(string service, CancellationToken ct)
     {
         try
         {
             var url = $"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={Uri.EscapeDataString(service)}&resultsPerPage=5";
-            using var response = await _http.GetAsync(url);
+            using var response = await _http.GetAsync(url, ct);
             if (!response.IsSuccessStatusCode) return null;
 
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
             if (!doc.RootElement.TryGetProperty("vulnerabilities", out var vulns)) return null;
 
@@ -225,12 +251,19 @@ public class CveApiClient
             }
             return results;
         }
-        catch { return null; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (HttpRequestException) { throw; }
+        catch (TaskCanceledException) { throw; }
+        catch (JsonException) { return null; }
     }
 
     // ========== OSV.dev ==========
-    private static async Task<List<CveDetail>?> TryOsvSearch(string service, string? version)
+    private static async Task<List<CveDetail>?> TryOsvSearch(
+        string service,
+        string? banner,
+        CancellationToken ct)
     {
+        var version = CveDatabase.ExtractVersion(banner ?? "");
         if (string.IsNullOrEmpty(version)) return null;
         try
         {
@@ -244,33 +277,33 @@ public class CveApiClient
                 "redis" => "redis",
                 _ => service.ToLower()
             };
-            var body = new { queries = new[] { new { package = new { name = pkgName, ecosystem = "Debian" }, version } } };
-            using var response = await _http.PostAsJsonAsync("https://api.osv.dev/v1/querybatch", body);
+            var body = new { package = new { name = pkgName, ecosystem = "Debian" }, version };
+            using var response = await _http.PostAsJsonAsync(
+                "https://api.osv.dev/v1/query",
+                body,
+                ct);
             if (!response.IsSuccessStatusCode) return null;
 
-            var json = await response.Content.ReadAsStringAsync();
+            var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("results", out var resArray)) return null;
+            if (!doc.RootElement.TryGetProperty("vulns", out var vulns)) return null;
 
             var results = new List<CveDetail>();
-            foreach (var res in resArray.EnumerateArray())
+            foreach (var vuln in vulns.EnumerateArray().Take(20))
             {
-                if (!res.TryGetProperty("vulns", out var vulns)) continue;
-                foreach (var vuln in vulns.EnumerateArray())
-                {
-                    var cveId = "";
-                    if (vuln.TryGetProperty("aliases", out var aliases))
-                        cveId = aliases.EnumerateArray().Select(a => a.GetString()).FirstOrDefault(a => a?.StartsWith("CVE-") == true) ?? "";
-                    if (string.IsNullOrEmpty(cveId)) continue;
-                    var desc = vuln.TryGetProperty("summary", out var sum) ? sum.GetString() : "无描述";
-                    var severity = 0.0;
-                    if (vuln.TryGetProperty("severity", out var sev) && sev.TryGetProperty("score", out var sc))
-                        sc.TryGetDouble(out severity);
-                    results.Add(new CveDetail(cveId, desc ?? "无描述", severity, "OSV.dev", "升级到最新版本"));
-                }
+                var cveId = "";
+                if (vuln.TryGetProperty("aliases", out var aliases))
+                    cveId = aliases.EnumerateArray().Select(a => a.GetString())
+                        .FirstOrDefault(a => a?.StartsWith("CVE-", StringComparison.OrdinalIgnoreCase) == true) ?? "";
+                if (string.IsNullOrEmpty(cveId)) continue;
+                var desc = vuln.TryGetProperty("summary", out var sum) ? sum.GetString() : "无描述";
+                results.Add(new CveDetail(cveId, desc ?? "无描述", 0, "OSV.dev", "升级到最新版本"));
             }
             return results;
         }
-        catch { return null; }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (HttpRequestException) { throw; }
+        catch (TaskCanceledException) { throw; }
+        catch (JsonException) { return null; }
     }
 }
