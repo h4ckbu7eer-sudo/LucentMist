@@ -142,7 +142,7 @@ public class UdpScanToolTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_InvalidPortString_ReturnsZeroScanned()
+    public async Task ExecuteAsync_InvalidPortString_ReturnsFailure()
     {
         var args = new ToolArguments
         {
@@ -153,14 +153,12 @@ public class UdpScanToolTests
 
         var result = await _tool.ExecuteAsync(args);
 
-        Assert.True(result.Success);
-
-        using var doc = JsonDocument.Parse(result.Data);
-        Assert.Equal(0, doc.RootElement.GetProperty("totalScanned").GetInt32());
+        Assert.False(result.Success);
+        Assert.Contains("端口", result.Error);
     }
 
     [Fact]
-    public async Task ExecuteAsync_PortRangeUpperBound_ClampsAt65535()
+    public async Task ExecuteAsync_PortRangeUpperBound_ReturnsFailure()
     {
         var args = new ToolArguments
         {
@@ -171,11 +169,8 @@ public class UdpScanToolTests
 
         var result = await _tool.ExecuteAsync(args);
 
-        Assert.True(result.Success);
-
-        using var doc = JsonDocument.Parse(result.Data);
-        // 65530, 65531, 65532, 65533, 65534, 65535 = 6 ports
-        Assert.Equal(6, doc.RootElement.GetProperty("totalScanned").GetInt32());
+        Assert.False(result.Success);
+        Assert.Contains("端口", result.Error);
     }
 
     [Fact]

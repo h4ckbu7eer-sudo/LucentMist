@@ -20,6 +20,24 @@ public class PortHelperTests
         Assert.Equal(new List<int> { 65530, 65531, 65532, 65533, 65534, 65535 }, result);
     }
 
+    [Theory]
+    [InlineData("invalid")]
+    [InlineData("100-1")]
+    [InlineData("0")]
+    [InlineData("65530-65540")]
+    public void TryParsePorts_InvalidInput_ReturnsFalse(string input)
+    {
+        Assert.False(PortHelper.TryParsePorts(input, out var ports));
+        Assert.Empty(ports);
+    }
+
+    [Fact]
+    public void TryParsePorts_ValidInput_ReturnsSortedUniquePorts()
+    {
+        Assert.True(PortHelper.TryParsePorts("443,80-81,80", out var ports));
+        Assert.Equal([80, 81, 443], ports);
+    }
+
     [Fact]
     public void GetTcpServiceName_ReturnsKnownService()
     {

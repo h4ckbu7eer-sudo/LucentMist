@@ -174,6 +174,51 @@ public static class PortHelper
         return ports.OrderBy(port => port).ToList();
     }
 
+    /// <summary>
+    /// 严格解析用户输入的端口列表。与兼容旧 CLI 的 ParsePorts 不同，任何非法片段、
+    /// 反向范围或越界端口都会使整个输入失败，避免静默执行“扫描 0 个端口”。
+    /// </summary>
+    public static bool TryParsePorts(string? portsStr, out List<int> ports)
+    {
+        ports = [];
+        if (string.IsNullOrWhiteSpace(portsStr)) return false;
+
+        var parsed = new HashSet<int>();
+        foreach (var rawPart in portsStr.Split(','))
+        {
+            var part = rawPart.Trim();
+            if (part.Length == 0) return false;
+
+            var dash = part.IndexOf('-');
+            if (dash >= 0)
+            {
+                if (dash == 0 || dash == part.Length - 1 || part.IndexOf('-', dash + 1) >= 0 ||
+                    !int.TryParse(part[..dash], out var start) ||
+                    !int.TryParse(part[(dash + 1)..], out var end) ||
+                    start is < MinPort or > MaxPort ||
+                    end is < MinPort or > MaxPort ||
+                    start > end)
+                {
+                    return false;
+                }
+
+                for (var port = start; port <= end; port++)
+                    parsed.Add(port);
+            }
+            else if (int.TryParse(part, out var port) && port is >= MinPort and <= MaxPort)
+            {
+                parsed.Add(port);
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        ports = parsed.OrderBy(port => port).ToList();
+        return ports.Count > 0;
+    }
+
     public static string? GetTcpServiceName(int port) =>
         TcpServices.TryGetValue(port, out var name) ? name : null;
 

@@ -55,6 +55,19 @@ public class PortScanToolTests
     }
 
     [Fact]
+    public async Task Execute_InvalidPorts_FailsInsteadOfScanningNothing()
+    {
+        var r = await CreateTool().ExecuteAsync(new()
+        {
+            ["target"] = "127.0.0.1",
+            ["ports"] = "invalid"
+        });
+
+        Assert.False(r.Success);
+        Assert.Contains("端口", r.Error);
+    }
+
+    [Fact]
     public async Task Execute_CommaPorts_CountsThree()
     {
         var r = await CreateTool().ExecuteAsync(new()
