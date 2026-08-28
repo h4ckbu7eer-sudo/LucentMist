@@ -25,20 +25,23 @@ public class SiriusTool : ITool
     public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        var action = args.GetOrDefault("action", "summary");
+        var action = args.GetOrDefault("action", "summary").Trim().ToLowerInvariant();
 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!await _client.CheckAvailabilityAsync())
+            if (action == "target" && string.IsNullOrWhiteSpace(args.GetOrDefault("target")))
+                return ToolResult.Fail("action=target 时必须指定主机 ID", sw.Elapsed);
+            if (!await _client.CheckAvailabilityAsync(cancellationToken))
                 return ToolResult.Fail($"Sirius 不可用: {_client.ErrorMessage}", sw.Elapsed);
 
             cancellationToken.ThrowIfCancellationRequested();
             object? data = action switch
             {
-                "summary" => await _client.GetHostsAsync(),
-                "target" => await _client.GetHostDetailAsync(args.GetOrDefault("target")),
-                "status" => await _client.GetHostsAsync(),
+                "summary" => await _client.GetHostsAsync(cancellationToken),
+                "target" => await _client.GetHostDetailAsync(
+                    args.GetOrDefault("target"), cancellationToken),
+                "status" => await _client.GetHostsAsync(cancellationToken),
                 _ => null
             };
 
