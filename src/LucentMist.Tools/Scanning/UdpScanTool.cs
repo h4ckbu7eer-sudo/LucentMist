@@ -40,31 +40,26 @@ public class UdpScanTool : INetworkTargetTool
 
         try
         {
-            var ports = PortHelper.ParsePorts(portsStr);
+            if (!PortHelper.TryParsePorts(portsStr, out var ports))
+                return ToolResult.Fail("端口必须是 1-65535 的数字、逗号列表或正向范围", sw.Elapsed);
 
             _logger.LogInformation("UdpScan: Target={Target}, Ports={Count}", target, ports.Count);
 
             var openPorts = new List<int>();
-            using var semaphore = new SemaphoreSlim(concurrency);
-
-            var tasks = ports.Select(async port =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                await semaphore.WaitAsync(cancellationToken);
-                try
+            await Parallel.ForEachAsync(
+                ports,
+                new ParallelOptions
                 {
-                    if (await ProbeUdpAsync(target, port, timeout, cancellationToken))
+                    MaxDegreeOfParallelism = concurrency,
+                    CancellationToken = cancellationToken,
+                },
+                async (port, ct) =>
+                {
+                    if (await ProbeUdpAsync(target, port, timeout, ct))
                     {
                         lock (openPorts) openPorts.Add(port);
                     }
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            });
-
-            await Task.WhenAll(tasks);
+                });
             openPorts.Sort();
 
             var result = new
@@ -108,7 +103,7 @@ public class UdpScanTool : INetworkTargetTool
                 _ => new byte[] { 0 }
             };
 
-            await client.SendAsync(probe, probe.Length);
+            await client.SendAsync(probe, cancellationToken);
 
             using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             cts.CancelAfter(timeoutMs);
