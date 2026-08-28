@@ -229,8 +229,8 @@ dotnet run --project src/LucentMist.Web
 ## v0.6.0 本地前置修复 (2026-08-08)
 
 - T4: 删除 `ScannerActor` 执行体 + `IScanner`，后台扫描唯一入口 = `ScanWorker`
-- T5: 新增 `IVulnerabilityVerifier`，`PocVerifier` 接入 `VulnerabilityScanTool`，`confirmed = poc.Exploitable`，验证器异常降级为候选
-- T5 测试: 4 用例（PoC 通过/未利用/异常降级/未知 CVE 不联网）
+- T5: 新增 `IVulnerabilityVerifier`，`PocVerifier` 接入 `VulnerabilityScanTool`；默认实现只做非侵入式暴露面检查，不会产生 `confirmed=true`
+- T5 测试: 合成验证器覆盖 true/false 映射契约；默认 SMB1 方言路径只输出候选，不证明补丁状态或可利用性
 - T6: 新建 `CpeCatalog` 单一数据源，`CpeMatcher` 与 `ServiceCpeMapping` 统一读取，3 用例
 - Dockerfile: runtime 8.0 → `aspnet:10.0`，补 Web 发布 + `EXPOSE 5051`，测试排除 External；CLI 加 `RollForward=LatestMajor`
 - CI: `dotnet test` 增加 `--filter "Category!=External"`，外网 SSL 用例统一 `[Trait("Category","External")]`

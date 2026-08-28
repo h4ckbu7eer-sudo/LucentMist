@@ -21,9 +21,12 @@ v0.4.0 是安全增强版本，新增 OS 指纹识别、多源 CVE 漏洞扫描�
 ### 漏洞扫描升级 (`vuln_scan`)
 - **4 源 API 并行查询**: Shodan CVEDB + NVD + CVETodo + OSV.dev
 - **Banner 抓取**: SMBv1/v2/v3、SSH、HTTP Server、MySQL 版本
-- **CVE 验证**: SMBv1 探测包验证 EternalBlue
+- **CVE 候选检测**: SMBv1 探测包识别 EternalBlue 暴露面候选项
 - **16 端口风险特征库**: 内置 CveDatabase 回退
-- **API 优先策略**: 外部 API → 内置 DB → 端口兜底
+- **API 优先策略**: 外部 API → 内置 DB（现行实现已禁止仅凭端口开放报漏洞）
+
+> 现行能力更正：v0.4.0 发布时使用了“验证 EternalBlue”的过强表述。
+> SMB1 方言只能证明暴露面，不能确认补丁状态或可利用性；默认内置验证器只输出候选。
 
 ### 报告导出 (`report`)
 - **4 种格式**: HTML / Markdown / CSV / JSON

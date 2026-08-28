@@ -1321,26 +1321,6 @@ public class CliApp
                         AnsiConsole.MarkupLine($"  [yellow]{Escape(item.cve switch { "?" => $"端口 {item.port}", _ => item.cve ?? "—" })}[/] [grey]({RiskLabel(item.risk)}): {Escape(item.fix!)}[/]");
                 }
 
-                // CVE 年份过滤：过滤 2000 年前且 CVSS 为 0 的历史垃圾漏洞
-                var filteredOut = 0;
-                if (!showAll)
-                {
-                    var filtered = items.Where(x =>
-                    {
-                        var year = ExtractCveYear(x.name);
-                        return year > 0 && year < 2000 && double.IsNaN(x.cvss) || x.cvss <= 0;
-                    }).ToList();
-                    filteredOut = filtered.Count;
-                    foreach (var f in filtered) items.Remove(f);
-                }
-
-                if (filteredOut > 0)
-                {
-                    AnsiConsole.WriteLine();
-                    AnsiConsole.MarkupLine($"[grey]ℹ️ 已过滤 {filteredOut} 个历史低危漏洞 (2000年前)[/]");
-                    AnsiConsole.MarkupLine($"[grey]   使用 --all 查看全部漏洞[/]");
-                }
-
                 // 扫描总结
                 var sources = items.Select(x => x.source).Where(s => s != "内置库").Distinct().ToList();
                 var sourceStr = sources.Count > 0 ? string.Join(" + ", sources) : "内置库";
@@ -1435,13 +1415,6 @@ public class CliApp
         AnsiConsole.WriteLine();
         AnsiConsole.MarkupLine($"[grey]NVD 参考: https://nvd.nist.gov/vuln/detail/{cveId}[/]");
         return 0;
-    }
-
-    private static int ExtractCveYear(string? name)
-    {
-        if (string.IsNullOrEmpty(name)) return 0;
-        var m = System.Text.RegularExpressions.Regex.Match(name, @"(?:CVE-)?(\d{4})-\d+");
-        return m.Success && int.TryParse(m.Groups[1].Value, out var y) ? y : 0;
     }
 
     private static string RiskLabel(string risk) => risk switch

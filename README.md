@@ -15,7 +15,7 @@
 - 🚪 **TCP 端口扫描** — TCP Connect 模式，自定义端口范围
 - 📡 **UDP 端口扫描** — UDP 探测 DNS/SNMP/NTP 等 11 种服务
 - 🔒 **SSL 证书校验** — SSL/TLS 证书获取、有效期、SAN、证书链检查
-- 🛡️ **漏洞扫描** — 多源 CVE API + OS 指纹识别 + 风险验证
+- 🛡️ **漏洞扫描** — 多源 CVE API + OS 指纹识别 + 候选风险与置信度标注
 - 📊 **报告导出** — HTML/Markdown/CSV/JSON 多格式报告
 - 🏷️ **服务识别** — Banner 抓取 + HTTP/SSH 检测 + 进程信息
 - 🤖 **AI 推理（实验性）** — ReAct 模式，自动调用工具分析网络
