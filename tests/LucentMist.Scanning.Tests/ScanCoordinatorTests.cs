@@ -54,4 +54,52 @@ public class ScanCoordinatorTests
             if (File.Exists(dbPath)) File.Delete(dbPath);
         }
     }
+
+    [Theory]
+    [InlineData("full", "", "INVALID_SCAN_TYPE")]
+    [InlineData("tcp", "invalid", "INVALID_PORTS")]
+    public async Task StartAsync_InvalidParameters_AreRejectedBeforePersistence(
+        string scanType,
+        string ports,
+        string expectedCode)
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"lmist-coord-invalid-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new ScanStore(dbPath);
+            var coordinator = new ScanCoordinator(store);
+
+            var error = await Assert.ThrowsAnyAsync<InvalidScanRequestException>(() =>
+                coordinator.StartAsync("10.0.0.1", scanType, ports));
+
+            Assert.Equal(expectedCode, error.Code);
+            Assert.Empty(await store.ListAsync(1, 10));
+        }
+        finally
+        {
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
+    [Fact]
+    public async Task StartAsync_Ping_DropsUnusedPortInput()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"lmist-coord-ping-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new ScanStore(dbPath);
+            var coordinator = new ScanCoordinator(store);
+
+            var taskId = await coordinator.StartAsync("10.0.0.1", "ping", "80,443");
+            var record = await store.GetAsync(taskId);
+
+            Assert.Equal("", record!.Ports);
+            Assert.True(coordinator.Reader.TryRead(out var job));
+            Assert.Equal("", job!.Ports);
+        }
+        finally
+        {
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
 }
