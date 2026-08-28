@@ -26,13 +26,16 @@ public class ReportGeneratorTests
             },
             SslInfo = new()
             {
-                Target = "baidu.com",
-                Port = 443,
-                Subject = "CN=*.baidu.com",
-                Issuer = "CN=GlobalSign",
-                NotAfter = "2027-01-01",
-                DaysRemaining = 150,
-                IsExpired = false
+                new()
+                {
+                    Target = "baidu.com",
+                    Port = 443,
+                    Subject = "CN=*.baidu.com",
+                    Issuer = "CN=GlobalSign",
+                    NotAfter = "2027-01-01",
+                    DaysRemaining = 150,
+                    IsExpired = false
+                }
             },
             VulnInfo = new()
             {
@@ -74,6 +77,11 @@ public class ReportGeneratorTests
         Assert.Contains("漏洞", md);
         Assert.Contains("LucentMist", md);
         Assert.Contains("修复建议", md);
+        Assert.Contains("网络暴露", md);
+        Assert.Contains("`445`", md);
+        Assert.Contains("SMB", md);
+        Assert.Contains("TLS 证书", md);
+        Assert.Contains("CN=GlobalSign", md);
     }
 
     [Fact]
@@ -101,6 +109,18 @@ public class ReportGeneratorTests
         Assert.Contains("<code>22</code>", html);
         Assert.Contains("<code>445</code>", html);
         Assert.Contains("<code>80</code>", html);
+        Assert.Contains("文件共享", html);
+    }
+
+    [Fact]
+    public void Generate_Html_ContainsTlsCertificateStatus()
+    {
+        var html = new ReportGenerator().Generate(CreateSampleReport(), ReportGenerator.Format.Html);
+
+        Assert.Contains("TLS 证书", html);
+        Assert.Contains("CN=*.baidu.com", html);
+        Assert.Contains("CN=GlobalSign", html);
+        Assert.Contains("有效（剩余 150 天）", html);
     }
 
     [Fact]
@@ -132,7 +152,7 @@ public class ReportGeneratorTests
     public void Generate_ReportWithNoSsl_SkipsSslSection()
     {
         var gen = new ReportGenerator();
-        var report = new ReportGenerator.ScanReport { Target = "127.0.0.1", SslInfo = null };
+        var report = new ReportGenerator.ScanReport { Target = "127.0.0.1" };
 
         var md = gen.Generate(report, ReportGenerator.Format.Markdown);
         Assert.DoesNotContain("## SSL", md);
@@ -158,7 +178,7 @@ public class ReportGeneratorTests
     }
 
     [Fact]
-    public void Generate_Html_FilterAndCount_DoesNotMutateFindings()
+    public void Generate_Html_DoesNotClaimHistoricalFindingsWereFiltered()
     {
         var gen = new ReportGenerator();
         var report = new ReportGenerator.ScanReport
@@ -189,6 +209,7 @@ public class ReportGeneratorTests
         Assert.Single(report.VulnInfo!.Findings);
         Assert.Contains("CVE-1999-0001", html);
         Assert.Contains("sum-card total'><div class='val'>1</div>", html);
+        Assert.DoesNotContain("已过滤", html);
     }
 
     [Fact]
@@ -231,5 +252,19 @@ public class ReportGeneratorTests
         var csv = gen.Generate(report, ReportGenerator.Format.Csv);
 
         Assert.Contains("无漏洞", csv);
+    }
+
+    [Fact]
+    public void Generate_Csv_ContainsOpenPortsAndTlsCertificates()
+    {
+        var csv = new ReportGenerator().Generate(CreateSampleReport(), ReportGenerator.Format.Csv);
+
+        Assert.Contains("记录类型,目标,端口,服务,状态", csv);
+        Assert.Contains("开放端口", csv);
+        Assert.Contains("\"192.168.1.100\",445", csv);
+        Assert.Contains("SMB", csv);
+        Assert.Contains("TLS 证书", csv);
+        Assert.Contains("\"baidu.com\",443", csv);
+        Assert.Contains("CN=GlobalSign", csv);
     }
 }

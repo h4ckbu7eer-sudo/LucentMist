@@ -59,4 +59,25 @@ public class PortHelperTests
         Assert.Equal("ssh", PortHelper.GetServiceKey(22));
         Assert.Equal("postgresql", PortHelper.GetServiceKey(5432));
     }
+
+    [Theory]
+    [InlineData(443)]
+    [InlineData(465)]
+    [InlineData(636)]
+    [InlineData(993)]
+    [InlineData(8443)]
+    public void IsLikelyTlsPort_KnownTlsPorts_ReturnsTrue(int port)
+    {
+        Assert.True(PortHelper.IsLikelyTlsPort(port));
+    }
+
+    [Theory]
+    [InlineData(22)]
+    [InlineData(80)]
+    [InlineData(445)]
+    [InlineData(3306)]
+    public void IsLikelyTlsPort_NonTlsPorts_ReturnsFalse(int port)
+    {
+        Assert.False(PortHelper.IsLikelyTlsPort(port));
+    }
 }
