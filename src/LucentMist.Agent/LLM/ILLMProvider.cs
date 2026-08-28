@@ -21,6 +21,17 @@ public interface ILLMProvider
     );
 }
 
+public static class LLMProviderDefaults
+{
+    public const string OllamaModel = "qwen2.5:7b";
+    public const string ClaudeModel = "claude-sonnet-4-6";
+
+    public static string ModelFor(string? provider) =>
+        string.Equals(provider, "claude", StringComparison.OrdinalIgnoreCase)
+            ? ClaudeModel
+            : OllamaModel;
+}
+
 /// <summary>
 /// 聊天消息
 /// </summary>

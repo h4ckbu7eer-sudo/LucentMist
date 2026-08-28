@@ -14,7 +14,8 @@ namespace LucentMist.API.Controllers;
 [Route("api/v1/agent")]
 public class AgentController : ControllerBase
 {
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SemaphoreSlim> SessionLocks = new();
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, SessionLockEntry> SessionLocks = new();
+    private static readonly Lazy<string> SystemPrompt = new(LoadSystemPromptCore);
 
     private readonly ILLMProvider _llm;
     private readonly ToolRegistry _tools;
@@ -56,9 +57,9 @@ public class AgentController : ControllerBase
         var session = await _sessions.GetSessionAsync(request.SessionId ?? "")
             ?? await _sessions.CreateSessionAsync(
                 "Agent 会话",
-                Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b");
-        var sessionLock = SessionLocks.GetOrAdd(session.Id, _ => new SemaphoreSlim(1, 1));
-        await sessionLock.WaitAsync(ct);
+                Environment.GetEnvironmentVariable("LMIST_LLM_MODEL")
+                    ?? LLMProviderDefaults.ModelFor(Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER")));
+        var sessionLock = await AcquireSessionLockAsync(session.Id, ct);
         try
         {
             await _sessions.AddMessageAsync(session.Id, "user", request.Message);
@@ -131,7 +132,8 @@ public class AgentController : ControllerBase
 
             var finalContent = result!.Success ? result.Answer : $"执行失败: {result.Error}";
             await _sessions.AddMessageAsync(session.Id, "assistant", finalContent);
-            await _sessions.UpdateTitleAsync(session.Id, TitleFrom(request.Message));
+            if (session.MessageCount == 0)
+                await _sessions.UpdateTitleAsync(session.Id, TitleFrom(request.Message));
 
             yield return Sse("message", Json(new
             {
@@ -141,7 +143,7 @@ public class AgentController : ControllerBase
         }
         finally
         {
-            sessionLock.Release();
+            sessionLock.Dispose();
         }
     }
 
@@ -185,10 +187,17 @@ public class AgentController : ControllerBase
         return $"[本机网络信息: {info}] {message}";
     }
 
-    private string LoadSystemPrompt()
+    private static string LoadSystemPrompt() => SystemPrompt.Value;
+
+    private static string LoadSystemPromptCore()
     {
         var path = FindSystemPrompt();
-        if (path != null) return System.IO.File.ReadAllText(path);
+        if (path != null)
+        {
+            try { return System.IO.File.ReadAllText(path); }
+            catch (IOException) { }
+            catch (UnauthorizedAccessException) { }
+        }
         return "你是网络助手。输出 JSON: {thought, action, action_input}";
     }
 
@@ -213,6 +222,57 @@ public class AgentController : ControllerBase
 
     private static string Json(object obj) =>
         JsonSerializer.Serialize(obj);
+
+    private static async Task<SessionLockLease> AcquireSessionLockAsync(
+        string sessionId,
+        CancellationToken ct)
+    {
+        while (true)
+        {
+            var entry = SessionLocks.GetOrAdd(sessionId, _ => new SessionLockEntry());
+            Interlocked.Increment(ref entry.ReferenceCount);
+            if (SessionLocks.TryGetValue(sessionId, out var current) && ReferenceEquals(entry, current))
+            {
+                try
+                {
+                    await entry.Gate.WaitAsync(ct);
+                    return new SessionLockLease(sessionId, entry);
+                }
+                catch
+                {
+                    ReleaseReference(sessionId, entry);
+                    throw;
+                }
+            }
+
+            ReleaseReference(sessionId, entry);
+        }
+    }
+
+    private static void ReleaseReference(string sessionId, SessionLockEntry entry)
+    {
+        if (Interlocked.Decrement(ref entry.ReferenceCount) != 0) return;
+        ((ICollection<KeyValuePair<string, SessionLockEntry>>)SessionLocks)
+            .Remove(new KeyValuePair<string, SessionLockEntry>(sessionId, entry));
+    }
+
+    private sealed class SessionLockEntry
+    {
+        public SemaphoreSlim Gate { get; } = new(1, 1);
+        public int ReferenceCount;
+    }
+
+    private sealed class SessionLockLease(string sessionId, SessionLockEntry entry) : IDisposable
+    {
+        private int _disposed;
+
+        public void Dispose()
+        {
+            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
+            entry.Gate.Release();
+            ReleaseReference(sessionId, entry);
+        }
+    }
 }
 
 /// <summary>
@@ -222,5 +282,6 @@ public class AgentChatRequest
 {
     [MaxLength(4096)]
     public string Message { get; set; } = "";
+    [MaxLength(64)]
     public string? SessionId { get; set; }
 }
