@@ -55,6 +55,7 @@ public class CliApp
         var model = "qwen2.5:7b";
         var endpoint = "http://localhost:11434";
         var apiKey = "";
+        var hasConfiguredModel = false;
 
         try
         {
@@ -66,7 +67,11 @@ public class CliApp
                     lm.TryGetProperty("LLM", out var llm))
                 {
                     if (llm.TryGetProperty("Provider", out var p)) provider = p.GetString()!;
-                    if (llm.TryGetProperty("Model", out var m)) model = m.GetString()!;
+                    if (llm.TryGetProperty("Model", out var m) && !string.IsNullOrWhiteSpace(m.GetString()))
+                    {
+                        model = m.GetString()!;
+                        hasConfiguredModel = true;
+                    }
                     if (llm.TryGetProperty("OllamaEndpoint", out var oe)) endpoint = oe.GetString()!;
                     if (llm.TryGetProperty("ClaudeApiKey", out var ak)) apiKey = ak.GetString()!;
                 }
@@ -78,9 +83,17 @@ public class CliApp
         }
 
         provider = Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? provider;
-        model = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? model;
+        var environmentModel = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL");
+        if (!string.IsNullOrWhiteSpace(environmentModel))
+        {
+            model = environmentModel;
+            hasConfiguredModel = true;
+        }
         endpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? endpoint;
         apiKey = Environment.GetEnvironmentVariable("LMIST_LLM_APIKEY") ?? apiKey;
+
+        if (!hasConfiguredModel)
+            model = LLMProviderDefaults.ModelFor(provider);
 
         return (provider, model, endpoint, apiKey);
     }

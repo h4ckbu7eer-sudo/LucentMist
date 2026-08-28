@@ -1,11 +1,14 @@
+using LucentMist.Agent.LLM;
 using LucentMist.API.Middleware;
 using LucentMist.Core.Logging;
 using LucentMist.Scanning;
 using Microsoft.AspNetCore.Authorization;
 
 var startedAt = DateTime.UtcNow;
-var llmProvider = Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? "ollama";
-var llmModel = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b";
+var llmProvider = (Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? "ollama")
+    .Trim().ToLowerInvariant();
+var llmModel = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL")
+    ?? LLMProviderDefaults.ModelFor(llmProvider);
 var llmEndpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? "http://localhost:11434";
 var appVersion = LucentMist.Core.AppVersion.Current;
 var maintenanceOwner = Environment.GetEnvironmentVariable("LMIST_DB_MAINTENANCE_OWNER") ?? "both";
@@ -53,20 +56,17 @@ builder.Services.AddHttpClient("Claude", client =>
 });
 builder.Services.AddSingleton<LucentMist.Agent.LLM.ILLMProvider>(sp =>
 {
-    var provider = Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? "ollama";
-    var model = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL") ?? "qwen2.5:7b";
-    var endpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? "http://localhost:11434";
     var lf = sp.GetRequiredService<ILoggerFactory>();
-    return provider.ToLower() switch
+    return llmProvider switch
     {
         "claude" => new LucentMist.Agent.LLM.ClaudeProvider(
             Environment.GetEnvironmentVariable("LMIST_LLM_APIKEY") ?? "",
-            model,
+            llmModel,
             lf.CreateLogger<LucentMist.Agent.LLM.ClaudeProvider>(),
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("Claude")),
         _ => new LucentMist.Agent.LLM.OllamaProvider(
-            endpoint,
-            model,
+            llmEndpoint,
+            llmModel,
             lf.CreateLogger<LucentMist.Agent.LLM.OllamaProvider>(),
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("Ollama")),
     };
