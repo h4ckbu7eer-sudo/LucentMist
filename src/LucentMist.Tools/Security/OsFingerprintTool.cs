@@ -11,7 +11,7 @@ namespace LucentMist.Tools.Security;
 /// <summary>
 /// OS 指纹识别 — 通过 TTL、TCP 窗口、ICMP 特征推断目标操作系统
 /// </summary>
-public class OsFingerprintTool : ITool
+public class OsFingerprintTool : INetworkTargetTool
 {
     private readonly ILogger<OsFingerprintTool> _logger;
 

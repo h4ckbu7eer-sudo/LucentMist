@@ -7,7 +7,7 @@ using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Scanning;
 
-public class UdpScanTool : ITool
+public class UdpScanTool : INetworkTargetTool
 {
     private readonly ILogger<UdpScanTool> _logger;
 

@@ -11,7 +11,7 @@ namespace LucentMist.Tools.Scanning;
 /// <summary>
 /// 存活探测工具 — ICMP Ping / TCP SYN 探测局域网设备
 /// </summary>
-public class PingScanTool : ITool
+public class PingScanTool : INetworkTargetTool
 {
     private readonly ILogger<PingScanTool> _logger;
     private int _icmpBlocked;
