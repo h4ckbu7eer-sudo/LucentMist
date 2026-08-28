@@ -64,6 +64,40 @@ public class ScanStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task MarkFailed_DoesNotOverwriteCompletedTerminalState()
+    {
+        var rec = await _store.CreateAsync("127.0.0.1", "tcp", "443");
+        Assert.True(await _store.MarkRunningAsync(rec.Id));
+        Assert.True(await _store.MarkCompletedAsync(rec.Id, 1, "{\"openPorts\":[443]}"));
+        var completed = await _store.GetAsync(rec.Id);
+
+        Assert.False(await _store.MarkFailedAsync(rec.Id, "shutdown"));
+
+        var unchanged = await _store.GetAsync(rec.Id);
+        Assert.Equal("completed", unchanged!.Status);
+        Assert.Equal(completed!.CompletedAt, unchanged.CompletedAt);
+        Assert.Equal("{\"openPorts\":[443]}", unchanged.ResultJson);
+        Assert.Null(unchanged.ErrorMessage);
+    }
+
+    [Fact]
+    public async Task MarkCompleted_DoesNotOverwriteFailedTerminalState()
+    {
+        var rec = await _store.CreateAsync("127.0.0.1", "tcp", "443");
+        Assert.True(await _store.MarkRunningAsync(rec.Id));
+        Assert.True(await _store.MarkFailedAsync(rec.Id, "canceled"));
+        var failed = await _store.GetAsync(rec.Id);
+
+        Assert.False(await _store.MarkCompletedAsync(rec.Id, 1, "{}"));
+
+        var unchanged = await _store.GetAsync(rec.Id);
+        Assert.Equal("failed", unchanged!.Status);
+        Assert.Equal(failed!.CompletedAt, unchanged.CompletedAt);
+        Assert.Equal("canceled", unchanged.ErrorMessage);
+        Assert.Null(unchanged.ResultJson);
+    }
+
+    [Fact]
     public async Task MarkStaleTasksFailedAsync_IgnoresRecentHeartbeat()
     {
         var rec = await _store.CreateAsync("10.0.0.1", "tcp", "80");
@@ -189,6 +223,7 @@ public class ScanStoreTests : IDisposable
     public async Task CleanupAsync_DeletesOldCompletedScans()
     {
         var rec = await _store.CreateAsync("127.0.0.1", "tcp", "80");
+        await _store.MarkRunningAsync(rec.Id);
         await _store.MarkCompletedAsync(rec.Id, 1, "{}");
 
         using (var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False"))
