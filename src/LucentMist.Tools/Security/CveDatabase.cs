@@ -15,7 +15,8 @@ public static class CveDatabase
         string Risk,       // critical / high / medium / low
         string MatchBanner, // 包含检测，支持 "version < X.Y" 格式
         string DetectProbe, // 验证探测类型: smbv1 / smbv2 / http_version / openssh_version
-        string Fix
+        string Fix,
+        bool CanMatchBanner = true
     );
 
     private static readonly List<CveEntry> _entries = new()
@@ -37,28 +38,33 @@ public static class CveDatabase
             "升级 nginx 到 1.25.3+"),
 
         new("CVE-2024-21626", "runc Container Escape", 2375, "Docker",
-            "high", "Docker < 25.0.0", "http_version",
-            "升级 Docker 到 25.0.0+"),
+            "high", "runc < 1.1.12", "runc_version",
+            "升级 runc 到 1.1.12+；Docker Engine 升级到 24.0.9+ 或 25.0.2+",
+            CanMatchBanner: false),
 
-        new("CVE-2023-5157", "MySQL DoS", 3306, "MySQL",
-            "medium", "MySQL < 8.0.35", "mysql_version",
-            "升级 MySQL 到 8.0.35+，或启用防火墙限制"),
+        new("CVE-2023-5157", "MariaDB/Galera DoS", 3306, "MariaDB",
+            "high", "MariaDB distribution version", "mariadb_distribution_version",
+            "按发行版安全公告升级 MariaDB/Galera，并限制数据库端口访问",
+            CanMatchBanner: false),
 
         new("CVE-2019-0708", "BlueKeep", 3389, "RDP",
-            "critical", "RDP < 8.1", "rdp_version",
-            "安装补丁 KB4499181，或禁用远程桌面"),
+            "critical", "Windows RDP patch level", "windows_patch_level",
+            "安装对应 Windows 安全更新并启用 NLA，或禁用远程桌面",
+            CanMatchBanner: false),
 
         new("CVE-2022-0543", "Redis LUA RCE", 6379, "Redis",
-            "critical", "Redis < 6.2.7", "redis_version",
-            "升级 Redis 到 6.2.7+，启用 AUTH 认证"),
+            "critical", "Debian Redis package version", "debian_package_version",
+            "安装 Debian Redis 安全更新，并启用认证和网络访问控制",
+            CanMatchBanner: false),
 
         new("CVE-2021-44228", "Log4Shell", 8080, "HTTP",
-            "critical", "Java HTTP", "http_version",
-            "升级 Log4j 到 2.17.1+，检查所有 Java 服务"),
+            "critical", "Log4j Core version", "log4j_component_version",
+            "按 Java 版本升级 Log4j Core 到官方修复版本并检查所有打包依赖",
+            CanMatchBanner: false),
 
         new("CVE-2018-15473", "OpenSSH User Enum", 22, "SSH",
-            "medium", "OpenSSH < 7.7", "openssh_version",
-            "升级 OpenSSH 到 7.7+"),
+            "medium", "OpenSSH < 7.8", "openssh_version",
+            "升级 OpenSSH 到 7.8+"),
     };
 
     public static IReadOnlyList<CveEntry> Entries => _entries;
@@ -80,7 +86,7 @@ public static class CveDatabase
         if (string.IsNullOrWhiteSpace(banner)) return [];
         var entries = Lookup(port);
 
-        return entries.Where(e =>
+        return entries.Where(e => e.CanMatchBanner && !string.IsNullOrWhiteSpace(e.MatchBanner)).Where(e =>
         {
             if (e.MatchBanner.Contains("<"))
             {
@@ -97,7 +103,7 @@ public static class CveDatabase
         }).ToArray();
     }
 
-    private static string? ExtractVersion(string banner)
+    internal static string? ExtractVersion(string banner)
     {
         // Extract version like: "OpenSSH_8.9p1" → "8.9.1"
         // "nginx/1.24.0" → "1.24.0"
