@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.Http.Json;
+using System.Text.Json;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Hosting;
 
@@ -66,6 +67,19 @@ public class ScanApiIntegrationTests : IClassFixture<ScanApiFixture>
             new { target = "127.0.0.1", scanType = "full", ports = "1-1000" });
 
         Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+    }
+
+    [Fact]
+    public async Task CreateScan_InvalidPorts_ReturnsSpecificErrorCode()
+    {
+        var resp = await _client.PostAsJsonAsync(
+            "/api/v1/scan",
+            new { target = "127.0.0.1", scanType = "tcp", ports = "443,invalid" });
+
+        Assert.Equal(HttpStatusCode.BadRequest, resp.StatusCode);
+        using var body = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+        Assert.Equal("INVALID_PORTS",
+            body.RootElement.GetProperty("error").GetProperty("code").GetString());
     }
 
     [Theory]

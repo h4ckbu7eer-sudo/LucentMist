@@ -1,5 +1,6 @@
 using System.Threading.Channels;
 using LucentMist.Core.Networking;
+using LucentMist.Tools.Common;
 
 namespace LucentMist.Scanning;
 
@@ -34,8 +35,27 @@ public class ScanCoordinator : IScanCoordinator
         string ports = "",
         CancellationToken ct = default)
     {
-        if (!await TargetGuard.IsAllowedAsync(target, ct))
-            throw new InvalidScanTargetException("扫描目标被安全策略拒绝");
+        scanType = (scanType ?? "ping").Trim().ToLowerInvariant();
+        if (scanType is not ("ping" or "tcp" or "udp"))
+            throw new InvalidScanParametersException(
+                "INVALID_SCAN_TYPE",
+                "scanType 必须是 ping、tcp 或 udp");
+
+        var validation = await TargetGuard.ValidateAsync(target, ct);
+        if (!validation.IsAllowed)
+            throw new InvalidScanTargetException(validation.Code, validation.Message);
+
+        ports = ports?.Trim() ?? "";
+        if (scanType == "ping")
+        {
+            ports = "";
+        }
+        else if (!string.IsNullOrEmpty(ports) && !PortHelper.TryParsePorts(ports, out _))
+        {
+            throw new InvalidScanParametersException(
+                "INVALID_PORTS",
+                "ports 必须是 1-65535 的数字、逗号列表或正向范围");
+        }
 
         var rec = await _store.CreateAsync(target, scanType, ports);
         if (!_channel.Writer.TryWrite(new ScanJob(rec.Id, target, scanType, ports)))
@@ -53,7 +73,20 @@ public sealed class ScanQueueFullException : Exception
     public ScanQueueFullException(string message) : base(message) { }
 }
 
-public sealed class InvalidScanTargetException : Exception
+public abstract class InvalidScanRequestException : Exception
 {
-    public InvalidScanTargetException(string message) : base(message) { }
+    protected InvalidScanRequestException(string code, string message) : base(message) =>
+        Code = code;
+
+    public string Code { get; }
+}
+
+public sealed class InvalidScanTargetException : InvalidScanRequestException
+{
+    public InvalidScanTargetException(string code, string message) : base(code, message) { }
+}
+
+public sealed class InvalidScanParametersException : InvalidScanRequestException
+{
+    public InvalidScanParametersException(string code, string message) : base(code, message) { }
 }
