@@ -187,8 +187,19 @@ public class SiriusClient : IDisposable
             Title = $"LucentMist 扫描报告 (Sirius Scan)",
             Target = result.Target,
             ScanDuration = result.ScanDuration,
-            GeneratedAt = DateTime.Now
+            GeneratedAt = DateTime.Now,
+            ScanStatus = "completed",
+            StatusMessage = "Sirius 扫描已完成",
+            Scope = new()
+            {
+                Discovery = "由 Sirius/Nmap 执行目标发现",
+                TcpPorts = "由 Sirius 任务配置决定",
+                VulnerabilityChecks = "Sirius/Nmap NSE 与其配置的漏洞检测",
+                Limitations = "检测范围取决于 Sirius 任务配置；未命中不等于穷尽式安全证明"
+            }
         };
+
+        var allVulns = new List<Reporting.ReportGenerator.VulnFinding>();
 
         foreach (var host in result.Hosts)
         {
@@ -197,7 +208,6 @@ public class SiriusClient : IDisposable
 
             report.Devices.Add(new() { Ip = host.Ip, IsAlive = true, OsGuess = host.OsGuess ?? "" });
 
-            var vulns = new List<Reporting.ReportGenerator.VulnFinding>();
             foreach (var port in host.Ports)
             {
                 if (port.State == "open")
@@ -205,31 +215,33 @@ public class SiriusClient : IDisposable
 
                 foreach (var v in port.Vulns)
                 {
-                    vulns.Add(new()
+                    allVulns.Add(new()
                     {
+                        Target = host.Ip,
                         Port = port.Port,
                         Service = port.Service,
                         Risk = v.Risk,
-                        Description = $"{v.Name} ({v.Cve}): {v.Description}",
+                        Cve = v.Cve,
+                        Cvss = v.Cvss,
+                        Source = "Sirius Scan",
+                        Confirmed = v.Verified,
+                        VerificationDetail = v.Verified
+                            ? "Sirius 标记为已验证"
+                            : "Sirius 未标记为已验证",
+                        Description = $"{v.Name}: {v.Description}",
                         Fix = v.Fix
                     });
                 }
             }
+        }
 
-            if (vulns.Count > 0)
-            {
-                report.VulnInfo = new()
-                {
-                    OverallRisk = vulns.Any(v => v.Risk == "critical") ? "严重" :
-                                  vulns.Any(v => v.Risk == "high") ? "高" :
-                                  vulns.Any(v => v.Risk == "medium") ? "中" : "低",
-                    CriticalCount = vulns.Count(v => v.Risk == "critical"),
-                    HighCount = vulns.Count(v => v.Risk == "high"),
-                    MediumCount = vulns.Count(v => v.Risk == "medium"),
-                    LowCount = vulns.Count(v => v.Risk == "low"),
-                    Findings = vulns
-                };
-            }
+        report.VulnInfo = Reporting.ReportGenerator.BuildVulnerabilitySummary(allVulns);
+        if (report.OnlineDevices == 0)
+        {
+            report.ScanStatus = "no_targets";
+            report.StatusMessage = "Sirius 未发现在线设备；无法得出安全结论";
+            report.Warnings.Add("未执行有效的端口或漏洞检测");
+            report.VulnInfo = null;
         }
 
         return report;

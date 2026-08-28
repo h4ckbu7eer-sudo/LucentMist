@@ -15,6 +15,10 @@ public class ReportGenerator
         public string ScanDuration { get; set; } = "";
         public int TotalDevices { get; set; }
         public int OnlineDevices { get; set; }
+        public string ScanStatus { get; set; } = "not_scanned";
+        public string StatusMessage { get; set; } = "扫描尚未完成";
+        public ScanScope Scope { get; set; } = new();
+        public List<string> Warnings { get; set; } = new();
         public List<DeviceEntry> Devices { get; set; } = new();
         public List<PortEntry> OpenPorts { get; set; } = new();
         public List<SslEntry> SslInfo { get; set; } = new();
@@ -23,8 +27,61 @@ public class ReportGenerator
     public class DeviceEntry { public string Ip { get; set; } = ""; public bool IsAlive { get; set; } public string OsGuess { get; set; } = ""; }
     public class PortEntry { public string Target { get; set; } = ""; public int Port { get; set; } public string Service { get; set; } = ""; public string State { get; set; } = "open"; }
     public class SslEntry { public string Target { get; set; } = ""; public int Port { get; set; } public string Subject { get; set; } = ""; public string Issuer { get; set; } = ""; public string NotAfter { get; set; } = ""; public int DaysRemaining { get; set; } public bool IsExpired { get; set; } }
+    public class ScanScope { public string Discovery { get; set; } = "未记录"; public string TcpPorts { get; set; } = "未记录"; public string VulnerabilityChecks { get; set; } = "未记录"; public string Limitations { get; set; } = "扫描结果不代表穷尽式安全证明"; }
     public class VulnSummary { public string OverallRisk { get; set; } = "安全"; public int CriticalCount { get; set; } public int HighCount { get; set; } public int MediumCount { get; set; } public int LowCount { get; set; } public List<VulnFinding> Findings { get; set; } = new(); }
-    public class VulnFinding { public int Port { get; set; } public string Service { get; set; } = ""; public string Risk { get; set; } = ""; public string Description { get; set; } = ""; public string Fix { get; set; } = ""; }
+    public class VulnFinding
+    {
+        public string Target { get; set; } = "";
+        public int Port { get; set; }
+        public string Service { get; set; } = "";
+        public string Cve { get; set; } = "";
+        public string Risk { get; set; } = "";
+        public double? Cvss { get; set; }
+        public string Source { get; set; } = "";
+        public bool Confirmed { get; set; }
+        public string Banner { get; set; } = "";
+        public string VerificationDetail { get; set; } = "";
+        public string Description { get; set; } = "";
+        public string Fix { get; set; } = "";
+    }
+
+    public static VulnFinding ParseVulnerabilityFinding(string target, JsonElement finding) => new()
+    {
+        Target = target,
+        Port = finding.TryGetProperty("port", out var port) ? port.GetInt32() : 0,
+        Service = finding.TryGetProperty("service", out var service) ? service.GetString() ?? "" : "",
+        Cve = finding.TryGetProperty("cve", out var cve) ? cve.GetString() ?? "" : "",
+        Risk = finding.TryGetProperty("risk", out var risk) ? risk.GetString() ?? "" : "",
+        Cvss = finding.TryGetProperty("cvss", out var cvss) && cvss.TryGetDouble(out var score) ? score : null,
+        Source = finding.TryGetProperty("source", out var source) ? source.GetString() ?? "" : "",
+        Confirmed = finding.TryGetProperty("confirmed", out var confirmed) && confirmed.GetBoolean(),
+        Banner = finding.TryGetProperty("banner", out var banner) ? banner.GetString() ?? "" : "",
+        VerificationDetail = finding.TryGetProperty("verificationDetail", out var detail) ? detail.GetString() ?? "" : "",
+        Description = finding.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
+        Fix = finding.TryGetProperty("fix", out var fix) ? fix.GetString() ?? "" : ""
+    };
+
+    public static VulnSummary BuildVulnerabilitySummary(IEnumerable<VulnFinding> source)
+    {
+        var findings = source
+            .OrderBy(f => f.Target, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(f => f.Port)
+            .ThenBy(f => f.Cve, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var critical = findings.Count(f => NormalizeRisk(f.Risk) == "critical");
+        var high = findings.Count(f => NormalizeRisk(f.Risk) == "high");
+        var medium = findings.Count(f => NormalizeRisk(f.Risk) == "medium");
+        var low = findings.Count - critical - high - medium;
+        return new VulnSummary
+        {
+            OverallRisk = critical > 0 ? "严重" : high > 0 ? "高" : medium > 0 ? "中" : low > 0 ? "低" : "安全",
+            CriticalCount = critical,
+            HighCount = high,
+            MediumCount = medium,
+            LowCount = low,
+            Findings = findings
+        };
+    }
 
     public string Generate(ScanReport r, Format f) => f switch
     {
@@ -43,6 +100,13 @@ public class ReportGenerator
     {
         var sb = new StringBuilder();
         sb.AppendLine("记录类型,目标,端口,服务,状态,CVE,风险,CVSS,描述,修复建议,来源");
+        sb.AppendLine(string.Join(",",
+            CsvEscape("扫描状态"), CsvEscape(r.Target), "", "", CsvEscape(r.ScanStatus),
+            "", "", "", CsvEscape(r.StatusMessage), "", ""));
+        sb.AppendLine(string.Join(",",
+            CsvEscape("扫描范围"), CsvEscape(r.Target), "", CsvEscape("TCP"), "", "", "", "",
+            CsvEscape($"发现: {r.Scope.Discovery}; TCP: {r.Scope.TcpPorts}; 漏洞: {r.Scope.VulnerabilityChecks}"),
+            CsvEscape(r.Scope.Limitations), ""));
         foreach (var port in r.OpenPorts)
         {
             sb.AppendLine(string.Join(",",
@@ -80,18 +144,20 @@ public class ReportGenerator
             foreach (var f in r.VulnInfo.Findings)
                 sb.AppendLine(string.Join(",",
                     CsvEscape("漏洞"),
-                    CsvEscape("-"),
+                    CsvEscape(f.Target),
                     f.Port,
                     CsvEscape(f.Service),
-                    CsvEscape("-"),
-                    CsvEscape("-"),
+                    CsvEscape(f.Confirmed ? "已验证" : "候选"),
+                    CsvEscape(string.IsNullOrWhiteSpace(f.Cve) ? "-" : f.Cve),
                     CsvEscape(SafeZhRisk(f.Risk)),
-                    CsvEscape("-"),
-                    CsvEscape(f.Description),
+                    CsvEscape(f.Cvss?.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) ?? "N/A"),
+                    CsvEscape($"{f.Description}; {f.VerificationDetail}"),
                     CsvEscape(f.Fix),
-                    CsvEscape("-")));
-        if (r.VulnInfo?.Findings is not { Count: > 0 })
+                    CsvEscape(f.Source)));
+        if (IsConclusive(r) && r.VulnInfo?.Findings is not { Count: > 0 })
             sb.AppendLine($"{CsvEscape("漏洞")},,,,,,,,{CsvEscape("无漏洞")},,");
+        else if (!IsConclusive(r) && r.VulnInfo?.Findings is not { Count: > 0 })
+            sb.AppendLine($"{CsvEscape("漏洞")},,,,,,,,{CsvEscape("未执行或未完成漏洞扫描，不能得出安全结论")},,");
         return sb.ToString();
     }
     private static string CsvEscape(string s)
@@ -107,9 +173,25 @@ public class ReportGenerator
     {
         var sb = new StringBuilder();
         sb.AppendLine($"# 🌫️ {MdEscape(r.Title)}\n> {MdEscape(r.Target)} · {r.GeneratedAt:yyyy-MM-dd HH:mm} · {MdEscape(r.ScanDuration)}\n");
+        sb.AppendLine($"> {StatusEmoji(r)} **扫描状态：{MdEscape(StatusLabel(r))}** — {MdEscape(r.StatusMessage)}\n");
+        sb.AppendLine("## 🧭 扫描范围\n");
+        sb.AppendLine($"- 目标发现：{MdEscape(r.Scope.Discovery)}");
+        sb.AppendLine($"- TCP 端口：{MdEscape(r.Scope.TcpPorts)}");
+        sb.AppendLine($"- 漏洞检测：{MdEscape(r.Scope.VulnerabilityChecks)}");
+        sb.AppendLine($"- 能力边界：{MdEscape(r.Scope.Limitations)}\n");
+        if (r.Warnings.Count > 0)
+        {
+            sb.AppendLine("## ⚠️ 结果完整性\n");
+            foreach (var warning in r.Warnings) sb.AppendLine($"- {MdEscape(warning)}");
+            sb.AppendLine();
+        }
 
         sb.AppendLine("## 🌐 网络暴露\n");
-        if (r.OpenPorts.Count == 0)
+        if (!IsConclusive(r) && r.OpenPorts.Count == 0)
+        {
+            sb.AppendLine("未执行或未完成端口扫描，不能据此认为没有开放端口。\n");
+        }
+        else if (r.OpenPorts.Count == 0)
         {
             sb.AppendLine("未发现开放端口。\n");
         }
@@ -132,22 +214,22 @@ public class ReportGenerator
         sb.AppendLine($"| {v?.CriticalCount ?? 0} | {v?.HighCount ?? 0} | {v?.MediumCount ?? 0} | {v?.LowCount ?? 0} | {v?.Findings.Count ?? 0} |\n");
 
         // 层2: 紧急漏洞详情
-        if (v?.Findings != null)
+        if (v?.Findings is { Count: > 0 })
         {
             var urgent = v.Findings.Where(f => NormalizeRisk(f.Risk) is "critical" or "high").ToList();
             if (urgent.Count > 0)
             {
                 sb.AppendLine("## 🚨 严重 + 高危漏洞\n");
                 foreach (var f in urgent)
-                    sb.AppendLine($"### {RiskEmoji(f.Risk)} {MdEscape(f.Description)}\n- 端口: `{f.Port}` · 服务: {MdEscape(f.Service)}\n- 修复: {MdEscape(f.Fix)}\n");
+                    sb.AppendLine($"### {RiskEmoji(f.Risk)} {MdEscape(FindingTitle(f))}\n- 目标: `{MdEscape(f.Target)}` · 端口: `{f.Port}` · 服务: {MdEscape(f.Service)}\n- 评分: {MdEscape(ScoreLabel(f))} · 置信度: {MdEscape(ConfidenceLabel(f))} · 来源: {MdEscape(f.Source)}\n- 修复: {MdEscape(f.Fix)}\n");
             }
 
             // 层3: 完整表格
             sb.AppendLine("## 📋 完整漏洞列表\n");
-            sb.AppendLine("| 端口 | 服务 | 风险 | 说明 | 修复建议 |");
-            sb.AppendLine("|------|------|------|------|----------|");
+            sb.AppendLine("| 目标 | CVE | 端口/服务 | 风险/CVSS | 置信度 | 来源 | 说明 | 修复建议 |");
+            sb.AppendLine("|------|-----|-----------|-----------|--------|------|------|----------|");
             foreach (var f in v.Findings)
-                sb.AppendLine($"| {f.Port} | {MdEscape(f.Service)} | {RiskEmoji(f.Risk)} {SafeZhRisk(f.Risk)} | {MdEscape(f.Description)} | {MdEscape(f.Fix)} |");
+                sb.AppendLine($"| {MdEscape(f.Target)} | {MdEscape(string.IsNullOrWhiteSpace(f.Cve) ? "-" : f.Cve)} | `{f.Port}` {MdEscape(f.Service)} | {RiskEmoji(f.Risk)} {SafeZhRisk(f.Risk)} / {MdEscape(ScoreLabel(f))} | {MdEscape(ConfidenceLabel(f))} | {MdEscape(f.Source)} | {MdEscape($"{f.Description} {f.VerificationDetail}")} | {MdEscape(f.Fix)} |");
 
             // 层4: 修复建议
             var fixes = v.Findings.Where(f => !string.IsNullOrEmpty(f.Fix)).GroupBy(f => f.Fix!).Take(8);
@@ -156,6 +238,14 @@ public class ReportGenerator
                 sb.AppendLine("\n## 🛠️ 修复建议 (按风险排序)\n");
                 foreach (var g in fixes) sb.AppendLine($"- {MdEscape(g.Key)}");
             }
+        }
+        else if (IsConclusive(r))
+        {
+            sb.AppendLine("## 📋 漏洞详情\n\n✅ 在上述扫描范围内未发现漏洞候选项。\n");
+        }
+        else
+        {
+            sb.AppendLine("## 📋 漏洞详情\n\n⚠️ 未执行或未完成漏洞扫描，不能得出“未发现漏洞”结论。\n");
         }
 
         sb.AppendLine($"\n---\n*LucentMist v{LucentMist.Core.AppVersion.Current} · {r.GeneratedAt:yyyy-MM-dd HH:mm}*");
@@ -166,6 +256,19 @@ public class ReportGenerator
     private static string ToHtml(ScanReport r)
     {
         var v = r.VulnInfo;
+        var statusClass = NormalizeStatus(r.ScanStatus);
+        var warningItems = r.Warnings.Count == 0
+            ? ""
+            : $"<ul>{string.Join("", r.Warnings.Select(w => $"<li>{E(w)}</li>"))}</ul>";
+        var statusBanner = $@"<div class='scan-status status-{statusClass}'>
+  <div class='status-title'>{StatusEmoji(r)} 扫描状态：{E(StatusLabel(r))}</div>
+  <div>{E(r.StatusMessage)}</div>{warningItems}
+</div>";
+        var scope = $@"<div class='section scope'><h2>🧭 扫描范围与边界</h2>
+<ul><li><strong>目标发现：</strong>{E(r.Scope.Discovery)}</li>
+<li><strong>TCP 端口：</strong>{E(r.Scope.TcpPorts)}</li>
+<li><strong>漏洞检测：</strong>{E(r.Scope.VulnerabilityChecks)}</li>
+<li><strong>能力边界：</strong>{E(r.Scope.Limitations)}</li></ul></div>";
         var overallRisk = NormalizeRisk(v?.OverallRisk ?? "");
         var riskBg = overallRisk switch
         {
@@ -193,7 +296,7 @@ public class ReportGenerator
 
         // 层2: 紧急漏洞
         var urgentHtml = "";
-        if (v?.Findings != null)
+        if (v?.Findings is { Count: > 0 })
         {
             var urgent = v.Findings.Where(f => NormalizeRisk(f.Risk) is "critical" or "high").ToList();
             if (urgent.Count > 0)
@@ -202,8 +305,9 @@ public class ReportGenerator
                 foreach (var f in urgent)
                     urgentHtml += $@"<div class='urgent-card {NormalizeRisk(f.Risk)}'>
                       <div class='urgent-badge'>{RiskEmoji(f.Risk)} {SafeZhRisk(f.Risk)}</div>
-                      <div class='urgent-title'>{MakeLinksClickable(E(f.Description))}</div>
-                      <div class='urgent-meta'>端口 <code>{f.Port}</code> · {E(f.Service)}</div>
+                      <div class='urgent-title'>{MakeLinksClickable(E(FindingTitle(f)))}</div>
+                      <div class='urgent-meta'>目标 <code>{E(f.Target)}</code> · 端口 <code>{f.Port}</code> · {E(f.Service)}</div>
+                      <div class='urgent-meta'>{E(ScoreLabel(f))} · {E(ConfidenceLabel(f))} · {E(f.Source)}</div>
                       <div class='urgent-fix'>{E(SmartFix(f.Risk, f.Fix))}</div>
                     </div>";
                 urgentHtml += "</div></div>";
@@ -212,7 +316,7 @@ public class ReportGenerator
 
         // 层3: 分层表格（严重/高危展开，中危/低危折叠）
         var tableSection = "";
-        if (v?.Findings != null)
+        if (v?.Findings is { Count: > 0 })
         {
             var criticalHigh = v.Findings.Where(f => NormalizeRisk(f.Risk) is "critical" or "high").ToList();
             var mediumLow = v.Findings.Where(f => NormalizeRisk(f.Risk) is "medium" or "low").ToList();
@@ -223,7 +327,14 @@ public class ReportGenerator
                 tableSection += $"<details><summary>🟢⚪ 中危 + 低危漏洞 ({mediumLow.Count})</summary>{MakeTable(mediumLow)}</details>";
             tableSection += "</div>";
         }
-        else { tableSection = "<div class='section'><h2>📋 漏洞详情</h2><div class='safe-msg'>✅ 未发现漏洞</div></div>"; }
+        else if (IsConclusive(r))
+        {
+            tableSection = "<div class='section'><h2>📋 漏洞详情</h2><div class='safe-msg'>✅ 在已披露的扫描范围内未发现漏洞候选项</div></div>";
+        }
+        else
+        {
+            tableSection = "<div class='section'><h2>📋 漏洞详情</h2><div class='incomplete-msg'>⚠️ 未执行或未完成漏洞扫描，不能得出安全结论</div></div>";
+        }
 
         // 层4: 修复建议（仅严重/高危）
         var fixList = "";
@@ -293,6 +404,9 @@ code{{background:var(--surface2);padding:.1rem .4rem;border-radius:3px;font-size
 .badge-low{{background:rgba(148,163,184,.1);color:#94a3b8}}
 .fix-cell{{font-size:.78rem;color:#94a3b8;max-width:250px}}
 .safe-msg{{color:#4ade80;text-align:center;padding:2rem}}
+.incomplete-msg{{color:#fbbf24;text-align:center;padding:2rem;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.22);border-radius:10px}}
+.scan-status{{margin:1.5rem 0;padding:1rem 1.2rem;border-radius:10px;border:1px solid;font-size:.88rem}}.scan-status ul{{margin:.6rem 0 0 1.2rem}}.status-title{{font-weight:800;margin-bottom:.25rem}}.status-completed{{color:#4ade80;background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25)}}.status-partial,.status-no_targets,.status-not_scanned,.status-running{{color:#fbbf24;background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.25)}}.status-failed{{color:#f87171;background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.25)}}
+.scope ul{{margin-left:1.2rem;display:grid;gap:.45rem;color:#94a3b8}}.scope strong{{color:var(--text)}}
 .tls-status{{font-weight:700}}.tls-valid{{color:#4ade80}}.tls-warning{{color:#fbbf24}}.tls-expired{{color:#ef4444}}
 .fix-list{{display:flex;flex-direction:column;gap:.5rem}}
 .fix-item{{background:var(--surface);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:.8rem 1rem;font-size:.84rem;border-left:3px solid var(--cyan)}}
@@ -301,6 +415,8 @@ footer{{text-align:center;padding:2rem 0;color:var(--muted);font-size:.75rem;bor
 details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;background:var(--surface2);border-radius:8px;font-weight:600;font-size:.85rem;user-select:none;list-style:none}}details summary::before{{content:'▶ ';font-size:.7rem;margin-right:.4rem}}details[open] summary::before{{content:'▼ '}}details[open] summary{{border-radius:8px 8px 0 0}}details table{{margin-top:0}}details[open] table{{margin-top:0}}.nvd-link{{color:var(--cyan);text-decoration:none;word-break:break-all;font-size:.78rem}}.nvd-link:hover{{text-decoration:underline;color:#5ee8d4}}@media(max-width:768px){{.stats,.urgent-summary{{grid-template-columns:repeat(2,1fr)}}.urgent-grid{{grid-template-columns:1fr}}h1{{font-size:1.5rem}}}}
 </style></head><body><div class='container'>
 <header><h1>🌫️ {E(r.Title)}</h1><p class='meta'>{E(r.Target)} · {r.GeneratedAt:yyyy-MM-dd HH:mm:ss} · 耗时 {E(r.ScanDuration)}</p></header>
+{statusBanner}
+{scope}
 <div class='stats'>
   <div class='stat-card devices'><div class='val'>{r.TotalDevices}</div><div class='lbl'>总设备</div></div>
   <div class='stat-card online'><div class='val'>{r.OnlineDevices}</div><div class='lbl'>在线</div></div>
@@ -319,9 +435,9 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
     }
 
     private static string MakeTable(List<VulnFinding> list) =>
-        "<table><thead><tr><th>端口</th><th>服务</th><th>风险</th><th>说明</th><th>修复建议</th></tr></thead><tbody>" +
+        "<table><thead><tr><th>目标</th><th>CVE</th><th>端口/服务</th><th>风险/CVSS</th><th>置信度</th><th>来源</th><th>说明</th><th>修复建议</th></tr></thead><tbody>" +
         string.Join("", list.Select(f =>
-            $"<tr class='row-{NormalizeRisk(f.Risk)}'><td><code>{f.Port}</code></td><td>{E(f.Service)}</td><td><span class='badge badge-{NormalizeRisk(f.Risk)}'>{RiskEmoji(f.Risk)} {SafeZhRisk(f.Risk)}</span></td><td>{MakeLinksClickable(E(f.Description))}</td><td class='fix-cell'>{E(SmartFix(f.Risk, f.Fix))}</td></tr>")) +
+            $"<tr class='row-{NormalizeRisk(f.Risk)}'><td><code>{E(f.Target)}</code></td><td>{E(string.IsNullOrWhiteSpace(f.Cve) ? "-" : f.Cve)}</td><td><code>{f.Port}</code> {E(f.Service)}</td><td><span class='badge badge-{NormalizeRisk(f.Risk)}'>{RiskEmoji(f.Risk)} {SafeZhRisk(f.Risk)}</span><br>{E(ScoreLabel(f))}</td><td>{E(ConfidenceLabel(f))}</td><td>{E(f.Source)}</td><td>{MakeLinksClickable(E($"{f.Description} {f.VerificationDetail}"))}</td><td class='fix-cell'>{E(SmartFix(f.Risk, f.Fix))}</td></tr>")) +
         "</tbody></table>";
 
     private static string MakeLinksClickable(string text) =>
@@ -386,6 +502,50 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
         2375 or 3306 or 5432 or 6379 or 9200 or 27017 => "高价值后端服务；使用防火墙限制访问并启用认证",
         _ => "确认业务必要性，并仅允许受信来源访问"
     };
+
+    private static bool IsConclusive(ScanReport report) =>
+        NormalizeStatus(report.ScanStatus) == "completed";
+
+    private static string NormalizeStatus(string status) =>
+        (status ?? "").Trim().ToLowerInvariant() switch
+        {
+            "completed" => "completed",
+            "partial" => "partial",
+            "no_targets" => "no_targets",
+            "failed" => "failed",
+            "running" => "running",
+            _ => "not_scanned"
+        };
+
+    private static string StatusLabel(ScanReport report) => NormalizeStatus(report.ScanStatus) switch
+    {
+        "completed" => "已完成",
+        "partial" => "部分完成，结果不完整",
+        "no_targets" => "未发现在线设备",
+        "failed" => "扫描失败",
+        "running" => "扫描中",
+        _ => "未执行"
+    };
+
+    private static string StatusEmoji(ScanReport report) => NormalizeStatus(report.ScanStatus) switch
+    {
+        "completed" => "✅",
+        "failed" => "❌",
+        _ => "⚠️"
+    };
+
+    private static string FindingTitle(VulnFinding finding) =>
+        string.IsNullOrWhiteSpace(finding.Cve)
+            ? finding.Description
+            : $"{finding.Cve} — {finding.Description}";
+
+    private static string ScoreLabel(VulnFinding finding) =>
+        finding.Cvss is { } score
+            ? $"CVSS {score.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}"
+            : "CVSS N/A";
+
+    private static string ConfidenceLabel(VulnFinding finding) =>
+        finding.Confirmed ? "✔ 已验证" : "⚠ 候选";
 
     private static string NormalizeRisk(string risk) =>
         (risk ?? "").Trim().ToLowerInvariant() switch
