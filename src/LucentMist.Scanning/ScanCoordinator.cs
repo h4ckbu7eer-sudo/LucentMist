@@ -34,8 +34,9 @@ public class ScanCoordinator : IScanCoordinator
         string ports = "",
         CancellationToken ct = default)
     {
-        if (!await TargetGuard.IsAllowedAsync(target, ct))
-            throw new InvalidScanTargetException("扫描目标被安全策略拒绝");
+        var validation = await TargetGuard.ValidateAsync(target, ct);
+        if (!validation.IsAllowed)
+            throw new InvalidScanTargetException(validation.Code, validation.Message);
 
         var rec = await _store.CreateAsync(target, scanType, ports);
         if (!_channel.Writer.TryWrite(new ScanJob(rec.Id, target, scanType, ports)))
@@ -55,5 +56,7 @@ public sealed class ScanQueueFullException : Exception
 
 public sealed class InvalidScanTargetException : Exception
 {
-    public InvalidScanTargetException(string message) : base(message) { }
+    public InvalidScanTargetException(string code, string message) : base(message) => Code = code;
+
+    public string Code { get; }
 }
