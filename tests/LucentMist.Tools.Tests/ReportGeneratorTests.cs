@@ -1,4 +1,5 @@
 using LucentMist.Tools.Reporting;
+using LucentMist.Tools.Sirius;
 
 namespace LucentMist.Tools.Tests;
 
@@ -12,6 +13,15 @@ public class ReportGeneratorTests
             ScanDuration = "5.2s",
             TotalDevices = 254,
             OnlineDevices = 3,
+            ScanStatus = "completed",
+            StatusMessage = "扫描已完成",
+            Scope = new()
+            {
+                Discovery = "ICMP + TCP 回退",
+                TcpPorts = "TCP 1-1000",
+                VulnerabilityChecks = "22,80,135,139,445,3389,3306,6379,8080,2375",
+                Limitations = "非穷尽扫描"
+            },
             Devices = new()
             {
                 new() { Ip = "192.168.1.1", IsAlive = true, OsGuess = "Linux" },
@@ -45,9 +55,9 @@ public class ReportGeneratorTests
                 LowCount = 1,
                 Findings = new()
                 {
-                    new() { Port = 445, Service = "SMB", Risk = "高", Description = "EternalBlue 风险" },
-                    new() { Port = 80, Service = "HTTP", Risk = "中", Description = "明文传输" },
-                    new() { Port = 22, Service = "SSH", Risk = "低", Description = "检查版本" },
+                    new() { Target = "192.168.1.100", Port = 445, Service = "SMB", Cve = "CVE-2017-0144", Risk = "高", Cvss = 8.8, Source = "内置库", Confirmed = false, VerificationDetail = "仅候选", Description = "EternalBlue 风险" },
+                    new() { Target = "192.168.1.101", Port = 80, Service = "HTTP", Risk = "中", Source = "内置库", Description = "明文传输" },
+                    new() { Target = "192.168.1.1", Port = 22, Service = "SSH", Risk = "低", Source = "内置库", Description = "检查版本" },
                 }
             }
         };
@@ -82,6 +92,11 @@ public class ReportGeneratorTests
         Assert.Contains("SMB", md);
         Assert.Contains("TLS 证书", md);
         Assert.Contains("CN=GlobalSign", md);
+        Assert.Contains("TCP 1-1000", md);
+        Assert.Contains("CVE-2017-0144", md);
+        Assert.Contains("192.168.1.100", md);
+        Assert.Contains("CVSS 8.8", md);
+        Assert.Contains("候选", md);
     }
 
     [Fact]
@@ -159,13 +174,14 @@ public class ReportGeneratorTests
     }
 
     [Fact]
-    public void Generate_ReportWithNoVuln_SkipsVulnTable()
+    public void Generate_ReportWithNoVulnAndIncompleteScan_ShowsWarning()
     {
         var gen = new ReportGenerator();
         var report = new ReportGenerator.ScanReport { Target = "127.0.0.1", VulnInfo = null };
 
         var md = gen.Generate(report, ReportGenerator.Format.Markdown);
-        Assert.DoesNotContain("## 漏洞", md);
+        Assert.Contains("未执行或未完成漏洞扫描", md);
+        Assert.DoesNotContain("✅ 在上述扫描范围内未发现", md);
     }
 
     [Fact]
@@ -244,14 +260,15 @@ public class ReportGeneratorTests
     }
 
     [Fact]
-    public void Generate_Csv_NoFindings_ContainsNoVulnRow()
+    public void Generate_Csv_IncompleteScan_DoesNotClaimNoVulnerabilities()
     {
         var gen = new ReportGenerator();
         var report = new ReportGenerator.ScanReport { Target = "127.0.0.1" };
 
         var csv = gen.Generate(report, ReportGenerator.Format.Csv);
 
-        Assert.Contains("无漏洞", csv);
+        Assert.Contains("未执行或未完成漏洞扫描", csv);
+        Assert.DoesNotContain("\"无漏洞\"", csv);
     }
 
     [Fact]
@@ -266,5 +283,87 @@ public class ReportGeneratorTests
         Assert.Contains("TLS 证书", csv);
         Assert.Contains("\"baidu.com\",443", csv);
         Assert.Contains("CN=GlobalSign", csv);
+        Assert.Contains("CVE-2017-0144", csv);
+        Assert.Contains("内置库", csv);
+        Assert.Contains("候选", csv);
+    }
+
+    [Fact]
+    public void Generate_ZeroDevices_NeverRendersPositiveAllClear()
+    {
+        var report = new ReportGenerator.ScanReport
+        {
+            Target = "192.0.2.0/24",
+            ScanStatus = "no_targets",
+            StatusMessage = "未发现任何在线设备"
+        };
+        var generator = new ReportGenerator();
+
+        var html = generator.Generate(report, ReportGenerator.Format.Html);
+        var markdown = generator.Generate(report, ReportGenerator.Format.Markdown);
+        var csv = generator.Generate(report, ReportGenerator.Format.Csv);
+
+        Assert.Contains("未发现任何在线设备", html);
+        Assert.Contains("不能得出安全结论", html);
+        Assert.DoesNotContain("✅ 未发现漏洞", html);
+        Assert.Contains("不能得出“未发现漏洞”结论", markdown);
+        Assert.DoesNotContain("\"无漏洞\"", csv);
+    }
+
+    [Fact]
+    public void Generate_CompletedScanWithoutFindings_CanRenderScopedAllClear()
+    {
+        var report = new ReportGenerator.ScanReport
+        {
+            Target = "192.0.2.10",
+            ScanStatus = "completed",
+            StatusMessage = "扫描已完成",
+            OnlineDevices = 1,
+            VulnInfo = new()
+        };
+        var generator = new ReportGenerator();
+
+        Assert.Contains("在已披露的扫描范围内未发现", generator.Generate(report, ReportGenerator.Format.Html));
+        Assert.Contains("在上述扫描范围内未发现", generator.Generate(report, ReportGenerator.Format.Markdown));
+        Assert.Contains("\"无漏洞\"", generator.Generate(report, ReportGenerator.Format.Csv));
+    }
+
+    [Fact]
+    public void ParseVulnerabilityFinding_PreservesToolContract()
+    {
+        using var document = System.Text.Json.JsonDocument.Parse("""
+            {"port":22,"service":"SSH","banner":"OpenSSH_9.2p1","cve":"CVE-2023-38408","name":"OpenSSH RCE","risk":"high","cvss":8.1,"source":"OSV.dev","confirmed":false,"verificationDetail":"未执行 PoC","fix":"upgrade"}
+            """);
+
+        var finding = ReportGenerator.ParseVulnerabilityFinding("192.0.2.22", document.RootElement);
+
+        Assert.Equal("192.0.2.22", finding.Target);
+        Assert.Equal("CVE-2023-38408", finding.Cve);
+        Assert.Equal(8.1, finding.Cvss);
+        Assert.Equal("OSV.dev", finding.Source);
+        Assert.False(finding.Confirmed);
+        Assert.Equal("OpenSSH_9.2p1", finding.Banner);
+        Assert.Equal("未执行 PoC", finding.VerificationDetail);
+    }
+
+    [Fact]
+    public void SiriusConvertToReport_PreservesFindingsFromEveryHost()
+    {
+        var result = new SiriusResult
+        {
+            Target = "192.0.2.0/30",
+            Hosts =
+            {
+                new() { Ip = "192.0.2.1", IsUp = true, Ports = { new() { Port = 22, Service = "SSH", Vulns = { new() { Cve = "CVE-A", Name = "A", Risk = "high", Cvss = 8.0, Verified = false } } } } },
+                new() { Ip = "192.0.2.2", IsUp = true, Ports = { new() { Port = 445, Service = "SMB", Vulns = { new() { Cve = "CVE-B", Name = "B", Risk = "critical", Cvss = 9.8, Verified = true } } } } }
+            }
+        };
+
+        var report = SiriusClient.ConvertToReport(result);
+
+        Assert.Equal(2, report.VulnInfo!.Findings.Count);
+        Assert.Contains(report.VulnInfo.Findings, finding => finding.Target == "192.0.2.1" && finding.Cve == "CVE-A" && !finding.Confirmed);
+        Assert.Contains(report.VulnInfo.Findings, finding => finding.Target == "192.0.2.2" && finding.Cve == "CVE-B" && finding.Confirmed);
+        Assert.Equal(1, report.VulnInfo.HighCount);
     }
 }

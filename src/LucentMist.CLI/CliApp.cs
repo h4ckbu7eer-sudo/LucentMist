@@ -795,13 +795,21 @@ public class CliApp
 
         var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
         var sslTool = new SslCertificateTool(lf.CreateLogger<SslCertificateTool>());
-        var scanStart = DateTime.Now;
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         var report = new ReportGenerator.ScanReport
         {
             Target = target,
-            GeneratedAt = DateTime.Now
+            GeneratedAt = DateTime.Now,
+            ScanStatus = "running",
+            StatusMessage = "正在执行目标发现、端口和漏洞检测",
+            Scope = new ReportGenerator.ScanScope
+            {
+                Discovery = "ICMP 存活探测；ICMP 不可用时由工具尝试常见 TCP 端口回退",
+                TcpPorts = "TCP 1-1000",
+                VulnerabilityChecks = $"默认候选检测端口 {string.Join(',', VulnerabilityScanTool.DefaultScanPorts)}；外部数据源优先，内置 Banner 规则兜底",
+                Limitations = "未扫描 UDP 和其余 TCP 端口；候选命中不能证明补丁状态或可利用性"
+            }
         };
 
         // 1. Ping + 发现设备
@@ -822,6 +830,13 @@ public class CliApp
                     var devices = new List<string>();
                     if (pr.TryGetProperty("devices", out var devs))
                         foreach (var d in devs.EnumerateArray()) devices.Add(d.GetString()!);
+
+                    if (devices.Count == 0)
+                    {
+                        report.ScanStatus = "no_targets";
+                        report.StatusMessage = "未发现任何在线设备；未执行端口和漏洞扫描";
+                        report.Warnings.Add("目标可能离线，也可能屏蔽了 ICMP 和回退探测；本报告不是安全结论");
+                    }
 
                     // 2. 对在线设备做端口扫描和 OS 识别
                     foreach (var ip in devices)
@@ -847,7 +862,12 @@ public class CliApp
                             catch (Exception ex)
                             {
                                 Logger.LogWarning(ex, "Failed to parse port scan result for report");
+                                report.Warnings.Add($"{ip}: 端口扫描结果无法解析");
                             }
+                        }
+                        else
+                        {
+                            report.Warnings.Add($"{ip}: 端口扫描失败（{portResult.Error ?? "未知错误"}）");
                         }
 
                         // Only probe ports that conventionally carry TLS. This fills the
@@ -870,65 +890,41 @@ public class CliApp
                         catch (Exception ex)
                         {
                             Logger.LogWarning(ex, "Failed to detect OS fingerprint for report");
+                            report.Warnings.Add($"{ip}: OS 指纹识别失败");
                         }
 
                         report.Devices.Add(new() { Ip = ip, IsAlive = true, OsGuess = osGuess });
                     }
 
-                    // 3. Vuln scan (first device)
+                    // 3. 对所有在线设备做有界并行漏洞候选检测。
                     if (devices.Count > 0)
                     {
-                        var vulnTool = new VulnerabilityScanTool();
-                        var vulnResult = await vulnTool.ExecuteAsync(new ToolArguments { ["target"] = devices[0], ["timeout_ms"] = "5000" });
-                        if (vulnResult.Success)
-                        {
-                            try
-                            {
-                                using var vd = JsonDocument.Parse(vulnResult.Data);
-                                var vr = vd.RootElement;
-                                var vulnFindings = new List<ReportGenerator.VulnFinding>();
-                                if (vr.TryGetProperty("findings", out var vfs))
-                                {
-                                    foreach (var vf in vfs.EnumerateArray())
-                                    {
-                                        vulnFindings.Add(new()
-                                        {
-                                            Port = vf.TryGetProperty("port", out var vp) ? vp.GetInt32() : 0,
-                                            Service = vf.TryGetProperty("service", out var vs) ? vs.GetString() ?? "" : "",
-                                            Risk = vf.TryGetProperty("risk", out var vrk) ? vrk.GetString() ?? "" : "",
-                                            Description = vf.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "",
-                                            Fix = vf.TryGetProperty("fix", out var vfx) ? vfx.GetString() ?? "" : ""
-                                        });
-                                    }
-                                }
-                                report.VulnInfo = new()
-                                {
-                                    OverallRisk = vr.TryGetProperty("overallRisk", out var ork) ? ork.GetString() ?? "—" : "—",
-                                    CriticalCount = vr.TryGetProperty("criticalCount", out var crc) ? crc.GetInt32() : 0,
-                                    HighCount = vr.TryGetProperty("highCount", out var hc) ? hc.GetInt32() : 0,
-                                    MediumCount = vr.TryGetProperty("mediumCount", out var mc) ? mc.GetInt32() : 0,
-                                    LowCount = vr.TryGetProperty("lowCount", out var lc) ? lc.GetInt32() : 0,
-                                    Findings = vulnFindings
-                                };
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.LogWarning(ex, "Failed to parse vulnerability scan result for report");
-                            }
-                        }
+                        report.VulnInfo = await CollectVulnerabilityInfoAsync(report, devices);
+                        report.ScanStatus = report.Warnings.Count == 0 ? "completed" : "partial";
+                        report.StatusMessage = report.ScanStatus == "completed"
+                            ? $"已完成 {devices.Count} 台在线设备的端口与漏洞候选检测"
+                            : $"已扫描 {devices.Count} 台在线设备，但部分阶段失败，结果不完整";
                     }
                 }
                 catch (Exception ex)
                 {
                     Logger.LogWarning(ex, "Failed to build report data");
+                    report.ScanStatus = "failed";
+                    report.StatusMessage = $"报告数据构建失败：{ex.Message}";
                 }
+            }
+            else
+            {
+                report.ScanStatus = "failed";
+                report.StatusMessage = $"目标发现失败：{pingResult.Error ?? "未知错误"}";
+                report.Warnings.Add("未执行端口、TLS 或漏洞扫描");
             }
         });
 
         sw.Stop();
         report.ScanDuration = $"{sw.Elapsed.TotalSeconds:F1}s";
 
-        AnsiConsole.MarkupLine($"[grey]扫描完成: {report.OnlineDevices}/{report.TotalDevices} 设备, {report.OpenPorts.Count} 端口, {report.VulnInfo?.Findings.Count ?? 0} 漏洞, 耗时 {report.ScanDuration}[/]");
+        AnsiConsole.MarkupLine($"[grey]扫描状态 {Escape(report.ScanStatus)}: {report.OnlineDevices}/{report.TotalDevices} 设备, {report.OpenPorts.Count} 端口, {report.VulnInfo?.Findings.Count ?? 0} 漏洞, 耗时 {report.ScanDuration}[/]");
 
         if (report.VulnInfo != null && report.VulnInfo.Findings.Count > 0)
         {
@@ -999,6 +995,64 @@ public class CliApp
                 Logger.LogWarning(ex, "Failed to parse TLS certificate result for report");
             }
         }
+    }
+
+    private static async Task<ReportGenerator.VulnSummary?> CollectVulnerabilityInfoAsync(
+        ReportGenerator.ScanReport report,
+        IReadOnlyCollection<string> targets)
+    {
+        var results = new System.Collections.Concurrent.ConcurrentBag<(string Target, ToolResult Result)>();
+        await Parallel.ForEachAsync(
+            targets,
+            new ParallelOptions
+            {
+                MaxDegreeOfParallelism = Math.Min(3, Math.Max(1, targets.Count))
+            },
+            async (target, cancellationToken) =>
+            {
+                var tool = new VulnerabilityScanTool();
+                var result = await tool.ExecuteAsync(new ToolArguments
+                {
+                    ["target"] = target,
+                    ["timeout_ms"] = "5000"
+                }, cancellationToken);
+                results.Add((target, result));
+            });
+
+        var findings = new List<ReportGenerator.VulnFinding>();
+        var successfulTargets = 0;
+        foreach (var (target, result) in results.OrderBy(item => item.Target, StringComparer.OrdinalIgnoreCase))
+        {
+            if (!result.Success)
+            {
+                report.Warnings.Add($"{target}: 漏洞候选检测失败（{result.Error ?? "未知错误"}）");
+                continue;
+            }
+
+            try
+            {
+                using var doc = JsonDocument.Parse(result.Data);
+                var root = doc.RootElement;
+                var resultTarget = root.TryGetProperty("target", out var scannedTarget)
+                    ? scannedTarget.GetString() ?? target
+                    : target;
+                if (root.TryGetProperty("findings", out var items))
+                {
+                    findings.AddRange(items.EnumerateArray()
+                        .Select(item => ReportGenerator.ParseVulnerabilityFinding(resultTarget, item)));
+                }
+                successfulTargets++;
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                Logger.LogWarning(ex, "Failed to parse vulnerability scan result for report target {Target}", target);
+                report.Warnings.Add($"{target}: 漏洞扫描结果无法解析");
+            }
+        }
+
+        return successfulTargets > 0
+            ? ReportGenerator.BuildVulnerabilitySummary(findings)
+            : null;
     }
 
     // ========================================
