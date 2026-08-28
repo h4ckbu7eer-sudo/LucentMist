@@ -58,26 +58,21 @@ public class PingScanTool : INetworkTargetTool
 
             var ips = ParseTarget(target);
             var alive = new List<string>();
-
-            using var semaphore = new SemaphoreSlim(concurrency);
-            var tasks = ips.Select(async ip =>
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                await semaphore.WaitAsync(cancellationToken);
-                try
+            await Parallel.ForEachAsync(
+                ips,
+                new ParallelOptions
                 {
-                    if (await PingHostAsync(ip, timeout, cancellationToken))
+                    MaxDegreeOfParallelism = concurrency,
+                    CancellationToken = cancellationToken,
+                },
+                async (ip, ct) =>
+                {
+                    if (await PingHostAsync(ip, timeout, ct))
                     {
                         lock (alive) { alive.Add(ip); }
                     }
-                }
-                finally
-                {
-                    semaphore.Release();
-                }
-            });
-
-            await Task.WhenAll(tasks);
+                });
+            alive.Sort(StringComparer.Ordinal);
 
             var result = new
             {
@@ -223,23 +218,45 @@ public class PingScanTool : INetworkTargetTool
 
     private static async Task<bool> TcpProbeAsync(string ip, int timeoutMs, CancellationToken cancellationToken)
     {
-        foreach (var port in new[] { 80, 443, 22, 445 })
+        using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        probeCts.CancelAfter(Math.Min(timeoutMs, 1500));
+        var tasks = new[] { 80, 443, 22, 445 }
+            .Select(port => ProbeTcpPortAsync(ip, port, probeCts.Token))
+            .ToList();
+
+        while (tasks.Count > 0)
         {
-            try
+            var completed = await Task.WhenAny(tasks);
+            tasks.Remove(completed);
+            if (await completed)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                cts.CancelAfter(Math.Min(timeoutMs, 1500));
-                using var client = new TcpClient();
-                await client.ConnectAsync(ip, port, cts.Token);
+                probeCts.Cancel();
                 return true;
             }
-            catch
-            {
-                // 尝试下一个端口
-            }
         }
+        cancellationToken.ThrowIfCancellationRequested();
         return false;
+    }
+
+    private static async Task<bool> ProbeTcpPortAsync(
+        string ip,
+        int port,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var client = new TcpClient();
+            await client.ConnectAsync(ip, port, cancellationToken);
+            return true;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     private static bool IsPermissionError(PingException ex)
