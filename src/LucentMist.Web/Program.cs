@@ -39,6 +39,8 @@ builder.Services.AddHttpClient("AgentApi", client =>
 // 扫描后台任务：与 API 共用同一套持久化 + 队列 + worker
 builder.Services.AddSingleton(new ScanStore(
     Environment.GetEnvironmentVariable("LMIST_DB") ?? Path.Combine("data", "lucentmist.db")));
+builder.Services.AddSingleton<IScanTaskReader>(sp =>
+    sp.GetRequiredService<ScanStore>());
 builder.Services.AddSingleton<ScanCoordinator>();
 builder.Services.AddSingleton<IScanCoordinator>(sp =>
     sp.GetRequiredService<ScanCoordinator>());

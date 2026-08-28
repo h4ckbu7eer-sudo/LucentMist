@@ -17,4 +17,8 @@
     <PackageReference Include="Microsoft.AspNetCore.SignalR.Client" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="LucentMist.API.Tests" />
+  </ItemGroup>
+
 </Project>

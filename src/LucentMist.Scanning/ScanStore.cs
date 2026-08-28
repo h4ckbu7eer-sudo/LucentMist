@@ -6,7 +6,7 @@ namespace LucentMist.Scanning;
 /// 扫描任务持久化 — SQLite 存储。
 /// 表结构对应 docs/03-数据库设计.md 的 scan_tasks。
 /// </summary>
-public class ScanStore
+public class ScanStore : IScanTaskReader
 {
     private readonly string _connectionString;
 

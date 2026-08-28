@@ -1,6 +1,7 @@
 using LucentMist.Scanning;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
+using Microsoft.Data.Sqlite;
 
 namespace LucentMist.Web;
 
@@ -11,28 +12,40 @@ namespace LucentMist.Web;
 public sealed class ScanTaskClient : IAsyncDisposable
 {
     private readonly IScanCoordinator _coordinator;
-    private readonly ScanStore _store;
+    private readonly IScanTaskReader _store;
     private readonly NavigationManager _navigation;
-    private readonly CancellationTokenSource _cts = new();
+    private readonly Func<TimeSpan, CancellationToken, Task> _delay;
+    private readonly bool _enableSignalR;
+    private readonly CancellationTokenSource _disposeCts = new();
     private readonly SemaphoreSlim _hubGate = new(1, 1);
+    private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
+    private readonly object _stateGate = new();
+    private readonly HashSet<Task> _pollTasks = [];
     private HubConnection? _hub;
-    private Task? _pollTask;
+    private ActiveRun? _activeRun;
     private string _taskId = "";
-    private string _target = "";
-    private string _scanType = "";
-    private string _ports = "";
-    private int _version;
-    private int _finalRaised;
     private bool _disposed;
 
     public ScanTaskClient(
         IScanCoordinator coordinator,
-        ScanStore store,
+        IScanTaskReader store,
         NavigationManager navigation)
+        : this(coordinator, store, navigation, Task.Delay, true)
+    {
+    }
+
+    internal ScanTaskClient(
+        IScanCoordinator coordinator,
+        IScanTaskReader store,
+        NavigationManager navigation,
+        Func<TimeSpan, CancellationToken, Task> delay,
+        bool enableSignalR)
     {
         _coordinator = coordinator;
         _store = store;
         _navigation = navigation;
+        _delay = delay;
+        _enableSignalR = enableSignalR;
     }
 
     public string TaskId => _taskId;
@@ -41,40 +54,69 @@ public sealed class ScanTaskClient : IAsyncDisposable
     public string CurrentMessage { get; private set; } = "";
     public int ProgressPercent { get; private set; }
     public string? LastError { get; private set; }
+    public string? MonitoringError { get; private set; }
 
     public void SetStartupError(string error)
     {
-        _taskId = "";
-        _target = "";
-        _scanType = "";
-        _ports = "";
-        CurrentStatus = "failed";
-        CurrentMessage = "失败";
-        ProgressPercent = 0;
-        LastError = error;
+        lock (_stateGate)
+        {
+            if (_activeRun is { FinalRaised: false })
+            {
+                MonitoringError = error;
+                return;
+            }
+
+            _taskId = "";
+            CurrentStatus = "failed";
+            CurrentMessage = "失败";
+            ProgressPercent = 0;
+            LastError = error;
+            MonitoringError = null;
+        }
     }
 
     public event Action<ScanProgressEvent>? Progress;
     public event Action<ScanTaskRecord>? Completed;
-    public event Action<string>? Failed;
+    public event Action<string, string>? Failed;
 
     public async Task<string> StartAsync(
         string target, string scanType, string ports, CancellationToken ct = default)
     {
-        var previousTaskId = _taskId;
-        var version = Interlocked.Increment(ref _version);
-        _taskId = await _coordinator.StartAsync(target, scanType, ports, ct);
-        _target = target;
-        _scanType = scanType;
-        _ports = ports;
-        _finalRaised = 0;
-        CurrentStatus = "pending";
-        CurrentMessage = "等待队列";
-        ProgressPercent = 0;
-        LastError = null;
-        _pollTask = PollUntilFinalAsync(_taskId, version);
-        await TryJoinHubAsync(previousTaskId);
-        return _taskId;
+        await _lifecycleGate.WaitAsync(ct);
+        try
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+
+            // Queue first. A rejected start must not invalidate the task currently shown.
+            var taskId = await _coordinator.StartAsync(target, scanType, ports, ct);
+            var run = new ActiveRun(taskId, target, scanType, ports, _disposeCts.Token);
+            ActiveRun? previous;
+
+            lock (_stateGate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                previous = _activeRun;
+                _activeRun = run;
+                _taskId = taskId;
+                CurrentStatus = "pending";
+                CurrentMessage = "等待队列";
+                ProgressPercent = 0;
+                LastError = null;
+                MonitoringError = null;
+            }
+
+            previous?.Cancel();
+            run.PollTask = PollUntilFinalAsync(run);
+            TrackPollTask(run);
+
+            if (_enableSignalR)
+                await TryJoinHubAsync(previous?.TaskId, run);
+            return taskId;
+        }
+        finally
+        {
+            _lifecycleGate.Release();
+        }
     }
 
     private async Task<HubConnection> GetHubAsync(CancellationToken ct)
@@ -95,25 +137,35 @@ public sealed class ScanTaskClient : IAsyncDisposable
 
                 _hub.On<ScanProgressEvent>("ScanProgress", evt =>
                 {
-                    if (evt.TaskId != _taskId) return;
-                    CurrentStatus = evt.Status;
-                    CurrentMessage = evt.Message;
-                    ProgressPercent = evt.Percent;
+                    ActiveRun? run;
+                    lock (_stateGate)
+                    {
+                        run = _activeRun;
+                        if (_disposed || run is null || run.FinalRaised ||
+                            evt.TaskId != run.TaskId)
+                            return;
+
+                        CurrentStatus = evt.Status;
+                        CurrentMessage = evt.Message;
+                        ProgressPercent = evt.Percent;
+                        MonitoringError = null;
+                    }
+
                     Progress?.Invoke(evt);
                     if (evt.Status is "completed" or "failed")
                     {
                         if (evt.Status == "completed")
-                            RaiseFinal(new ScanTaskRecord
+                            RaiseFinal(run, new ScanTaskRecord
                             {
-                                Id = _taskId,
-                                Target = _target,
-                                ScanType = _scanType,
-                                Ports = _ports,
+                                Id = run.TaskId,
+                                Target = run.Target,
+                                ScanType = run.ScanType,
+                                Ports = run.Ports,
                                 Status = "completed",
                                 ResultJson = evt.ResultJson
                             });
                         else
-                            RaiseFinal(null, evt.Message);
+                            RaiseFinal(run, null, evt.Message);
                     }
                 });
             }
@@ -127,119 +179,251 @@ public sealed class ScanTaskClient : IAsyncDisposable
         }
     }
 
-    private async Task TryJoinHubAsync(string previousTaskId)
+    private async Task TryJoinHubAsync(string? previousTaskId, ActiveRun run)
     {
         try
         {
-            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
+                run.Token, _disposeCts.Token);
             timeout.CancelAfter(TimeSpan.FromSeconds(2));
             var hub = await GetHubAsync(timeout.Token);
             if (!string.IsNullOrEmpty(previousTaskId))
                 await hub.InvokeAsync("LeaveScanGroup", previousTaskId, timeout.Token);
-            await hub.InvokeAsync("JoinScanGroup", _taskId, timeout.Token);
+            if (IsActive(run))
+                await hub.InvokeAsync("JoinScanGroup", run.TaskId, timeout.Token);
         }
-        catch (OperationCanceledException) when (_cts.IsCancellationRequested)
+        catch (OperationCanceledException) when (
+            _disposeCts.IsCancellationRequested || run.Token.IsCancellationRequested)
         {
-            // Client disposed; polling is stopping as well.
+            // The run was replaced or the client was disposed.
         }
-        catch
+        catch (Exception ex)
         {
-            // SignalR is an optimization. SQLite polling remains the source of truth.
+            SetMonitoringError(run, ex.Message);
         }
     }
 
     private async Task RejoinScanGroupAsync()
     {
-        if (_disposed || _hub is null || string.IsNullOrEmpty(_taskId)) return;
+        ActiveRun? run;
+        lock (_stateGate)
+            run = _disposed ? null : _activeRun;
+        if (run is null || run.FinalRaised || _hub is null) return;
 
         try
         {
-            await _hub.InvokeAsync("JoinScanGroup", _taskId);
-        }
-        catch
-        {
-            // The client keeps its polling fallback, so a failed rejoin is not fatal.
-        }
-    }
-
-    private async Task PollUntilFinalAsync(string taskId, int version)
-    {
-        try
-        {
-            while (!_cts.IsCancellationRequested &&
-                   version == Volatile.Read(ref _version))
-            {
-                var rec = await _store.GetAsync(taskId);
-                if (rec is null) return;
-                if (rec.Status is "completed" or "failed")
-                {
-                    if (version != Volatile.Read(ref _version)) return;
-                    if (rec.Status == "completed")
-                        RaiseFinal(rec);
-                    else
-                        RaiseFinal(null, rec.ErrorMessage ?? "扫描失败");
-                    return;
-                }
-
-                await Task.Delay(500, _cts.Token);
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            // Page or client disposed; the polling task is expected to stop.
+            await _hub.InvokeAsync("JoinScanGroup", run.TaskId, run.Token);
         }
         catch (Exception ex)
         {
-            if (_disposed) return;
-            RaiseFinal(null, ex.Message);
+            SetMonitoringError(run, ex.Message);
         }
     }
 
-    private void RaiseFinal(ScanTaskRecord? rec, string? error = null)
+    private async Task PollUntilFinalAsync(ActiveRun run)
     {
-        if (Interlocked.Exchange(ref _finalRaised, 1) == 1) return;
+        var transientAttempt = 0;
+        try
+        {
+            while (!run.Token.IsCancellationRequested && IsActive(run))
+            {
+                try
+                {
+                    var rec = await _store.GetAsync(run.TaskId);
+                    transientAttempt = 0;
+                    if (rec is null)
+                    {
+                        SetMonitoringError(run, "暂时无法读取扫描任务状态");
+                        await _delay(TimeSpan.FromSeconds(1), run.Token);
+                        continue;
+                    }
 
-        if (rec is { Status: "completed" } && rec.ResultJson is not null)
-        {
-            CurrentStatus = "completed";
-            CurrentMessage = "完成";
-            ProgressPercent = 100;
-            LastError = null;
-            Completed?.Invoke(rec);
+                    SetMonitoringError(run, null);
+                    if (rec.Status == "completed")
+                    {
+                        RaiseFinal(run, rec);
+                        return;
+                    }
+
+                    if (rec.Status == "failed")
+                    {
+                        RaiseFinal(run, null, rec.ErrorMessage ?? "扫描失败");
+                        return;
+                    }
+
+                    await _delay(TimeSpan.FromMilliseconds(500), run.Token);
+                }
+                catch (SqliteException ex) when (IsTransientSqlite(ex))
+                {
+                    transientAttempt++;
+                    SetMonitoringError(run, "数据库繁忙，正在重试状态读取");
+                    var delayMs = Math.Min(1000, 100 * (1 << Math.Min(3, transientAttempt - 1)));
+                    await _delay(TimeSpan.FromMilliseconds(delayMs), run.Token);
+                }
+                catch (OperationCanceledException) when (run.Token.IsCancellationRequested)
+                {
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    SetMonitoringError(run, ex.Message);
+                    await _delay(TimeSpan.FromSeconds(1), run.Token);
+                }
+            }
         }
-        else
+        catch (OperationCanceledException) when (run.Token.IsCancellationRequested)
         {
-            CurrentStatus = "failed";
-            CurrentMessage = "失败";
-            ProgressPercent = 100;
-            LastError = error ?? "扫描未完成";
-            Failed?.Invoke(LastError);
+            // The run was replaced or the client was disposed.
         }
+    }
+
+    private static bool IsTransientSqlite(SqliteException ex) =>
+        ex.SqliteErrorCode is 5 or 6;
+
+    private void RaiseFinal(ActiveRun run, ScanTaskRecord? rec, string? error = null)
+    {
+        Action<ScanTaskRecord>? completed = null;
+        Action<string, string>? failed = null;
+        string? failure = null;
+
+        lock (_stateGate)
+        {
+            if (_disposed || !ReferenceEquals(_activeRun, run) || run.FinalRaised)
+                return;
+
+            run.FinalRaised = true;
+            run.Cancel();
+            ProgressPercent = 100;
+            MonitoringError = null;
+
+            if (rec is { Status: "completed" } && rec.ResultJson is not null)
+            {
+                CurrentStatus = "completed";
+                CurrentMessage = "完成";
+                LastError = null;
+                completed = Completed;
+            }
+            else
+            {
+                CurrentStatus = "failed";
+                CurrentMessage = "失败";
+                failure = error ?? "扫描未完成";
+                LastError = failure;
+                failed = Failed;
+            }
+        }
+
+        if (completed is not null && rec is not null)
+            completed(rec);
+        else if (failed is not null && failure is not null)
+            failed(run.TaskId, failure);
     }
 
     public async ValueTask DisposeAsync()
     {
-        if (_disposed) return;
-        _disposed = true;
-
-        _cts.Cancel();
-        if (_pollTask is not null)
+        await _lifecycleGate.WaitAsync();
+        try
         {
+            lock (_stateGate)
+            {
+                if (_disposed) return;
+                _disposed = true;
+                _activeRun?.Cancel();
+            }
+
+            _disposeCts.Cancel();
+            Task[] polls;
+            lock (_pollTasks)
+                polls = [.. _pollTasks];
             try
             {
-                await _pollTask;
+                await Task.WhenAll(polls);
             }
-            catch
+            catch (OperationCanceledException)
             {
-                // Polling is best-effort and is being torn down.
+                // Expected while active runs are being torn down.
             }
+
+            if (_hub is not null)
+            {
+                await _hub.DisposeAsync();
+                _hub = null;
+            }
+            _disposeCts.Dispose();
+            _hubGate.Dispose();
         }
-        if (_hub is not null)
+        finally
         {
-            await _hub.DisposeAsync();
-            _hub = null;
+            _lifecycleGate.Release();
         }
-        _cts.Dispose();
-        _hubGate.Dispose();
+    }
+
+    private bool IsActive(ActiveRun run)
+    {
+        lock (_stateGate)
+            return !_disposed && ReferenceEquals(_activeRun, run) && !run.FinalRaised;
+    }
+
+    private void SetMonitoringError(ActiveRun run, string? error)
+    {
+        lock (_stateGate)
+        {
+            if (!_disposed && ReferenceEquals(_activeRun, run) && !run.FinalRaised)
+                MonitoringError = error;
+        }
+    }
+
+    private void TrackPollTask(ActiveRun run)
+    {
+        var task = run.PollTask
+            ?? throw new InvalidOperationException("Polling task has not been initialized.");
+        lock (_pollTasks)
+            _pollTasks.Add(task);
+
+        _ = task.ContinueWith(
+            completed =>
+            {
+                lock (_pollTasks)
+                    _pollTasks.Remove(completed);
+                run.Dispose();
+            },
+            CancellationToken.None,
+            TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
+    }
+
+    private sealed class ActiveRun : IDisposable
+    {
+        private readonly CancellationTokenSource _cts;
+
+        public ActiveRun(
+            string taskId,
+            string target,
+            string scanType,
+            string ports,
+            CancellationToken disposeToken)
+        {
+            TaskId = taskId;
+            Target = target;
+            ScanType = scanType;
+            Ports = ports;
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(disposeToken);
+        }
+
+        public string TaskId { get; }
+        public string Target { get; }
+        public string ScanType { get; }
+        public string Ports { get; }
+        public CancellationToken Token => _cts.Token;
+        public Task? PollTask { get; set; }
+        public bool FinalRaised { get; set; }
+
+        public void Cancel()
+        {
+            if (!_cts.IsCancellationRequested)
+                _cts.Cancel();
+        }
+
+        public void Dispose() => _cts.Dispose();
     }
 }
