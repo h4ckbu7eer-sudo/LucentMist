@@ -25,7 +25,7 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 |------|------|:--:|
 | 编译 (Debug) | 0 errors, 0 warnings | OK |
 | 编译 (Release) | 0 errors, 0 warnings | OK |
-| 测试 | 336/336 本地全量 passed | OK |
+| 测试 | 355/355 本地全量 passed | OK |
 | CI | main run 33277183185 与 tag run 33277190463 的 Windows、Ubuntu、GHCR 全部 success | OK |
 | Docker | GHCR `0.9.5` manifest `sha256:482717…`；run 33277480928 固定摘要拉取后 health 200 | OK |
 | 扫描历史 | Web /scan/history 显示真实任务 | OK |
