@@ -35,6 +35,19 @@ public class ScanStoreTests : IDisposable
     }
 
     [Fact]
+    public void NewSchema_DefinesStatusCheckConstraint()
+    {
+        using var conn = new SqliteConnection($"Data Source={_dbPath};Pooling=False");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText =
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'scan_tasks'";
+
+        var schema = Assert.IsType<string>(cmd.ExecuteScalar());
+        Assert.Contains("CHECK (status IN", schema, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
     public async Task MarkRunning_Then_Completed_FlipsState()
     {
         var rec = await _store.CreateAsync("127.0.0.1", "ping", "");
@@ -207,6 +220,32 @@ public class ScanStoreTests : IDisposable
     }
 
     [Fact]
+    public async Task ExistingSchema_RejectsInvalidStatusThroughMigrationTrigger()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"lmist-status-{Guid.NewGuid():N}.db");
+        try
+        {
+            CreateLegacySchema(dbPath);
+            var store = new ScanStore(dbPath);
+            var rec = await store.CreateAsync("127.0.0.1", "ping", "");
+
+            using var conn = new SqliteConnection($"Data Source={dbPath};Pooling=False");
+            conn.Open();
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = "UPDATE scan_tasks SET status = 'unknown' WHERE id = $id";
+            cmd.Parameters.AddWithValue("$id", rec.Id);
+
+            var ex = Assert.Throws<SqliteException>(() => cmd.ExecuteNonQuery());
+            Assert.Contains("invalid scan task status", ex.Message);
+            Assert.Equal("pending", (await store.GetAsync(rec.Id))!.Status);
+        }
+        finally
+        {
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
+
+    [Fact]
     public void Open_SetsBusyTimeout()
     {
         var method = typeof(ScanStore).GetMethod("Open", BindingFlags.Instance | BindingFlags.NonPublic);
@@ -240,5 +279,27 @@ public class ScanStoreTests : IDisposable
 
         Assert.Equal(1, deleted);
         Assert.Null(await _store.GetAsync(rec.Id));
+    }
+
+    private static void CreateLegacySchema(string dbPath)
+    {
+        using var conn = new SqliteConnection($"Data Source={dbPath};Pooling=False");
+        conn.Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TABLE scan_tasks (
+                id             TEXT PRIMARY KEY,
+                target         TEXT NOT NULL,
+                scan_type      TEXT NOT NULL DEFAULT 'ping',
+                status         TEXT NOT NULL DEFAULT 'pending',
+                created_at     TEXT NOT NULL,
+                started_at     TEXT,
+                completed_at   TEXT,
+                total_devices  INTEGER DEFAULT 0,
+                result_json    TEXT,
+                error_message  TEXT
+            );
+            """;
+        cmd.ExecuteNonQuery();
     }
 }

@@ -36,7 +36,8 @@ public class ScanStore : IScanTaskReader
                 target         TEXT NOT NULL,
                 scan_type      TEXT NOT NULL DEFAULT 'ping',
                 ports          TEXT NOT NULL DEFAULT '',
-                status         TEXT NOT NULL DEFAULT 'pending',
+                status         TEXT NOT NULL DEFAULT 'pending'
+                               CHECK (status IN ('pending', 'running', 'completed', 'failed')),
                 created_at     TEXT NOT NULL,
                 started_at     TEXT,
                 heartbeat_at   TEXT,
@@ -51,6 +52,7 @@ public class ScanStore : IScanTaskReader
 
         EnsurePortsColumn(conn);
         EnsureHeartbeatColumn(conn);
+        EnsureStatusConstraint(conn);
         EnableWal(conn);
     }
 
@@ -103,6 +105,32 @@ public class ScanStore : IScanTaskReader
 
     private static void EnsureHeartbeatColumn(SqliteConnection conn) =>
         AddColumnIfMissing(conn, "heartbeat_at", "TEXT");
+
+    private static void EnsureStatusConstraint(SqliteConnection conn)
+    {
+        // SQLite cannot add a CHECK constraint to an existing column without
+        // rebuilding the table. Triggers provide the same database-layer guard
+        // for legacy databases while new databases receive the CHECK above.
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            CREATE TRIGGER IF NOT EXISTS scan_tasks_valid_status_insert
+            BEFORE INSERT ON scan_tasks
+            FOR EACH ROW
+            WHEN NEW.status NOT IN ('pending', 'running', 'completed', 'failed')
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid scan task status');
+            END;
+
+            CREATE TRIGGER IF NOT EXISTS scan_tasks_valid_status_update
+            BEFORE UPDATE OF status ON scan_tasks
+            FOR EACH ROW
+            WHEN NEW.status NOT IN ('pending', 'running', 'completed', 'failed')
+            BEGIN
+                SELECT RAISE(ABORT, 'invalid scan task status');
+            END;
+            """;
+        cmd.ExecuteNonQuery();
+    }
 
     private static void AddColumnIfMissing(
         SqliteConnection conn, string column, string definition)
