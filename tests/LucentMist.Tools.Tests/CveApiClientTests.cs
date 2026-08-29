@@ -46,6 +46,26 @@ public class CveApiClientTests
         Assert.Null(CveApiClient.CreateOsvQuery("redis", "Redis 6.0.16"));
     }
 
+    [Fact]
+    public void MergeSourceDetails_KeepsVersionEvidenceAndBestCvssMetadata()
+    {
+        var merged = CveApiClient.MergeSourceDetails(new[]
+        {
+            new CveApiClient.CveDetail(
+                "CVE-2099-0003", "OSV summary", 0, "OSV.dev", "upgrade",
+                "verified", "OSV version match"),
+            new CveApiClient.CveDetail(
+                "CVE-2099-0003", "NVD description", 8.1, "NVD", "vendor fix")
+        });
+
+        Assert.Equal("verified", merged.VersionStatus);
+        Assert.Equal("OSV version match", merged.VerificationDetail);
+        Assert.Equal(8.1, merged.CvssScore);
+        Assert.Equal("NVD description", merged.Description);
+        Assert.Contains("OSV.dev", merged.Source);
+        Assert.Contains("NVD", merged.Source);
+    }
+
     private sealed class StubHandler(
         Func<HttpRequestMessage, Task<HttpResponseMessage>> responseFactory) : HttpMessageHandler
     {

@@ -77,10 +77,7 @@ public class CveApiClient
             .Where(list => list != null)
             .SelectMany(list => list!)
             .GroupBy(detail => detail.Cve, StringComparer.OrdinalIgnoreCase)
-            .Select(group => group
-                .OrderByDescending(detail =>
-                    detail.VersionStatus.Equals("verified", StringComparison.OrdinalIgnoreCase))
-                .First())
+            .Select(MergeSourceDetails)
             .ToList();
 
         // Keyword APIs do not prove that the observed version is affected. Exclude
@@ -91,6 +88,35 @@ public class CveApiClient
         Cache[cacheKey] = (DateTime.UtcNow.Add(CacheTtl), results);
         PruneCache();
         return results;
+    }
+
+    internal static CveDetail MergeSourceDetails(IEnumerable<CveDetail> source)
+    {
+        var details = source.ToList();
+        if (details.Count == 0)
+            throw new ArgumentException("At least one CVE detail is required.", nameof(source));
+
+        var strongestEvidence = details
+            .OrderByDescending(detail =>
+                detail.VersionStatus.Equals("verified", StringComparison.OrdinalIgnoreCase))
+            .ThenByDescending(detail => detail.CvssScore)
+            .First();
+        var strongestMetadata = details
+            .OrderByDescending(detail => detail.CvssScore)
+            .First();
+        var sources = string.Join(
+            " + ",
+            details.Select(detail => detail.Source)
+                .Where(value => !string.IsNullOrWhiteSpace(value))
+                .Distinct(StringComparer.OrdinalIgnoreCase));
+
+        return strongestEvidence with
+        {
+            Description = strongestMetadata.Description,
+            CvssScore = strongestMetadata.CvssScore,
+            Source = sources,
+            Fix = strongestMetadata.Fix
+        };
     }
 
     internal static List<CveDetail> FilterExternalResultsByBanner(
