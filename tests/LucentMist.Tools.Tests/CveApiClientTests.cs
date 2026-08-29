@@ -8,8 +8,29 @@ namespace LucentMist.Tools.Tests;
 public class CveApiClientTests
 {
     [Fact]
-    public async Task TryOsvSearch_OpenSshBanner_UsesUpstreamTagAndMarksHitVerified()
+    public async Task TryOsvSearch_BannerOnlyEvidence_DoesNotCallOsvOrClaimVerification()
     {
+        var calls = 0;
+        using var client = new HttpClient(new StubHandler(request =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.InternalServerError));
+        }));
+
+        var results = await CveApiClient.TryOsvSearch(
+            "SSH-2.0-OpenSSH_9.8p1 Ubuntu",
+            client,
+            CancellationToken.None);
+
+        Assert.Null(results);
+        Assert.Equal(0, calls);
+        Assert.Null(CveApiClient.CreateOsvCommitQuery("SSH-2.0-OpenSSH_9.8p1 Ubuntu"));
+    }
+
+    [Fact]
+    public async Task TryOsvSearch_ExplicitCommit_UsesOfficialCommitContract()
+    {
+        const string commit = "6879efc2c1596d11a6a6ad296f80063b558d5e0f";
         string? requestBody = null;
         using var client = new HttpClient(new StubHandler(async request =>
         {
@@ -17,33 +38,22 @@ public class CveApiClientTests
             return new HttpResponseMessage(HttpStatusCode.OK)
             {
                 Content = new StringContent(
-                    """{"vulns":[{"aliases":["CVE-2099-0001"],"summary":"version match"}]}""",
+                    """{"vulns":[]}""",
                     Encoding.UTF8,
                     "application/json")
             };
         }));
 
         var results = await CveApiClient.TryOsvSearch(
-            "ssh",
-            "SSH-2.0-OpenSSH_9.8p1 Ubuntu",
+            $"OpenSSH_9.8p1 commit={commit}",
             client,
             CancellationToken.None);
 
-        var result = Assert.Single(results!);
-        Assert.Equal("verified", result.VersionStatus);
-        Assert.Contains("版本命中", result.VerificationDetail);
+        Assert.Empty(results!);
         using var request = JsonDocument.Parse(requestBody!);
-        Assert.Equal("GIT", request.RootElement.GetProperty("package").GetProperty("ecosystem").GetString());
-        Assert.Equal(
-            "https://github.com/openssh/openssh-portable.git",
-            request.RootElement.GetProperty("package").GetProperty("name").GetString());
-        Assert.Equal("V_9_8_P1", request.RootElement.GetProperty("version").GetString());
-    }
-
-    [Fact]
-    public void CreateOsvQuery_DoesNotInventDebianVersionForGenericBanner()
-    {
-        Assert.Null(CveApiClient.CreateOsvQuery("redis", "Redis 6.0.16"));
+        Assert.Equal(commit, request.RootElement.GetProperty("commit").GetString());
+        Assert.False(request.RootElement.TryGetProperty("package", out _));
+        Assert.False(request.RootElement.TryGetProperty("version", out _));
     }
 
     [Fact]
@@ -53,13 +63,13 @@ public class CveApiClientTests
         {
             new CveApiClient.CveDetail(
                 "CVE-2099-0003", "OSV summary", 0, "OSV.dev", "upgrade",
-                "verified", "OSV version match"),
+                "verified", "OSV commit match"),
             new CveApiClient.CveDetail(
                 "CVE-2099-0003", "NVD description", 8.1, "NVD", "vendor fix")
         });
 
         Assert.Equal("verified", merged.VersionStatus);
-        Assert.Equal("OSV version match", merged.VerificationDetail);
+        Assert.Equal("OSV commit match", merged.VerificationDetail);
         Assert.Equal(8.1, merged.CvssScore);
         Assert.Equal("NVD description", merged.Description);
         Assert.Contains("OSV.dev", merged.Source);

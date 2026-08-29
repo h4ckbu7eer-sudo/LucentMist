@@ -22,11 +22,13 @@ Current status as of 0.9.4.
   LucentMist interprets that wall-clock value in the scanner host's local time zone.
   X.509 validity timestamps do not carry a separately recoverable source time-zone ID;
   operators should keep the scanner host's time zone and clock correctly configured.
-- OSV version verification currently uses an observed OpenSSH upstream version with
-  the corresponding `openssh-portable` GIT tag. SSH banners do not expose a complete
-  Debian/Ubuntu package coordinate (for example `1:9.8p1-1`), so LucentMist does not
-  fabricate one or claim Debian package-level verification. Other banner-only service
-  versions continue through keyword sources as explicitly version-unverified candidates.
+- Standard service banners do not provide an OSV-compatible package coordinate or Git
+  commit. LucentMist therefore does not query OSV or claim OSV version verification for
+  an OpenSSH string such as `9.8p1`; only explicit 40-character commit evidence enables
+  OSV's top-level commit query. Debian/Ubuntu package versions are not fabricated from
+  banners. See [osv-validation.md](osv-validation.md) for the contract evidence and the
+  unsuccessful local live-query attempts. Other external sources remain explicitly
+  version-unverified.
 - SMB2-first dialect detection was validated against an authorized real Windows
   SMBv3.1.1 service at `192.168.99.9:445`: it negotiated SMBv3.1.1, did not report
   EternalBlue, and reported SMBGhost only as a candidate. The captured command

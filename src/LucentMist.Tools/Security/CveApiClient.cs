@@ -31,10 +31,8 @@ public class CveApiClient
         string VersionStatus = "unverified",
         string? VerificationDetail = null);
 
-    internal sealed record OsvQuery(
-        string PackageName,
-        string Ecosystem,
-        string Version,
+    internal sealed record OsvCommitQuery(
+        string Commit,
         string Evidence);
 
     private static string ServiceKey(int port) =>
@@ -59,13 +57,14 @@ public class CveApiClient
         var svcKey = ServiceKey(port);
         var results = new List<CveDetail>();
 
-        // 并行调用 4 个源（每个带重试）
+        // 并行调用外部源（每个带重试）。OSV 只有在输入包含明确的
+        // commit SHA 时才发请求；普通服务 banner 不具备有效坐标。
         var tasks = new Task<List<CveDetail>?>[]
         {
             WithRetry(TryCveTodo, svcKey, "CVETodo", ct),
             WithRetry(TryShodanServiceSearch, svcKey, "Shodan", ct),
             WithRetry(TryNvdSearch, svcKey, "NVD", ct),
-            WithRetry((_, token) => TryOsvSearch(service, version, token), "", "OSV", ct),
+            WithRetry((_, token) => TryOsvSearch(version, token), "", "OSV", ct),
         };
 
         var sourceResults = await Task.WhenAll(tasks);
@@ -336,26 +335,20 @@ public class CveApiClient
 
     // ========== OSV.dev ==========
     private static async Task<List<CveDetail>?> TryOsvSearch(
-        string service,
-        string? banner,
+        string? evidence,
         CancellationToken ct) =>
-        await TryOsvSearch(service, banner, _http, ct);
+        await TryOsvSearch(evidence, _http, ct);
 
     internal static async Task<List<CveDetail>?> TryOsvSearch(
-        string service,
-        string? banner,
+        string? evidence,
         HttpClient http,
         CancellationToken ct)
     {
-        var query = CreateOsvQuery(service, banner);
+        var query = CreateOsvCommitQuery(evidence);
         if (query == null) return null;
         try
         {
-            var body = new
-            {
-                package = new { name = query.PackageName, ecosystem = query.Ecosystem },
-                version = query.Version
-            };
+            var body = new { commit = query.Commit };
             using var response = await http.PostAsJsonAsync(
                 "https://api.osv.dev/v1/query",
                 body,
@@ -382,7 +375,7 @@ public class CveApiClient
                     "OSV.dev",
                     "升级到最新版本",
                     "verified",
-                    $"OSV.dev 按{query.Evidence}返回版本命中；未执行 PoC 验证"));
+                    $"OSV.dev 按{query.Evidence}返回代码命中；未执行 PoC 验证"));
             }
             return results;
         }
@@ -392,30 +385,19 @@ public class CveApiClient
         catch (JsonException) { return null; }
     }
 
-    internal static OsvQuery? CreateOsvQuery(string service, string? banner)
+    internal static OsvCommitQuery? CreateOsvCommitQuery(string? evidence)
     {
-        if (!service.Equals("ssh", StringComparison.OrdinalIgnoreCase)
-            || string.IsNullOrWhiteSpace(banner)
-            || !banner.Contains("OpenSSH", StringComparison.OrdinalIgnoreCase))
-        {
-            return null;
-        }
+        if (string.IsNullOrWhiteSpace(evidence)) return null;
 
-        var version = CveDatabase.ExtractVersion(banner);
-        if (string.IsNullOrWhiteSpace(version)) return null;
-
-        // An SSH banner exposes the OpenSSH upstream version, not a Debian package
-        // version such as 1:9.8p1-1. Query the upstream repository by its real Git
-        // tag instead of sending a fabricated Debian coordinate to OSV.
-        var tag = System.Text.RegularExpressions.Regex.Replace(
-            version.Replace('.', '_'),
-            "p",
-            "_P",
+        var match = System.Text.RegularExpressions.Regex.Match(
+            evidence,
+            @"\b(?:git[-_ ]?commit|commit)\s*[:= ]\s*(?<sha>[0-9a-f]{40})\b",
             System.Text.RegularExpressions.RegexOptions.IgnoreCase);
-        return new OsvQuery(
-            "https://github.com/openssh/openssh-portable.git",
-            "GIT",
-            $"V_{tag}",
-            $" OpenSSH 上游 GIT 标签 V_{tag} ");
+        if (!match.Success) return null;
+
+        var commit = match.Groups["sha"].Value.ToLowerInvariant();
+        return new OsvCommitQuery(
+            commit,
+            $"Git commit {commit[..12]}");
     }
 }
