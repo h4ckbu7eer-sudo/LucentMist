@@ -1,3 +1,5 @@
+using System.Net.NetworkInformation;
+using System.Text.Json;
 using LucentMist.Tools.Scanning;
 
 namespace LucentMist.Tools.Tests;
@@ -62,6 +64,42 @@ public class PingScanToolTests
         Assert.Contains("alive", r.Data);
         Assert.Contains("devices", r.Data);
         Assert.True(r.Duration.TotalMilliseconds > 0);
+    }
+
+    [Theory]
+    [InlineData(IPStatus.DestinationUnreachable)]
+    [InlineData(IPStatus.DestinationHostUnreachable)]
+    [InlineData(IPStatus.DestinationProtocolUnreachable)]
+    [InlineData(IPStatus.DestinationPortUnreachable)]
+    public async Task Execute_IcmpReject_UsesTcpFallback(IPStatus rejectStatus)
+    {
+        var tcpCalls = 0;
+        var tool = new PingScanTool(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PingScanTool>.Instance,
+            (_, _, _) => Task.FromResult(rejectStatus),
+            (_, _, _) =>
+            {
+                Interlocked.Increment(ref tcpCalls);
+                return Task.FromResult(true);
+            });
+
+        var result = await tool.ExecuteAsync(new()
+        {
+            ["target"] = "127.0.0.1",
+            ["timeout_ms"] = "200"
+        });
+
+        Assert.True(result.Success, result.Error);
+        Assert.Equal(1, tcpCalls);
+        using var doc = JsonDocument.Parse(result.Data);
+        Assert.Equal(1, doc.RootElement.GetProperty("alive").GetInt32());
+        Assert.Contains("已使用 TCP", doc.RootElement.GetProperty("icmpFallback").GetString());
+    }
+
+    [Fact]
+    public void ShouldFallbackToTcp_NonReachabilityFailure_DoesNotFallback()
+    {
+        Assert.False(PingScanTool.ShouldFallbackToTcp(IPStatus.BadOption));
     }
 
     private static PingScanTool CreateTool() =>
