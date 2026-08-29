@@ -6,75 +6,95 @@
 @inject IHttpClientFactory HttpFactory
 
 <PageTitle>Agent 对话 — LucentMist</PageTitle>
-<div class="page-header"><h2>🤖 Agent 对话</h2></div>
+<div class="page-header"><h2>🤖 Agent 对话 <span class="badge">实验性</span></h2></div>
 
-<div class="card" style="margin-bottom:1rem;">
-    <div style="display:flex;gap:0.5rem;align-items:end;">
-        <select @bind="_sessionId" style="flex:1">
-            <option value="">新会话</option>
-            @foreach (var s in _sessions)
-            {
-                <option value="@s.Id">@s.Title (@s.MessageCount 条)</option>
-            }
-        </select>
-        <button class="btn" @onclick="LoadSession" disabled="@_busy">加载会话</button>
-    </div>
+<div class="card" role="note" style="margin-bottom:1rem;border-color:#f59e0b;background:rgba(245,158,11,.08);">
+    <div style="color:#f59e0b;font-weight:800;">⚠️ 实验性功能 — 非专家不建议使用</div>
+    <p style="margin-bottom:0;">
+        Agent 的模型回答可能不完整或降级为确定性摘要，不能替代扫描证据。
+        若要获得可复核的自检结论，请使用 <a href="/scan">扫描控制</a> 和
+        <a href="/scan/history">扫描历史</a>。
+    </p>
 </div>
 
-@if (_replayLines.Count > 0)
+@if (!_agentEnabled)
+{
+    <div class="card" style="margin-bottom:1rem;">
+        <p>默认不启用 Agent。继续即表示你了解其输出可能不可靠，并会自行核对扫描结果。</p>
+        <button class="btn" @onclick="EnableAgentAsync">我了解限制，启用实验性 Agent</button>
+    </div>
+}
+else
 {
     <div class="card" style="margin-bottom:1rem;">
         <div style="display:flex;gap:0.5rem;align-items:end;">
-            <button class="btn btn-primary" @onclick="StartReplay" disabled="@_busy">开始回放</button>
-            <button class="btn" @onclick="TogglePause" disabled="@(_replayIndex >= _replayLines.Count)">@(_playing ? "暂停" : "继续")</button>
-            <button class="btn" @onclick="ClearReplay">清空</button>
+            <select @bind="_sessionId" style="flex:1">
+                <option value="">新会话</option>
+                @foreach (var s in _sessions)
+                {
+                    <option value="@s.Id">@s.Title (@s.MessageCount 条)</option>
+                }
+            </select>
+            <button class="btn" @onclick="LoadSession" disabled="@_busy">加载会话</button>
         </div>
     </div>
-}
 
-<div class="card" style="margin-bottom:1rem;">
-    <div style="display:flex;gap:0.5rem;align-items:end;">
-        <input type="text" @bind="_input" placeholder="例如：扫描 127.0.0.1 的端口" style="flex:1" />
-        <button class="btn btn-primary" @onclick="Send" disabled="@_busy">
-            @(_busy ? "分析中..." : "发送")
-        </button>
-    </div>
-</div>
+    @if (_replayLines.Count > 0)
+    {
+        <div class="card" style="margin-bottom:1rem;">
+            <div style="display:flex;gap:0.5rem;align-items:end;">
+                <button class="btn btn-primary" @onclick="StartReplay" disabled="@_busy">开始回放</button>
+                <button class="btn" @onclick="TogglePause" disabled="@(_replayIndex >= _replayLines.Count)">@(_playing ? "暂停" : "继续")</button>
+                <button class="btn" @onclick="ClearReplay">清空</button>
+            </div>
+        </div>
+    }
 
-@if (_error != null)
-{
     <div class="card" style="margin-bottom:1rem;">
-        <div style="color:var(--red);font-weight:600;">@_error</div>
+        <div style="display:flex;gap:0.5rem;align-items:end;">
+            <input type="text" @bind="_input" placeholder="例如：扫描 127.0.0.1 的端口" style="flex:1" />
+            <button class="btn btn-primary" @onclick="Send" disabled="@_busy">
+                @(_busy ? "分析中..." : "发送")
+            </button>
+        </div>
     </div>
-}
 
-<div class="card">
-    @if (_lines.Count == 0)
+    @if (_error != null)
     {
-        <div style="color:var(--text-muted);">暂无消息</div>
-    }
-    @foreach (var line in _lines)
-    {
-        <div style="margin-bottom:0.7rem;color:@LineColor(line.Kind);">
-            <strong>@LineLabel(line.Kind)</strong>
-            @if (line.Kind == "observation")
-            {
-                <details>
-                    <summary>展开观察结果</summary>
-                    <pre style="max-height:220px;overflow:auto;background:var(--bg);padding:0.6rem;border-radius:6px;font-size:0.75rem;margin-top:0.4rem;">@line.Content</pre>
-                </details>
-            }
-            else
-            {
-                <div style="white-space:pre-wrap;word-break:break-word;">@line.Content</div>
-            }
+        <div class="card" style="margin-bottom:1rem;">
+            <div style="color:var(--red);font-weight:600;">@_error</div>
         </div>
     }
-</div>
+
+    <div class="card">
+        @if (_lines.Count == 0)
+        {
+            <div style="color:var(--text-muted);">暂无消息</div>
+        }
+        @foreach (var line in _lines)
+        {
+            <div style="margin-bottom:0.7rem;color:@LineColor(line.Kind);">
+                <strong>@LineLabel(line.Kind)</strong>
+                @if (line.Kind == "observation")
+                {
+                    <details>
+                        <summary>展开观察结果</summary>
+                        <pre style="max-height:220px;overflow:auto;background:var(--bg);padding:0.6rem;border-radius:6px;font-size:0.75rem;margin-top:0.4rem;">@line.Content</pre>
+                    </details>
+                }
+                else
+                {
+                    <div style="white-space:pre-wrap;word-break:break-word;">@line.Content</div>
+                }
+            </div>
+        }
+    </div>
+}
 
 @code {
     private string _input = "";
     private string _sessionId = "";
+    private bool _agentEnabled;
     private bool _busy;
     private string? _error;
     private readonly List<AgentLine> _lines = new();
@@ -89,8 +109,9 @@
     private record AgentLine(string Kind, string Content);
     private record SessionItem(string Id, string Title, int MessageCount);
 
-    protected override async Task OnInitializedAsync()
+    private async Task EnableAgentAsync()
     {
+        _agentEnabled = true;
         await LoadSessionsAsync();
     }
 
