@@ -52,6 +52,9 @@ Current status as of 0.9.4.
 - Default local model qwen2.5:7b scored 0/10 in real LLM evaluation.
 - Claude validation is pending.
 - Contract violations now produce a visible degradation warning.
+- The development Web UI labels Agent as experimental and keeps the chat controls
+  closed until the user explicitly accepts the limitation. Non-experts are directed
+  to deterministic scan and report paths instead.
 
 ## Testing
 
@@ -61,8 +64,17 @@ Current status as of 0.9.4.
 
 ## Deployment
 
-- Docker compose auto-generates random credentials and prints them to container logs.
-- Production deployments must override credentials through `.env`.
+- The published `0.9.4` entrypoint can independently generate API tokens in the API
+  and Web containers when `LMIST_API_TOKEN` is blank. Because both containers share
+  the token file but keep their own process environment, this can leave Web unable to
+  authenticate to API. `0.9.4` operators must explicitly set the same strong
+  `LMIST_API_TOKEN` for both services, plus `LMIST_WEB_USER` and
+  `LMIST_WEB_PASSWORD`, before startup.
+- The development entrypoint fixes that coordination defect by reusing the existing
+  non-empty shared token file and generates Web credentials only for the Web process.
+  Generated credentials are still only for isolated local demonstration and are
+  printed to container logs. Production deployments must override all credentials
+  through an uncommitted `.env` or a proper secret manager.
 - The GHCR package currently requires authenticated access. Deployers need a classic personal access token with `read:packages`; credentials must be supplied through `docker login --password-stdin`, not committed to configuration.
 - The `0.9.4` GHCR tag is not claimed to be immutable. Exact rollback uses `ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af`.
 - There is no GitHub Release object for `v0.9.4`, and repository ruleset visibility was unavailable to the verification credential (`403`), so Git tag immutability is not claimed. Enable GitHub immutable Releases before publishing the next version; that protects the Git tag and release assets, while the container still needs digest pinning.

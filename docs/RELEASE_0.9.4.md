@@ -94,6 +94,12 @@ The repository currently has no GitHub Release object for `v0.9.4`, and the avai
 
 ## Deployment requirements
 
+> **Important:** do not start the published `0.9.4` API/Web compose stack with blank
+> credential variables. Each container can generate a different API token, so Web
+> authentication to API is not reliable in that configuration. Set the same explicit
+> `LMIST_API_TOKEN`, plus strong `LMIST_WEB_USER` and `LMIST_WEB_PASSWORD`, before
+> startup. This is both a security requirement and a functional requirement.
+
 The versioned container is:
 
 ```text
@@ -108,7 +114,10 @@ Production deployments must explicitly set strong values for:
 - `LMIST_WEB_USER`
 - `LMIST_WEB_PASSWORD`
 
-The compose startup helper can generate credentials and prints them to container logs. That behavior is for local demonstration only, not production secret management.
+The published startup helper can generate credentials and prints them to container
+logs, but its two-container blank-token behavior is not a supported deployment path.
+Development after `0.9.4` reuses a shared generated token for isolated local demos;
+neither behavior replaces explicit production secret management.
 
 ## Next product step
 
