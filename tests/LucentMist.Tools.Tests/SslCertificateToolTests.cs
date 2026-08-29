@@ -385,7 +385,25 @@ public class SslCertificateToolTests
             error => error == "NameMismatch");
     }
 
-    private async Task<ToolResult> ExecuteAgainstSelfSignedServerAsync(bool includeLoopbackSan)
+    [Fact]
+    public async Task ExecuteAsync_WithExpiredCertificate_MarksChainElementExpired()
+    {
+        var result = await ExecuteAgainstSelfSignedServerAsync(
+            includeLoopbackSan: true,
+            expired: true);
+
+        Assert.True(result.Success, result.Error);
+        using var doc = JsonDocument.Parse(result.Data);
+        var chainElement = Assert.Single(
+            doc.RootElement.GetProperty("chain").EnumerateArray());
+        Assert.True(chainElement.GetProperty("isExpired").GetBoolean());
+        Assert.True(chainElement.GetProperty("daysRemaining").GetInt32() < 0);
+        Assert.True(chainElement.TryGetProperty("notAfterUtc", out _));
+    }
+
+    private async Task<ToolResult> ExecuteAgainstSelfSignedServerAsync(
+        bool includeLoopbackSan,
+        bool expired = false)
     {
         using var rsa = RSA.Create(2048);
         var request = new CertificateRequest(
@@ -399,9 +417,13 @@ public class SslCertificateToolTests
         else
             san.AddDnsName("validation.invalid");
         request.CertificateExtensions.Add(san.Build());
-        using var generatedCertificate = request.CreateSelfSigned(
-            DateTimeOffset.UtcNow.AddMinutes(-5),
-            DateTimeOffset.UtcNow.AddHours(1));
+        var notBefore = expired
+            ? DateTimeOffset.UtcNow.AddDays(-2)
+            : DateTimeOffset.UtcNow.AddMinutes(-5);
+        var notAfter = expired
+            ? DateTimeOffset.UtcNow.AddDays(-1)
+            : DateTimeOffset.UtcNow.AddHours(1);
+        using var generatedCertificate = request.CreateSelfSigned(notBefore, notAfter);
         using var certificate = X509CertificateLoader.LoadPkcs12(
             generatedCertificate.Export(X509ContentType.Pfx),
             password: null,

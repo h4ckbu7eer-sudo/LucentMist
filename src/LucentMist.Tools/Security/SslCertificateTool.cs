@@ -225,6 +225,7 @@ public class SslCertificateTool : INetworkTargetTool
     {
         var elements = new List<object>();
         var trustErrors = new HashSet<string>(StringComparer.Ordinal);
+        var nowUtc = DateTime.UtcNow;
         try
         {
             using var chainObj = new X509Chain();
@@ -232,12 +233,19 @@ public class SslCertificateTool : INetworkTargetTool
             AddChainStatusErrors(trustErrors, chainObj.ChainStatus);
             foreach (var element in chainObj.ChainElements)
             {
+                var expiration = EvaluateExpiration(
+                    element.Certificate.NotAfter,
+                    nowUtc,
+                    CertificateTimeZone(element.Certificate.NotAfter));
                 elements.Add(new
                 {
                     subject = element.Certificate.Subject,
                     issuer = element.Certificate.Issuer,
                     thumbprint = element.Certificate.Thumbprint,
-                    notAfter = element.Certificate.NotAfter.ToString("O")
+                    notAfter = element.Certificate.NotAfter.ToString("O"),
+                    notAfterUtc = expiration.NotAfterUtc.ToString("O"),
+                    isExpired = expiration.IsExpired,
+                    daysRemaining = expiration.DaysRemaining
                 });
             }
         }
