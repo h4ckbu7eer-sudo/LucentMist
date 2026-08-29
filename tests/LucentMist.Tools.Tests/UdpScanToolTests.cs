@@ -1,3 +1,6 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using LucentMist.Tools;
 using LucentMist.Tools.Scanning;
@@ -118,8 +121,8 @@ public class UdpScanToolTests
         Assert.True(result.Success);
 
         using var doc = JsonDocument.Parse(result.Data);
-        // Default: 53,123,161,500,514,1900 = 6 ports
-        Assert.Equal(6, doc.RootElement.GetProperty("totalScanned").GetInt32());
+        // Defaults only include services with an implemented protocol probe.
+        Assert.Equal(4, doc.RootElement.GetProperty("totalScanned").GetInt32());
     }
 
     [Fact]
@@ -194,6 +197,10 @@ public class UdpScanToolTests
         Assert.True(root.TryGetProperty("totalScanned", out _));
         Assert.True(root.TryGetProperty("openPorts", out _));
         Assert.True(root.TryGetProperty("services", out _));
+        Assert.True(root.TryGetProperty("ports", out _));
+        Assert.True(root.TryGetProperty("openFilteredPorts", out _));
+        Assert.True(root.TryGetProperty("closedPorts", out _));
+        Assert.True(root.TryGetProperty("unprobeablePorts", out _));
         Assert.True(root.TryGetProperty("scanDuration", out _));
     }
 
@@ -251,5 +258,74 @@ public class UdpScanToolTests
         // Services is a dictionary: port → name, possibly empty if nothing is open
         // The structure is correct regardless of whether ports are open
         Assert.Equal(JsonValueKind.Object, services.ValueKind);
+    }
+
+    [Fact]
+    public void TryCreateProbe_Ntp_IsVersion3ClientRequest()
+    {
+        Assert.True(UdpScanTool.TryCreateProbe(123, out var probe, out var reason));
+
+        Assert.Null(reason);
+        Assert.Equal(48, probe.Length);
+        Assert.Equal(0, probe[0] >> 6);
+        Assert.Equal(3, (probe[0] >> 3) & 0x07);
+        Assert.Equal(3, probe[0] & 0x07);
+    }
+
+    [Fact]
+    public void TryCreateProbe_Ssdp_IsValidMSearchRequest()
+    {
+        Assert.True(UdpScanTool.TryCreateProbe(1900, out var probe, out var reason));
+
+        Assert.Null(reason);
+        var text = Encoding.ASCII.GetString(probe);
+        Assert.StartsWith("M-SEARCH * HTTP/1.1\r\n", text);
+        Assert.Contains("HOST: 239.255.255.250:1900\r\n", text);
+        Assert.Contains("MAN: \"ssdp:discover\"\r\n", text);
+        Assert.EndsWith("\r\n\r\n", text);
+    }
+
+    [Theory]
+    [InlineData(500)]
+    [InlineData(514)]
+    public void TryCreateProbe_UnsupportedSilentServices_AreNotFakeProbed(int port)
+    {
+        Assert.False(UdpScanTool.TryCreateProbe(port, out var probe, out var reason));
+        Assert.Empty(probe);
+        Assert.False(string.IsNullOrWhiteSpace(reason));
+    }
+
+    [Fact]
+    public async Task ProbeUdpEndpoint_OpenButSilentService_IsOpenFilteredNotClosed()
+    {
+        using var silentService = new UdpClient(new IPEndPoint(IPAddress.Loopback, 0));
+        var port = ((IPEndPoint)silentService.Client.LocalEndPoint!).Port;
+
+        var result = await UdpScanTool.ProbeUdpEndpointAsync(
+            "127.0.0.1",
+            port,
+            "silent-test",
+            new byte[] { 0x1B },
+            150);
+
+        Assert.Equal("open|filtered", result.State);
+        Assert.Contains("可能开放", result.Detail);
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_UnsupportedPort_IsExplicitlyUnprobeable()
+    {
+        var result = await _tool.ExecuteAsync(new ToolArguments
+        {
+            ["target"] = "127.0.0.1",
+            ["ports"] = "514",
+            ["timeout_ms"] = "150"
+        });
+
+        Assert.True(result.Success, result.Error);
+        using var doc = JsonDocument.Parse(result.Data);
+        var port = Assert.Single(doc.RootElement.GetProperty("ports").EnumerateArray());
+        Assert.Equal("unprobeable", port.GetProperty("state").GetString());
+        Assert.Empty(doc.RootElement.GetProperty("closedPorts").EnumerateArray());
     }
 }
