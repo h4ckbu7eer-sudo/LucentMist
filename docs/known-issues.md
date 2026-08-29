@@ -1,12 +1,13 @@
 # Known Issues
 
-Current status as of 0.9.5. Remote evidence remains pending until the tag workflow and independent image verification complete.
+Current status as of the verified 0.9.5 release.
 
 ## Release Status
 
-- The local 0.9.5 release gate passed with 336/336 tests, a Release build with zero warnings and zero errors, formatting verification, Compose configuration validation, and `git diff --check`. This is not yet a remote-release claim.
-- 0.9.5 adds the OSV evidence boundary, visible CVE version status, SSL/UDP correctness fixes, and bounded report/worker concurrency. 0.9.4 operators should upgrade after the 0.9.5 remote evidence is complete.
-- The 0.9.5 CI run, GHCR manifest digest, and independent pull/run/health evidence are recorded in [RELEASE_0.9.5.md](RELEASE_0.9.5.md); pending fields remain explicitly pending rather than inferred from local tests.
+- The local 0.9.5 release gate passed with 336/336 tests, a Release build with zero warnings and zero errors, formatting verification, Compose configuration validation, and `git diff --check`.
+- The [v0.9.5 tag workflow](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33277190463) completed Windows, Ubuntu, and GHCR jobs successfully. The GHCR manifest digest is `sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698`.
+- Independent [release verification run 33277480928](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33277480928) matched that digest, started the published API image, and received `{"status":"healthy","version":"0.9.5","uptime":"0h 0m"}`.
+- 0.9.5 adds the OSV evidence boundary, visible CVE version status, SSL/UDP correctness fixes, and bounded report/worker concurrency. 0.9.4 operators should upgrade.
 
 ### Historical 0.9.4 evidence
 

@@ -62,8 +62,59 @@ The full 336-test command passed twice consecutively: once before the version ch
 
 ## Remote release evidence
 
-Pending. This section will be replaced with the actual `git ls-remote`, `gh run view`, `docker manifest inspect`, and release-verification workflow outputs after the tag has been published. Until then, 0.9.5 is not claimed as remotely verified.
+The release commit and annotated tag are remotely visible:
+
+```text
+git ls-remote --tags origin 'v0.9.5' 'v0.9.5^{}'
+52c1355a091acc96274e57c83bad830955a802f7  refs/tags/v0.9.5
+9b67bdbeeba46f51d40a88a90f52f023c6472d2d  refs/tags/v0.9.5^{}
+```
+
+`gh run view 33277190463` independently reports the tag workflow as successful:
+
+```text
+✓ v0.9.5 CI · 33277190463
+JOBS
+✓ Build & Test (windows-latest) in 4m25s (ID 99165863954)
+✓ Build & Test (ubuntu-latest) in 1m9s (ID 99165864003)
+✓ Build & Push GHCR in 1m35s (ID 99166338839)
+```
+
+The full run is [GitHub Actions run 33277190463](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33277190463). GitHub emitted Node.js 20 deprecation annotations for current third-party action versions; these are maintenance warnings, not failed jobs.
+
+Both versioned GHCR artifacts remain readable. `docker manifest inspect` returned schema-v2 manifests for both tags, and immutable-digest inspection returned:
+
+```text
+docker buildx imagetools inspect ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5
+Name:      ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5
+MediaType: application/vnd.docker.distribution.manifest.v2+json
+Digest:    sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698
+
+docker buildx imagetools inspect ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
+Name:      ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
+MediaType: application/vnd.docker.distribution.manifest.v2+json
+Digest:    sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af
+```
+
+The 0.9.5 image config digest reported by `docker manifest inspect` is `sha256:1a02d5daca3b0819ad9970954e3f7d237d240ceb6bc42952d789d5596b1354dd`. The manifest digest above, not the config digest, is the immutable reference used for deployment verification.
+
+The existing release-verification workflow was dispatched with the 0.9.5 tag and expected manifest digest. [Run 33277480928](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33277480928) completed every step in 19 seconds:
+
+```text
+✓ Log in to GHCR
+✓ Pull published image
+✓ Record immutable digest
+✓ Start published API image
+✓ Wait for health endpoint
+✓ Show container logs
+✓ Remove verification container
+
+Pulled image: ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698
+Health response: {"status":"healthy","version":"0.9.5","uptime":"0h 0m"}
+```
+
+This proves the published artifact can be pulled by immutable digest, starts successfully, and answers its API health endpoint with version 0.9.5. It does not by itself prove Web login, persistence, a full scan, or product demand.
 
 ## Upgrade and rollback
 
-Upgrade from 0.9.4 by pulling `ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5` after the remote evidence above is complete. Both version tags are expected to remain available. Exact rollback must use the immutable manifest digest recorded for the chosen release, not only a mutable version tag. The historical 0.9.4 digest and verification output remain in [RELEASE_0.9.4.md](RELEASE_0.9.4.md).
+Upgrade from 0.9.4 by pulling `ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698`. Both version tags remain available. Exact rollback to 0.9.4 uses `ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af`; do not rely only on a mutable version tag. The historical verification output remains in [RELEASE_0.9.4.md](RELEASE_0.9.4.md).

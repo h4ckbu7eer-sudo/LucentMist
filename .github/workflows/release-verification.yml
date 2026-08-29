@@ -11,6 +11,7 @@ on:
       expected_manifest_digest:
         description: Expected immutable manifest digest
         required: true
+        default: sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698
         type: string
 
 permissions:
