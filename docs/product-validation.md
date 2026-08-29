@@ -92,3 +92,14 @@ Windows patch level.
   service was stopped and no Docker daemon was running. Banner regression tests pin
   `9.0p1`, `9.1`, `9.2p1`, and `9.3p1` as candidates, and `9.3p2` and `9.4` as not
   matching `CVE-2023-38408`; real-service validation remains pending.
+
+### Follow-up availability check
+
+On 2026-08-29, a read-only reachability check found `192.168.2.9:445` unavailable,
+so the previously recorded real Windows SMB run above could not be repeated. Local
+port `22` was also closed and no Docker service was available; consequently no real
+OpenSSH boundary target was substituted or claimed. The focused SMB/OpenSSH regression
+suite was rerun instead: 28 tests passed, including offsets 37/72, SMB2-first with
+SMB1 reconnect fallback, OpenSSH `9.0p1` through `9.3p1` matching, and `9.3p2`/`9.4`
+not matching. Those tests establish parser and matching behavior only, not real-service
+validation.
