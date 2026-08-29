@@ -2,7 +2,9 @@
 
 > 最后更新: 2026-08-29
 
-## 当前版本: v0.9.4
+## 当前发布版本: v0.9.4
+
+## main 开发版本: 0.9.5-dev
 
 ## 整体状态: v0.9.4 已发布（本地、CI 与 GHCR 均已实证）
 
@@ -26,8 +28,8 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 | 编译 (Debug) | 0 errors, 0 warnings | OK |
 | 编译 (Release) | 0 errors, 0 warnings | OK |
 | 测试 | 299/299 本地全量 passed | OK |
-| CI | Windows + Ubuntu + GHCR，run 39/run 41 success | OK |
-| Docker | `lucentmist:0.9.4` manifest 可读取；API/Web 双端口实测 200 | OK |
+| CI | Windows + Ubuntu + GHCR，run 39/run 41 success；发布镜像验证 run 33257054498 success | OK |
+| Docker | GHCR `0.9.4` manifest 为 `sha256:11b2bd…`；远端 runner 拉取后 API health 返回 200 | OK |
 | 扫描历史 | Web /scan/history 显示真实任务 | OK |
 | 文档 | 部署手册/技术设计/API/README 已对齐 v0.9.4 | OK |
 
