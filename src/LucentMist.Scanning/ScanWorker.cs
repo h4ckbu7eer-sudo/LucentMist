@@ -138,7 +138,7 @@ public sealed class ScanWorker : BackgroundService
             _logger.LogInformation("扫描完成: TaskId={TaskId}, Alive={Alive}",
                 req.TaskId, outcome.TotalDevices);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             if (await _store.MarkFailedAsync(req.TaskId, "扫描被取消"))
                 await PublishTerminalAsync(req.TaskId, "failed", "扫描被取消");
