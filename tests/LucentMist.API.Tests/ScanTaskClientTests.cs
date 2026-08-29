@@ -86,7 +86,7 @@ public sealed class ScanTaskClientTests
         await using var client = CreateClient(
             coordinator,
             reader,
-            TimeSpan.FromMilliseconds(25));
+            TimeSpan.FromMilliseconds(100));
         var monitoringStopped = new TaskCompletionSource(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var failureCount = 0;
@@ -98,7 +98,11 @@ public sealed class ScanTaskClientTests
         client.Failed += (_, _) => Interlocked.Increment(ref failureCount);
 
         await client.StartAsync("10.0.0.3", "tcp", "443");
-        await monitoringStopped.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        // GitHub's shared Windows runners can delay timer callbacks while four test
+        // assemblies start in parallel. Keep the product timeout short for this test,
+        // but give the assertion a generous deadlock guard so scheduler load is not
+        // mistaken for a functional failure.
+        await monitoringStopped.Task.WaitAsync(TimeSpan.FromSeconds(15));
 
         Assert.Equal("monitoring_unavailable", client.CurrentStatus);
         Assert.Contains("查看扫描历史", client.MonitoringError);
