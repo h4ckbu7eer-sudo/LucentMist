@@ -1,9 +1,13 @@
 extern alias LucentMistWeb;
-
 using System.Collections.Concurrent;
+using System.Net;
 using LucentMist.Scanning;
 using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
+using ScanStatusAlerts = LucentMistWeb::LucentMist.Web.Components.ScanStatusAlerts;
 using ScanTaskClient = LucentMistWeb::LucentMist.Web.ScanTaskClient;
 
 namespace LucentMist.API.Tests;
@@ -100,6 +104,28 @@ public sealed class ScanTaskClientTests
         Assert.Contains("查看扫描历史", client.MonitoringError);
         Assert.Null(client.LastError);
         Assert.Equal(0, failureCount);
+
+        var html = await RenderAlertsAsync(client);
+        Assert.Contains("监控状态", html);
+        Assert.Contains("无法确认扫描结果", html);
+        Assert.Contains("role=\"status\"", html);
+    }
+
+    [Fact]
+    public async Task QueueRejection_IsStoredAndRenderedAsVisibleStartupError()
+    {
+        await using var client = CreateClient(
+            new RejectingCoordinator("扫描队列已满"),
+            new NeverCompletingReader());
+
+        var exception = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            client.StartAsync("10.0.0.4", "tcp", "443"));
+
+        Assert.Equal("扫描队列已满", exception.Message);
+        Assert.Equal("扫描队列已满", client.LastError);
+        var html = await RenderAlertsAsync(client);
+        Assert.Contains("扫描队列已满", html);
+        Assert.Contains("role=\"alert\"", html);
     }
 
     private static ScanTaskClient CreateClient(
@@ -123,6 +149,22 @@ public sealed class ScanTaskClientTests
         ResultJson = "{}"
     };
 
+    private static async Task<string> RenderAlertsAsync(ScanTaskClient client)
+    {
+        var services = new ServiceCollection().AddLogging().BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, NullLoggerFactory.Instance);
+        return await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var parameters = ParameterView.FromDictionary(
+                new Dictionary<string, object?>
+                {
+                    [nameof(ScanStatusAlerts.Client)] = client
+                });
+            var output = await renderer.RenderComponentAsync<ScanStatusAlerts>(parameters);
+            return WebUtility.HtmlDecode(output.ToHtmlString());
+        });
+    }
+
     private sealed class QueueCoordinator(params string[] ids) : IScanCoordinator
     {
         private readonly Queue<string> _ids = new(ids);
@@ -133,6 +175,16 @@ public sealed class ScanTaskClientTests
             string ports = "",
             CancellationToken ct = default) =>
             Task.FromResult(_ids.Dequeue());
+    }
+
+    private sealed class RejectingCoordinator(string message) : IScanCoordinator
+    {
+        public Task<string> StartAsync(
+            string target,
+            string scanType = "ping",
+            string ports = "",
+            CancellationToken ct = default) =>
+            Task.FromException<string>(new InvalidOperationException(message));
     }
 
     private sealed class BusyThenCompletedReader(ScanTaskRecord completed) : IScanTaskReader
