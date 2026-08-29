@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using LucentMist.CLI;
 using LucentMist.Tools.Reporting;
 using Xunit.Abstractions;
@@ -8,12 +7,16 @@ namespace LucentMist.Tools.Tests;
 public sealed class ReportDeviceCollectorTests(ITestOutputHelper output)
 {
     [Fact]
-    public async Task CollectAsync_TenDevices_IsBoundedAndFasterThanSequential()
+    public async Task CollectAsync_TenDevices_UsesBoundedParallelismAndPreservesOrder()
     {
         var devices = Enumerable.Range(1, 10).Select(index => $"device-{index}").ToArray();
-        const int delayMs = 100;
+        const int maxDegreeOfParallelism = 4;
         var active = 0;
         var maximumActive = 0;
+        var allSlotsActive = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseScans = new TaskCompletionSource<bool>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
 
         async Task<ReportDeviceScanResult> ScanAsync(
             string target,
@@ -21,9 +24,12 @@ public sealed class ReportDeviceCollectorTests(ITestOutputHelper output)
         {
             var current = Interlocked.Increment(ref active);
             UpdateMaximum(ref maximumActive, current);
+            if (current == maxDegreeOfParallelism)
+                allSlotsActive.TrySetResult(true);
+
             try
             {
-                await Task.Delay(delayMs, cancellationToken);
+                await releaseScans.Task.WaitAsync(cancellationToken);
                 return new ReportDeviceScanResult(
                     new ReportGenerator.DeviceEntry { Ip = target, IsAlive = true },
                     [],
@@ -37,28 +43,31 @@ public sealed class ReportDeviceCollectorTests(ITestOutputHelper output)
             }
         }
 
-        var parallelTimer = Stopwatch.StartNew();
-        var results = await ReportDeviceCollector.CollectAsync(
+        var collectionTask = ReportDeviceCollector.CollectAsync(
             devices,
             ScanAsync,
-            maxDegreeOfParallelism: 4);
-        parallelTimer.Stop();
+            maxDegreeOfParallelism);
 
-        var sequentialTimer = Stopwatch.StartNew();
-        foreach (var device in devices)
-            await Task.Delay(delayMs);
-        sequentialTimer.Stop();
+        try
+        {
+            await allSlotsActive.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(collectionTask.IsCompleted);
+            Assert.Equal(maxDegreeOfParallelism, Volatile.Read(ref maximumActive));
+            Assert.InRange(Volatile.Read(ref active), 1, maxDegreeOfParallelism);
+        }
+        finally
+        {
+            releaseScans.TrySetResult(true);
+        }
 
-        var speedup = sequentialTimer.Elapsed.TotalMilliseconds
-            / parallelTimer.Elapsed.TotalMilliseconds;
+        var results = await collectionTask.WaitAsync(TimeSpan.FromSeconds(5));
         output.WriteLine(
-            $"10 devices: sequential={sequentialTimer.Elapsed.TotalMilliseconds:F0}ms, " +
-            $"bounded-parallel={parallelTimer.Elapsed.TotalMilliseconds:F0}ms, " +
-            $"speedup={speedup:F2}x, max-active={maximumActive}");
+            $"10 devices: max-active={maximumActive}, " +
+            $"bounded waves={Math.Ceiling(devices.Length / (double)maxDegreeOfParallelism):F0}, " +
+            $"sequential waves={devices.Length}");
 
         Assert.Equal(devices, results.Select(result => result.Device.Ip));
-        Assert.InRange(maximumActive, 2, 4);
-        Assert.True(speedup >= 2.0, $"Expected >=2x speedup, observed {speedup:F2}x");
+        Assert.Equal(maxDegreeOfParallelism, maximumActive);
     }
 
     private static void UpdateMaximum(ref int maximum, int candidate)
