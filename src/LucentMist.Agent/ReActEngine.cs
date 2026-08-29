@@ -1,5 +1,6 @@
 using System.Text.Json;
 using LucentMist.Agent.LLM;
+using LucentMist.Core.Compliance;
 using LucentMist.Core.Networking;
 using LucentMist.Tools;
 using Microsoft.Extensions.Logging;
@@ -15,6 +16,8 @@ public class ReActEngine
     private readonly ToolRegistry _toolRegistry;
     private readonly ILogger<ReActEngine> _logger;
     private readonly string _systemPrompt;
+    private readonly INetworkAuditSink? _auditSink;
+    private readonly string _auditInitiator;
     private readonly SemaphoreSlim _runGate = new(1, 1);
 
     public int MaxRounds { get; set; } = 10;
@@ -29,11 +32,15 @@ public class ReActEngine
         ILLMProvider llm,
         ToolRegistry toolRegistry,
         string systemPrompt,
-        ILogger<ReActEngine>? logger = null)
+        ILogger<ReActEngine>? logger = null,
+        INetworkAuditSink? auditSink = null,
+        string auditInitiator = "agent")
     {
         _llm = llm;
         _toolRegistry = toolRegistry;
         _systemPrompt = systemPrompt;
+        _auditSink = auditSink;
+        _auditInitiator = auditInitiator;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ReActEngine>.Instance;
     }
 
@@ -131,6 +138,7 @@ public class ReActEngine
 
             try
             {
+                var auditEventId = Guid.NewGuid().ToString("N");
                 var target = tool is INetworkTargetTool
                     ? toolArgs.GetOrDefault("target")
                     : "";
@@ -155,11 +163,40 @@ public class ReActEngine
                             Success = false,
                         };
                         Observations.Add(blocked);
+                        await RecordAuditAsync(
+                            auditEventId,
+                            target,
+                            step.Action,
+                            "rejected",
+                            validation.IsAllowed
+                                ? "公网目标未在允许范围内"
+                                : validation.Code,
+                            ct);
                         continue;
                     }
                 }
 
+                if (tool is INetworkTargetTool)
+                {
+                    await RecordAuditAsync(
+                        auditEventId,
+                        target,
+                        step.Action,
+                        "queued",
+                        "Agent 工具调用已授权",
+                        ct);
+                }
                 var toolResult = await tool.ExecuteAsync(toolArgs, ct);
+                if (tool is INetworkTargetTool)
+                {
+                    await RecordAuditAsync(
+                        auditEventId,
+                        target,
+                        step.Action,
+                        toolResult.Success ? "completed" : "failed",
+                        toolResult.Success ? "Agent 工具调用完成" : "Agent 工具调用失败",
+                        ct);
+                }
                 var obs = new ReActObservation
                 {
                     Step = round,
@@ -262,7 +299,22 @@ public class ReActEngine
                         ["target"] = target,
                         ["port"] = port.ToString()
                     };
+                    var auditEventId = Guid.NewGuid().ToString("N");
+                    await RecordAuditAsync(
+                        auditEventId,
+                        target,
+                        "service_identify",
+                        "queued",
+                        "Agent 自动服务识别已授权",
+                        token);
                     var svcResult = await svcTool.ExecuteAsync(svcArgs, token);
+                    await RecordAuditAsync(
+                        auditEventId,
+                        target,
+                        "service_identify",
+                        svcResult.Success ? "completed" : "failed",
+                        svcResult.Success ? "Agent 自动服务识别完成" : "Agent 自动服务识别失败",
+                        token);
 
                     serviceObservations[index] = new ReActObservation
                     {
@@ -287,6 +339,23 @@ public class ReActEngine
 
         Observations.AddRange(serviceObservations.OfType<ReActObservation>());
     }
+
+    private Task RecordAuditAsync(
+        string eventId,
+        string target,
+        string operation,
+        string status,
+        string summary,
+        CancellationToken ct) =>
+        _auditSink?.RecordAsync(
+            new NetworkAuditEvent(
+                eventId,
+                target,
+                _auditInitiator,
+                operation,
+                status,
+                summary),
+            ct) ?? Task.CompletedTask;
 
     /// <summary>
     /// 汇总所有观察结果，生成可读的结论
