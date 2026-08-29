@@ -37,6 +37,14 @@ LucentMist 0.9.4 is a reliability and security-detection release. It turns the a
 
 Full evidence and limitations are recorded in [product-validation.md](product-validation.md) and [known-issues.md](known-issues.md).
 
+## Published artifacts
+
+- Tag: `v0.9.4` at commit `d56e4f0e`
+- Tag CI: [run 39](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244573226), with Windows, Ubuntu and GHCR jobs successful
+- Follow-up main CI after stabilizing a timer-sensitive test guard: [run 41](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244948229), with all three jobs successful
+- Container: `ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4`
+- Inspected image config digest: `sha256:66397206f4c24956b4b1b9278e379032fb90b6361d944a5e39e421f5a1d93278`
+
 ## Known limitations
 
 - A real SMBv1 positive target has not been available. The SMBv1 positive path is proven with a local TCP protocol simulator, not a real vulnerable host.

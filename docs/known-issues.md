@@ -2,6 +2,12 @@
 
 Current status as of 0.9.4.
 
+## Release Status
+
+- `v0.9.4` is published from commit `d56e4f0e`. Its [tag workflow](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244573226) completed Windows, Ubuntu, and GHCR jobs successfully.
+- `ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4` has a readable Docker manifest; the inspected image config digest is `sha256:66397206f4c24956b4b1b9278e379032fb90b6361d944a5e39e421f5a1d93278`.
+- The first simultaneous main workflow exposed a timer-sensitive Windows test. The assertion guard was fixed without changing the production monitoring timeout, and the follow-up [main workflow](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244948229) completed all three jobs successfully.
+
 ## Product Limitations
 
 - Built-in CVE database is small and heuristic. It is not equivalent to Nmap/Nessus fingerprinting.
@@ -30,6 +36,14 @@ Current status as of 0.9.4.
 - The bundled verifier currently reports SMBv1 exposure only as a candidate. It does
   not confirm EternalBlue patch state or exploitability; the verifier interface is an
   extension point for future evidence-backed checks.
+- Web live monitoring stops after its configured time budget (10 minutes by default,
+  configurable with `LMIST_POLL_TIMEOUT_MINUTES`). The UI explicitly says that the
+  result could not be confirmed and directs the user to scan history; the underlying
+  scan may still complete later, so this state is not reported as a task failure.
+- New scan databases enforce allowed status values with a table `CHECK`. Existing
+  databases receive equivalent insert/update triggers because SQLite cannot add that
+  table constraint in place without rebuilding the table. A future schema rebuild may
+  consolidate the legacy trigger defense into the table definition.
 
 ## Agent
 
