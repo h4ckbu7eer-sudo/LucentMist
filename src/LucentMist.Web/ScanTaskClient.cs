@@ -16,6 +16,7 @@ public sealed class ScanTaskClient : IAsyncDisposable
     private readonly NavigationManager _navigation;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private readonly bool _enableSignalR;
+    private readonly TimeSpan _pollTimeout;
     private readonly CancellationTokenSource _disposeCts = new();
     private readonly SemaphoreSlim _hubGate = new(1, 1);
     private readonly SemaphoreSlim _lifecycleGate = new(1, 1);
@@ -30,7 +31,13 @@ public sealed class ScanTaskClient : IAsyncDisposable
         IScanCoordinator coordinator,
         IScanTaskReader store,
         NavigationManager navigation)
-        : this(coordinator, store, navigation, Task.Delay, true)
+        : this(
+            coordinator,
+            store,
+            navigation,
+            Task.Delay,
+            true,
+            GetConfiguredPollTimeout())
     {
     }
 
@@ -39,13 +46,15 @@ public sealed class ScanTaskClient : IAsyncDisposable
         IScanTaskReader store,
         NavigationManager navigation,
         Func<TimeSpan, CancellationToken, Task> delay,
-        bool enableSignalR)
+        bool enableSignalR,
+        TimeSpan? pollTimeout = null)
     {
         _coordinator = coordinator;
         _store = store;
         _navigation = navigation;
         _delay = delay;
         _enableSignalR = enableSignalR;
+        _pollTimeout = pollTimeout ?? TimeSpan.FromMinutes(10);
     }
 
     public string TaskId => _taskId;
@@ -55,6 +64,7 @@ public sealed class ScanTaskClient : IAsyncDisposable
     public int ProgressPercent { get; private set; }
     public string? LastError { get; private set; }
     public string? MonitoringError { get; private set; }
+    public event Action? MonitoringStateChanged;
 
     public void SetStartupError(string error)
     {
@@ -63,16 +73,18 @@ public sealed class ScanTaskClient : IAsyncDisposable
             if (_activeRun is { FinalRaised: false })
             {
                 MonitoringError = error;
-                return;
             }
-
-            _taskId = "";
-            CurrentStatus = "failed";
-            CurrentMessage = "失败";
-            ProgressPercent = 0;
-            LastError = error;
-            MonitoringError = null;
+            else
+            {
+                _taskId = "";
+                CurrentStatus = "failed";
+                CurrentMessage = "失败";
+                ProgressPercent = 0;
+                LastError = error;
+                MonitoringError = null;
+            }
         }
+        NotifyMonitoringStateChanged();
     }
 
     public event Action<ScanProgressEvent>? Progress;
@@ -88,7 +100,20 @@ public sealed class ScanTaskClient : IAsyncDisposable
             ObjectDisposedException.ThrowIf(_disposed, this);
 
             // Queue first. A rejected start must not invalidate the task currently shown.
-            var taskId = await _coordinator.StartAsync(target, scanType, ports, ct);
+            string taskId;
+            try
+            {
+                taskId = await _coordinator.StartAsync(target, scanType, ports, ct);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                SetStartupError(ex.Message);
+                throw;
+            }
             var run = new ActiveRun(taskId, target, scanType, ports, _disposeCts.Token);
             ActiveRun? previous;
 
@@ -104,6 +129,7 @@ public sealed class ScanTaskClient : IAsyncDisposable
                 LastError = null;
                 MonitoringError = null;
             }
+            NotifyMonitoringStateChanged();
 
             previous?.Cancel();
             run.PollTask = PollUntilFinalAsync(run);
@@ -223,18 +249,21 @@ public sealed class ScanTaskClient : IAsyncDisposable
     private async Task PollUntilFinalAsync(ActiveRun run)
     {
         var transientAttempt = 0;
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(run.Token);
+        timeoutCts.CancelAfter(_pollTimeout);
+        var monitorToken = timeoutCts.Token;
         try
         {
-            while (!run.Token.IsCancellationRequested && IsActive(run))
+            while (!monitorToken.IsCancellationRequested && IsActive(run))
             {
                 try
                 {
-                    var rec = await _store.GetAsync(run.TaskId);
+                    var rec = await _store.GetAsync(run.TaskId, monitorToken);
                     transientAttempt = 0;
                     if (rec is null)
                     {
                         SetMonitoringError(run, "暂时无法读取扫描任务状态");
-                        await _delay(TimeSpan.FromSeconds(1), run.Token);
+                        await _delay(TimeSpan.FromSeconds(1), monitorToken);
                         continue;
                     }
 
@@ -251,25 +280,32 @@ public sealed class ScanTaskClient : IAsyncDisposable
                         return;
                     }
 
-                    await _delay(TimeSpan.FromMilliseconds(500), run.Token);
+                    await _delay(TimeSpan.FromMilliseconds(500), monitorToken);
                 }
                 catch (SqliteException ex) when (IsTransientSqlite(ex))
                 {
                     transientAttempt++;
                     SetMonitoringError(run, "数据库繁忙，正在重试状态读取");
                     var delayMs = Math.Min(1000, 100 * (1 << Math.Min(3, transientAttempt - 1)));
-                    await _delay(TimeSpan.FromMilliseconds(delayMs), run.Token);
+                    await _delay(TimeSpan.FromMilliseconds(delayMs), monitorToken);
                 }
-                catch (OperationCanceledException) when (run.Token.IsCancellationRequested)
+                catch (OperationCanceledException) when (monitorToken.IsCancellationRequested)
                 {
-                    return;
+                    throw;
                 }
                 catch (Exception ex)
                 {
                     SetMonitoringError(run, ex.Message);
-                    await _delay(TimeSpan.FromSeconds(1), run.Token);
+                    await _delay(TimeSpan.FromSeconds(1), monitorToken);
                 }
             }
+        }
+        catch (OperationCanceledException) when (
+            timeoutCts.IsCancellationRequested && !run.Token.IsCancellationRequested)
+        {
+            RaiseMonitoringUnavailable(
+                run,
+                "无法确认扫描结果：监控已超时，请查看扫描历史");
         }
         catch (OperationCanceledException) when (run.Token.IsCancellationRequested)
         {
@@ -366,11 +402,53 @@ public sealed class ScanTaskClient : IAsyncDisposable
 
     private void SetMonitoringError(ActiveRun run, string? error)
     {
+        var changed = false;
         lock (_stateGate)
         {
             if (!_disposed && ReferenceEquals(_activeRun, run) && !run.FinalRaised)
+            {
+                changed = MonitoringError != error;
                 MonitoringError = error;
+            }
         }
+        if (changed) NotifyMonitoringStateChanged();
+    }
+
+    private void RaiseMonitoringUnavailable(ActiveRun run, string message)
+    {
+        lock (_stateGate)
+        {
+            if (_disposed || !ReferenceEquals(_activeRun, run) || run.FinalRaised)
+                return;
+
+            run.FinalRaised = true;
+            run.Cancel();
+            CurrentStatus = "monitoring_unavailable";
+            CurrentMessage = "监控无法确认";
+            MonitoringError = message;
+            LastError = null;
+        }
+        NotifyMonitoringStateChanged();
+    }
+
+    private void NotifyMonitoringStateChanged()
+    {
+        try
+        {
+            MonitoringStateChanged?.Invoke();
+        }
+        catch
+        {
+            // UI notification is best-effort and must not stop polling.
+        }
+    }
+
+    private static TimeSpan GetConfiguredPollTimeout()
+    {
+        var raw = Environment.GetEnvironmentVariable("LMIST_POLL_TIMEOUT_MINUTES");
+        return int.TryParse(raw, out var minutes) && minutes is >= 1 and <= 1440
+            ? TimeSpan.FromMinutes(minutes)
+            : TimeSpan.FromMinutes(10);
     }
 
     private void TrackPollTask(ActiveRun run)

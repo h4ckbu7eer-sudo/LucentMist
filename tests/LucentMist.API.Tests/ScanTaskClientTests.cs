@@ -74,15 +74,45 @@ public sealed class ScanTaskClientTests
         Assert.Equal("completed", client.CurrentStatus);
     }
 
+    [Fact]
+    public async Task PollTimeout_StopsMonitoringWithoutReportingTaskFailure()
+    {
+        var coordinator = new QueueCoordinator("task-timeout");
+        var reader = new NeverCompletingReader();
+        await using var client = CreateClient(
+            coordinator,
+            reader,
+            TimeSpan.FromMilliseconds(25));
+        var monitoringStopped = new TaskCompletionSource(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var failureCount = 0;
+        client.MonitoringStateChanged += () =>
+        {
+            if (client.CurrentStatus == "monitoring_unavailable")
+                monitoringStopped.TrySetResult();
+        };
+        client.Failed += (_, _) => Interlocked.Increment(ref failureCount);
+
+        await client.StartAsync("10.0.0.3", "tcp", "443");
+        await monitoringStopped.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Equal("monitoring_unavailable", client.CurrentStatus);
+        Assert.Contains("查看扫描历史", client.MonitoringError);
+        Assert.Null(client.LastError);
+        Assert.Equal(0, failureCount);
+    }
+
     private static ScanTaskClient CreateClient(
         IScanCoordinator coordinator,
-        IScanTaskReader reader) =>
+        IScanTaskReader reader,
+        TimeSpan? pollTimeout = null) =>
         new(
             coordinator,
             reader,
             new TestNavigationManager(),
             (_, token) => Task.Delay(1, token),
-            enableSignalR: false);
+            enableSignalR: false,
+            pollTimeout);
 
     private static ScanTaskRecord Completed(string id, string target) => new()
     {
@@ -111,7 +141,7 @@ public sealed class ScanTaskClientTests
 
         public int ReadCount => Volatile.Read(ref _readCount);
 
-        public Task<ScanTaskRecord?> GetAsync(string id)
+        public Task<ScanTaskRecord?> GetAsync(string id, CancellationToken ct = default)
         {
             if (Interlocked.Increment(ref _readCount) == 1)
                 return Task.FromException<ScanTaskRecord?>(
@@ -135,7 +165,7 @@ public sealed class ScanTaskClientTests
                 new(TaskCreationOptions.RunContinuationsAsynchronously))));
         }
 
-        public Task<ScanTaskRecord?> GetAsync(string id)
+        public Task<ScanTaskRecord?> GetAsync(string id, CancellationToken ct = default)
         {
             _reads[id].TrySetResult();
             return _results[id].Task;
@@ -146,6 +176,17 @@ public sealed class ScanTaskClientTests
 
         public void Complete(string id, ScanTaskRecord record) =>
             _results[id].TrySetResult(record);
+    }
+
+    private sealed class NeverCompletingReader : IScanTaskReader
+    {
+        public async Task<ScanTaskRecord?> GetAsync(
+            string id,
+            CancellationToken ct = default)
+        {
+            await Task.Delay(Timeout.InfiniteTimeSpan, ct);
+            return null;
+        }
     }
 
     private sealed class TestNavigationManager : NavigationManager
