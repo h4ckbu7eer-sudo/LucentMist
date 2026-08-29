@@ -71,7 +71,10 @@ public class SslCertificateTool : INetworkTargetTool
             var cert = new X509Certificate2(ssl.RemoteCertificate!);
             if (cert == null)
                 return ToolResult.Fail("未获取到证书", sw.Elapsed);
-            var expiration = EvaluateExpiration(cert.NotAfter, DateTime.UtcNow);
+            var expiration = EvaluateExpiration(
+                cert.NotAfter,
+                DateTime.UtcNow,
+                CertificateTimeZone(cert.NotAfter));
             var chainInfo = GetChainInfo(cert);
             handshakeTrustErrors.UnionWith(chainInfo.TrustErrors);
             var trustErrors = handshakeTrustErrors
@@ -130,6 +133,16 @@ public class SslCertificateTool : INetworkTargetTool
             notAfterUtc,
             normalizedNow > notAfterUtc,
             (notAfterUtc - normalizedNow).Days);
+    }
+
+    internal static TimeZoneInfo? CertificateTimeZone(DateTime certificateTime)
+    {
+        // X509Certificate2 normally exposes NotAfter as local time. Some platform
+        // providers return Kind=Unspecified; in that case the wall-clock value is
+        // still interpreted in the scanner host's local time zone.
+        return certificateTime.Kind == DateTimeKind.Unspecified
+            ? TimeZoneInfo.Local
+            : null;
     }
 
     internal readonly record struct CertificateExpiration(

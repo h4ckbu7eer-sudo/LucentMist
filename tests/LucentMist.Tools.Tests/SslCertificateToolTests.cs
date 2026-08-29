@@ -294,7 +294,7 @@ public class SslCertificateToolTests
         // 07:00 in UTC+8 is 23:00 UTC on the previous day. A direct comparison
         // against 00:00 UTC incorrectly treats the 07:00 wall-clock value as future.
         var certificateLocalNotAfter = new DateTime(
-            2030, 1, 1, 7, 0, 0, DateTimeKind.Local);
+            2030, 1, 1, 7, 0, 0, DateTimeKind.Unspecified);
 
         var expiration = SslCertificateTool.EvaluateExpiration(
             certificateLocalNotAfter,
@@ -305,6 +305,16 @@ public class SslCertificateToolTests
             new DateTime(2029, 12, 31, 23, 0, 0, DateTimeKind.Utc),
             expiration.NotAfterUtc);
         Assert.True(expiration.IsExpired);
+    }
+
+    [Fact]
+    public void CertificateTimeZone_UnspecifiedValueUsesScannerLocalZone()
+    {
+        var unspecified = new DateTime(2030, 1, 1, 7, 0, 0, DateTimeKind.Unspecified);
+        var utc = DateTime.SpecifyKind(unspecified, DateTimeKind.Utc);
+
+        Assert.Same(TimeZoneInfo.Local, SslCertificateTool.CertificateTimeZone(unspecified));
+        Assert.Null(SslCertificateTool.CertificateTimeZone(utc));
     }
 
     [Fact]

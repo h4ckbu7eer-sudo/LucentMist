@@ -13,6 +13,10 @@ Current status as of 0.9.4.
 
 - Built-in CVE database is small and heuristic. It is not equivalent to Nmap/Nessus fingerprinting.
 - Service version detection depends on banner format; many real-world banners will not produce exact versions.
+- When a platform certificate provider exposes `NotAfter` with `DateTimeKind.Unspecified`,
+  LucentMist interprets that wall-clock value in the scanner host's local time zone.
+  X.509 validity timestamps do not carry a separately recoverable source time-zone ID;
+  operators should keep the scanner host's time zone and clock correctly configured.
 - OSV version verification currently uses an observed OpenSSH upstream version with
   the corresponding `openssh-portable` GIT tag. SSH banners do not expose a complete
   Debian/Ubuntu package coordinate (for example `1:9.8p1-1`), so LucentMist does not
