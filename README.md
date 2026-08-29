@@ -6,7 +6,7 @@
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/local-tests-299%2F299%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/local-tests-300%2F300%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -70,6 +70,12 @@ dotnet run --project src/LucentMist.Web
 
 ## 🐳 Docker 部署
 
+> [!WARNING]
+> **不要把未配置凭据的 LucentMist 暴露到公网。** 本地开发版会生成随机凭据，
+> 但生产环境以及已发布的 `0.9.4` compose 部署必须在启动前显式设置同一组
+> `LMIST_API_TOKEN`、`LMIST_WEB_USER`、`LMIST_WEB_PASSWORD`。不要使用仓库示例值，
+> 也不要提交 `.env`。
+
 ```bash
 # 国内网络建议指定华为云 NuGet 镜像
 docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.4 .
@@ -82,6 +88,7 @@ docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231d
 docker tag ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af lucentmist:0.9.4
 
 # 使用刚拉取的发布镜像启动 API + Web，不在本地重建
+# 请先在未提交的 .env 中设置三项强凭据
 docker compose up -d --no-build
 
 # API 健康检查
@@ -96,7 +103,10 @@ curl -X POST http://localhost:5050/api/v1/scan \
   -d '{"target":"127.0.0.1","scanType":"ping"}'
 ```
 
-默认 compose 会在启动时自动生成随机 API token 和 Web 凭据，并打印到容器日志。生产部署仍应通过 `.env` 显式设置 `LMIST_API_TOKEN`、`LMIST_WEB_USER`、`LMIST_WEB_PASSWORD`。
+当前开发版在留空时会生成随机凭据，并让 API/Web 通过共享的 token 文件复用同一
+API token；该行为只用于隔离的本地演示。已发布的 `0.9.4` 镜像不会正确协调两个
+容器各自生成的空默认 token，因此运行 `0.9.4` compose 时必须显式设置三项凭据。
+生产环境无论版本都必须显式设置强凭据。
 
 ---
 
@@ -184,7 +194,7 @@ Phase 2 ████████████ Core 层     ✅ ReAct + SQLite 持
 Phase 3 ████████████ Tools 层    ✅ 8 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 299/299 本地全量通过
+Phase 6 ████████████ 测试        ✅ 300/300 本地全量通过
 Phase 7 ████████████ 文档        ✅
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅
