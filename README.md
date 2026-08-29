@@ -83,9 +83,9 @@ docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nu
 # 私有 GHCR 包先登录；令牌需要 read:packages，且不要写入脚本
 echo "$CR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
 
-# 拉取 0.9.5 发布物；发布说明记录可用于精确回滚的不可变摘要
-docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5
-docker tag ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5 lucentmist:0.9.5
+# 拉取固定摘要，确保以后仍得到经过验证的 0.9.5 发布物
+docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698
+docker tag ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698 lucentmist:0.9.5
 
 # 使用刚拉取的发布镜像启动 API + Web，不在本地重建
 # 请先在未提交的 .env 中设置三项强凭据

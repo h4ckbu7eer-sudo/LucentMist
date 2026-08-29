@@ -236,3 +236,25 @@ response was collected. The empty evidence records are preserved in
 This is recorded as `0/3`, **sample insufficient / not passed**. It is not evidence
 that Direction A failed, and it is not evidence that Direction A works. Need, payment
 intent, alternatives, and report decision support all remain unknown.
+
+## 7. Version 0.9.5 Release Verification
+
+Date: 2026-08-30
+
+Version `v0.9.5` points to commit `9b67bdbeeba46f51d40a88a90f52f023c6472d2d`.
+The [tag workflow (run 33277190463)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33277190463)
+completed Windows build-and-test, Ubuntu build-and-test, and GHCR publishing with
+`success`. The published `0.9.5` manifest digest is
+`sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698`.
+
+Independent [release verification run 33277480928](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33277480928)
+pulled that exact digest, started the API container, and received HTTP 200 with:
+
+```json
+{"status":"healthy","version":"0.9.5","uptime":"0h 0m"}
+```
+
+The `0.9.4` manifest remains readable at its historical digest, so publishing 0.9.5
+did not remove the documented rollback artifact. This evidence proves artifact pull,
+digest equality, process startup, and API health; it does not expand the vulnerability
+or product-demand claims documented above.
