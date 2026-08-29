@@ -2,11 +2,11 @@
 
 > 🌫️ 基于 ReAct 模式的智能网络分析助手 — 融合网络扫描工具与 AI 推理能力
 >
-> 当前稳定发布版：`v0.9.4`；`main` 开发版本：`0.9.5-dev`
+> 当前稳定发布版：`v0.9.5`
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/local-tests-319%2F319%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/local-tests-336%2F336%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -72,20 +72,20 @@ dotnet run --project src/LucentMist.Web
 
 > [!WARNING]
 > **不要把未配置凭据的 LucentMist 暴露到公网。** 本地开发版会生成随机凭据，
-> 但生产环境以及已发布的 `0.9.4` compose 部署必须在启动前显式设置同一组
+> 但生产环境必须在启动前显式设置同一组
 > `LMIST_API_TOKEN`、`LMIST_WEB_USER`、`LMIST_WEB_PASSWORD`。不要使用仓库示例值，
 > 也不要提交 `.env`。
 
 ```bash
 # 国内网络建议指定华为云 NuGet 镜像
-docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.4 .
+docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.5 .
 
 # 私有 GHCR 包先登录；令牌需要 read:packages，且不要写入脚本
 echo "$CR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
 
-# 拉取固定摘要，确保以后仍得到同一个 0.9.4 发布物
-docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af
-docker tag ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af lucentmist:0.9.4
+# 拉取 0.9.5 发布物；发布说明记录可用于精确回滚的不可变摘要
+docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5
+docker tag ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5 lucentmist:0.9.5
 
 # 使用刚拉取的发布镜像启动 API + Web，不在本地重建
 # 请先在未提交的 .env 中设置三项强凭据
@@ -103,10 +103,8 @@ curl -X POST http://localhost:5050/api/v1/scan \
   -d '{"target":"127.0.0.1","scanType":"ping"}'
 ```
 
-当前开发版在留空时会生成随机凭据，并让 API/Web 通过共享的 token 文件复用同一
-API token；该行为只用于隔离的本地演示。已发布的 `0.9.4` 镜像不会正确协调两个
-容器各自生成的空默认 token，因此运行 `0.9.4` compose 时必须显式设置三项凭据。
-生产环境无论版本都必须显式设置强凭据。
+`0.9.5` 在留空时会生成随机凭据，并让 API/Web 通过共享的 token 文件复用同一
+API token；该行为只用于隔离的本地演示。生产环境必须显式设置三项强凭据。
 
 ---
 
@@ -170,7 +168,8 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 | [Agent 实验状态](docs/agent-experimental.md) | Agent 深化能力边界与验证状态 |
 | [产品验证协议](docs/product-validation-protocols.md) | 方向 A 的用户需求、报告、网段验证 |
 | [已知问题](docs/known-issues.md) | 产品、Agent、测试、部署的已知边界 |
-| [0.9.4 发布说明](docs/RELEASE_0.9.4.md) | 核心变更、验证证据与部署要求 |
+| [0.9.5 发布说明](docs/RELEASE_0.9.5.md) | 核心变更、验证证据与部署要求 |
+| [0.9.4 发布说明](docs/RELEASE_0.9.4.md) | 上一版本的历史发布证据与回滚信息 |
 
 ---
 
@@ -194,7 +193,7 @@ Phase 2 ████████████ Core 层     ✅ ReAct + SQLite 持
 Phase 3 ████████████ Tools 层    ✅ 8 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 319/319 本地全量通过
+Phase 6 ████████████ 测试        ✅ 336/336 本地全量通过
 Phase 7 ████████████ 文档        ✅
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅

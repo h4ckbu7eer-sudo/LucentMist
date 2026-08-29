@@ -1,8 +1,14 @@
 # Known Issues
 
-Current status as of 0.9.4.
+Current status as of 0.9.5. Remote evidence remains pending until the tag workflow and independent image verification complete.
 
 ## Release Status
+
+- The local 0.9.5 release gate passed with 336/336 tests, a Release build with zero warnings and zero errors, formatting verification, Compose configuration validation, and `git diff --check`. This is not yet a remote-release claim.
+- 0.9.5 adds the OSV evidence boundary, visible CVE version status, SSL/UDP correctness fixes, and bounded report/worker concurrency. 0.9.4 operators should upgrade after the 0.9.5 remote evidence is complete.
+- The 0.9.5 CI run, GHCR manifest digest, and independent pull/run/health evidence are recorded in [RELEASE_0.9.5.md](RELEASE_0.9.5.md); pending fields remain explicitly pending rather than inferred from local tests.
+
+### Historical 0.9.4 evidence
 
 - `v0.9.4` is published from commit `d56e4f0e`. Its [tag workflow](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244573226) completed Windows, Ubuntu, and GHCR jobs successfully.
 - `ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4` has a readable Docker manifest; the inspected image config digest is `sha256:66397206f4c24956b4b1b9278e379032fb90b6361d944a5e39e421f5a1d93278`.
@@ -80,13 +86,13 @@ Current status as of 0.9.4.
 
 ## Deployment
 
-- The published `0.9.4` entrypoint can independently generate API tokens in the API
+- The historical `0.9.4` entrypoint can independently generate API tokens in the API
   and Web containers when `LMIST_API_TOKEN` is blank. Because both containers share
   the token file but keep their own process environment, this can leave Web unable to
   authenticate to API. `0.9.4` operators must explicitly set the same strong
   `LMIST_API_TOKEN` for both services, plus `LMIST_WEB_USER` and
   `LMIST_WEB_PASSWORD`, before startup.
-- The development entrypoint fixes that coordination defect by reusing the existing
+- The `0.9.5` entrypoint fixes that coordination defect by reusing the existing
   non-empty shared token file and generates Web credentials only for the Web process.
   Generated credentials are still only for isolated local demonstration and are
   printed to container logs. Production deployments must override all credentials

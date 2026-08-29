@@ -14,5 +14,4 @@ docker compose --profile report run --rm report-generator
 docker compose down
 ```
 
-The report generator uses the published `0.9.4` image and writes `docs/validation-report.html`. A completed report is review material, not evidence that user interviews or report reviews occurred.
-
+The report generator uses the published `0.9.5` image and writes `docs/validation-report.html`. A completed report is review material, not evidence that user interviews or report reviews occurred.

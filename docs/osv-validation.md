@@ -1,6 +1,6 @@
 # OSV Query Validation
 
-Validated on 2026-08-30 for the post-0.9.4 development branch.
+Validated on 2026-08-30 for version 0.9.5.
 
 ## Decision
 
