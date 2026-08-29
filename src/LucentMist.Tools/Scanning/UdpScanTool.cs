@@ -82,7 +82,7 @@ public class UdpScanTool : INetworkTargetTool
                 openFilteredPorts = orderedResults.Where(item => item.State == "open|filtered").Select(item => item.Port),
                 closedPorts = orderedResults.Where(item => item.State == "closed").Select(item => item.Port),
                 unprobeablePorts = orderedResults.Where(item => item.State == "unprobeable").Select(item => item.Port),
-                interpretation = "UDP 无响应标记为 open|filtered；unprobeable 表示没有可靠协议探测，不代表端口关闭",
+                interpretation = "UDP 无响应标记为 open|filtered；unprobeable 表示没有可靠协议探测；closed 基于不可达或连接重置推断，防火墙重置可能造成误判",
                 scanDuration = sw.Elapsed.ToString()
             };
 
@@ -162,7 +162,11 @@ public class UdpScanTool : INetworkTargetTool
             }
             catch (SocketException ex) when (IsIcmpUnreachable(ex.SocketErrorCode))
             {
-                return new UdpPortResult(port, service, "closed", $"收到不可达/拒绝错误: {ex.SocketErrorCode}");
+                return new UdpPortResult(
+                    port,
+                    service,
+                    "closed",
+                    ClosedInferenceDetail(ex.SocketErrorCode));
             }
             catch (SocketException ex)
             {
@@ -175,7 +179,11 @@ public class UdpScanTool : INetworkTargetTool
         }
         catch (SocketException ex) when (IsIcmpUnreachable(ex.SocketErrorCode))
         {
-            return new UdpPortResult(port, service, "closed", $"收到不可达/拒绝错误: {ex.SocketErrorCode}");
+            return new UdpPortResult(
+                port,
+                service,
+                "closed",
+                ClosedInferenceDetail(ex.SocketErrorCode));
         }
         catch (Exception ex)
         {
@@ -227,6 +235,11 @@ public class UdpScanTool : INetworkTargetTool
         SocketError.ConnectionRefused or
         SocketError.HostUnreachable or
         SocketError.NetworkUnreachable;
+
+    internal static string ClosedInferenceDetail(SocketError error) =>
+        error == SocketError.ConnectionReset
+            ? "收到连接重置；可能是目标拒绝或防火墙重置，closed 为推断状态"
+            : $"收到不可达/拒绝错误: {error}；closed 为推断状态";
 
     internal sealed record UdpPortResult(
         int Port,
