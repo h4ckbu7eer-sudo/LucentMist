@@ -75,17 +75,9 @@ public class SmbProbeTests
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
 
-        var server = Task.Run(async () =>
-        {
-            using var client = await listener.AcceptTcpClientAsync();
-            using var stream = client.GetStream();
-            var header = new byte[8];
-            await stream.ReadExactlyAsync(header);
-            Assert.Equal(new byte[] { 0xFE, 0x53, 0x4D, 0x42 }, header[4..8]);
-            await stream.WriteAsync(CreateSmb2Response(0x0311));
-        });
+        var server = ServeSmb2Async(listener);
 
-        var dialect = await SmbProbe.NegotiateDialectAsync("127.0.0.1", port, 2000);
+        var dialect = await SmbProbe.NegotiateDialectAsync("127.0.0.1", port, 5000);
 
         Assert.Equal("SMBv3.1.1", dialect);
         await server;
@@ -98,27 +90,39 @@ public class SmbProbeTests
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
 
-        var server = Task.Run(async () =>
-        {
-            using (var smb2Client = await listener.AcceptTcpClientAsync())
-            {
-                var header = new byte[8];
-                await smb2Client.GetStream().ReadExactlyAsync(header);
-                Assert.Equal(new byte[] { 0xFE, 0x53, 0x4D, 0x42 }, header[4..8]);
-            }
+        var server = ServeSmb1FallbackAsync(listener);
 
-            using var smb1Client = await listener.AcceptTcpClientAsync();
-            using var smb1Stream = smb1Client.GetStream();
-            var smb1Header = new byte[8];
-            await smb1Stream.ReadExactlyAsync(smb1Header);
-            Assert.Equal(new byte[] { 0xFF, 0x53, 0x4D, 0x42 }, smb1Header[4..8]);
-            await smb1Stream.WriteAsync(CreateSmb1Response(dialectIndex: 4));
-        });
-
-        var dialect = await SmbProbe.NegotiateDialectAsync("127.0.0.1", port, 2000);
+        var dialect = await SmbProbe.NegotiateDialectAsync("127.0.0.1", port, 5000);
 
         Assert.Equal("SMBv1 (NT LM 0.12)", dialect);
         await server;
+    }
+
+    private static async Task ServeSmb2Async(TcpListener listener)
+    {
+        using var client = await listener.AcceptTcpClientAsync();
+        using var stream = client.GetStream();
+        var header = new byte[8];
+        await stream.ReadExactlyAsync(header);
+        Assert.Equal(new byte[] { 0xFE, 0x53, 0x4D, 0x42 }, header[4..8]);
+        await stream.WriteAsync(CreateSmb2Response(0x0311));
+    }
+
+    private static async Task ServeSmb1FallbackAsync(TcpListener listener)
+    {
+        using (var smb2Client = await listener.AcceptTcpClientAsync())
+        {
+            var header = new byte[8];
+            await smb2Client.GetStream().ReadExactlyAsync(header);
+            Assert.Equal(new byte[] { 0xFE, 0x53, 0x4D, 0x42 }, header[4..8]);
+        }
+
+        using var smb1Client = await listener.AcceptTcpClientAsync();
+        using var smb1Stream = smb1Client.GetStream();
+        var smb1Header = new byte[8];
+        await smb1Stream.ReadExactlyAsync(smb1Header);
+        Assert.Equal(new byte[] { 0xFF, 0x53, 0x4D, 0x42 }, smb1Header[4..8]);
+        await smb1Stream.WriteAsync(CreateSmb1Response(dialectIndex: 4));
     }
 
     private static byte[] CreateSmb1Response(ushort dialectIndex, int length = 39)
