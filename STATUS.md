@@ -27,7 +27,7 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 |------|------|:--:|
 | 编译 (Debug) | 0 errors, 0 warnings | OK |
 | 编译 (Release) | 0 errors, 0 warnings | OK |
-| 测试 | 300/300 本地全量 passed | OK |
+| 测试 | 319/319 本地全量 passed | OK |
 | CI | Windows + Ubuntu + GHCR，run 39/run 41 success；发布镜像验证 run 33257054498 success | OK |
 | Docker | GHCR `0.9.4` manifest 为 `sha256:11b2bd…`；远端 runner 拉取后 API health 返回 200 | OK |
 | 扫描历史 | Web /scan/history 显示真实任务 | OK |
