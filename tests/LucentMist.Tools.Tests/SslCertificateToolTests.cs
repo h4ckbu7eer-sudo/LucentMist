@@ -259,6 +259,31 @@ public class SslCertificateToolTests
     // ============================
 
     [Fact]
+    public void EvaluateExpiration_UtcPlusEightBoundary_IsExpired()
+    {
+        var utcPlusEight = TimeZoneInfo.CreateCustomTimeZone(
+            "UTC+08-test",
+            TimeSpan.FromHours(8),
+            "UTC+08-test",
+            "UTC+08-test");
+        var nowUtc = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        // 07:00 in UTC+8 is 23:00 UTC on the previous day. A direct comparison
+        // against 00:00 UTC incorrectly treats the 07:00 wall-clock value as future.
+        var certificateLocalNotAfter = new DateTime(
+            2030, 1, 1, 7, 0, 0, DateTimeKind.Local);
+
+        var expiration = SslCertificateTool.EvaluateExpiration(
+            certificateLocalNotAfter,
+            nowUtc,
+            utcPlusEight);
+
+        Assert.Equal(
+            new DateTime(2029, 12, 31, 23, 0, 0, DateTimeKind.Utc),
+            expiration.NotAfterUtc);
+        Assert.True(expiration.IsExpired);
+    }
+
+    [Fact]
     [Trait("Category", "External")]
     public async Task ExecuteAsync_DaysRemaining_IsPositiveForValidCert()
     {
