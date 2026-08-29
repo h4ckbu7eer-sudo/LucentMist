@@ -43,7 +43,45 @@ Full evidence and limitations are recorded in [product-validation.md](product-va
 - Tag CI: [run 39](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244573226), with Windows, Ubuntu and GHCR jobs successful
 - Follow-up main CI after stabilizing a timer-sensitive test guard: [run 41](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244948229), with all three jobs successful
 - Container: `ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4`
-- Inspected image config digest: `sha256:66397206f4c24956b4b1b9278e379032fb90b6361d944a5e39e421f5a1d93278`
+- Immutable image manifest digest: `sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af`
+- Image config digest: `sha256:66397206f4c24956b4b1b9278e379032fb90b6361d944a5e39e421f5a1d93278`
+
+## Reproducible post-release verification
+
+Independent read-only checks on 2026-08-29 confirmed:
+
+```text
+refs/heads/main       826ae6f25898cb3ba6f73b4ec614e8cc31449980
+refs/tags/v0.9.4      7e8b2df52dad6a81c59989d31348e2c4d69b3573
+refs/tags/v0.9.4^{}   d56e4f0e43d5752a28e0e77db17998eb5b1f07bd
+
+run 33244573226: completed / success
+  Build & Test (ubuntu-latest): success
+  Build & Test (windows-latest): success
+  Build & Push GHCR: success
+
+run 33244948229: completed / success
+  Build & Test (ubuntu-latest): success
+  Build & Test (windows-latest): success
+  Build & Push GHCR: success
+```
+
+The repository now contains an on-demand [release image verification workflow](../.github/workflows/release-verification.yml). Its first [run 33257054498](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33257054498) pulled the published image from GHCR, rejected any manifest other than the expected release digest, started the API container, and recorded:
+
+```text
+Pulled image: ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af
+Health response: {"status":"healthy","version":"0.9.4","uptime":"0h 0m"}
+```
+
+The local Windows host could read the manifest, but its route to the GHCR blob store transferred a sampled 29.8 MB layer at only about 26.8 KB/s and did not complete a full pull within the 10-minute local budget. That local attempt is not reported as successful; the successful pull-and-run evidence above comes from the independent GitHub-hosted runner.
+
+GHCR version tags are treated as mutable references. Reproducible rollback therefore pins the manifest digest, not only the `0.9.4` tag:
+
+```text
+ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af
+```
+
+The repository currently has no GitHub Release object for `v0.9.4`, and the available API credential could not inspect repository rulesets (`403`), so no tag-protection claim is made. GitHub release immutability protects Git tags and release assets for newly published Releases; it does not make a GHCR tag immutable. For the next release, enable immutable Releases before publication and continue recording the container manifest digest separately.
 
 ## Known limitations
 
@@ -62,6 +100,8 @@ The versioned container is:
 ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
 ```
 
+For an exact rollback, use the manifest-pinned reference shown above. The package currently requires authenticated GHCR access; use a classic personal access token with `read:packages` and pass it through `docker login --password-stdin`. Do not place the token in shell history or deployment files.
+
 Production deployments must explicitly set strong values for:
 
 - `LMIST_API_TOKEN`
@@ -73,3 +113,5 @@ The compose startup helper can generate credentials and prints them to container
 ## Next product step
 
 The report path is now suitable for structured usability testing. The next milestone is not another broad code sweep: it is interviewing non-expert users with the protocols in [product-validation-protocols.md](product-validation-protocols.md) to determine whether they understand what is exposed and what to fix first.
+
+Development after this release uses version `0.9.5-dev` on `main`. The `0.9.4` tag and digest remain fixed rollback references; fixes after the tag belong to a new `0.9.5` release rather than overwriting `0.9.4`.

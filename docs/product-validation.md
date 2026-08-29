@@ -165,3 +165,32 @@ matching on representative versions, not exploitability or separately compiled
 With the report path now deliverable, the next product step is the non-expert user
 interview protocol in [product-validation-protocols.md](product-validation-protocols.md),
 not another unbounded code sweep.
+
+### Independent published-image run
+
+An on-demand GitHub Actions workflow independently pulled the published GHCR image in
+[run 33257054498](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33257054498).
+The job completed every step successfully: GHCR login, pull, manifest-digest
+comparison, container startup, health request, log capture, and cleanup.
+
+The pulled reference resolved to:
+
+```text
+ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af
+```
+
+The running published container returned:
+
+```json
+{"status":"healthy","version":"0.9.4","uptime":"0h 0m"}
+```
+
+This proves the GHCR artifact can be pulled and the API process in that artifact can
+start and answer its health endpoint. It does not prove Web login, persistence, or a
+full scan from the published container; those were outside this focused release-image
+check.
+
+The local Windows Docker path was also attempted but did not complete: a direct
+60-second sample downloaded 1,626,944 of 29,752,807 bytes from one layer, averaging
+26,829 bytes/second. The local result is recorded as a network timeout, not a product
+success. The GitHub-hosted run above is the successful deployment evidence.

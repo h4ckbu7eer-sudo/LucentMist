@@ -74,11 +74,15 @@ dotnet run --project src/LucentMist.Web
 # 国内网络建议指定华为云 NuGet 镜像
 docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.4 .
 
-# 或拉取已发布镜像
-docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
+# 私有 GHCR 包先登录；令牌需要 read:packages，且不要写入脚本
+echo "$CR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
 
-# 启动 API + Web
-docker compose up -d
+# 拉取固定摘要，确保以后仍得到同一个 0.9.4 发布物
+docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af
+docker tag ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af lucentmist:0.9.4
+
+# 使用刚拉取的发布镜像启动 API + Web，不在本地重建
+docker compose up -d --no-build
 
 # API 健康检查
 curl http://localhost:5050/api/v1/health
