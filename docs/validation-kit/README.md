@@ -9,9 +9,11 @@ that a non-contributor can use without project coaching.
 | Item | Status | Evidence |
 |---|---|---|
 | Controlled report with findings | Complete | [validation-report.html](../validation-report.html) |
-| Interview script | Ready; participants not yet recruited | [interview-script.md](interview-script.md) |
-| Report review rubric | Ready; reviewers not yet recruited | [report-review-rubric.md](report-review-rubric.md) |
-| User demand validated | **No** | No interview or review result has been recorded |
+| Interview script | Ready; recruitment blocked at 0/3 | [interview-script.md](interview-script.md) |
+| Report review rubric | Ready; recruitment blocked at 0/3 | [report-review-rubric.md](report-review-rubric.md) |
+| Interview result | **Sample insufficient / not passed** | [results/interview.md](results/interview.md) |
+| Report review result | **Sample insufficient / not passed** | [results/report-review.md](results/report-review.md) |
+| User demand validated | **No** | No real participant was recruited or interviewed |
 
 The report was generated from three real services in isolated Docker containers:
 OpenSSH 8.9p1 on port 22, nginx HTTP on port 80, and nginx TLS with a seven-day

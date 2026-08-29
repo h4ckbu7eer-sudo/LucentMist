@@ -223,3 +223,16 @@ The facilitator-ready [interview script](validation-kit/interview-script.md) and
 No non-contributor has yet been interviewed or observed using the report. Direction A
 demand and non-expert usability therefore remain **pending recruitment**; this kit is
 execution material, not fabricated user evidence.
+
+### Recruitment outcome
+
+The first requested human execution on 2026-08-29 could not start recruitment of a
+real non-contributor. No participant list, authorized outreach channel, incentive, or
+consent/data-handling workflow was available, so no invitation was sent and no human
+response was collected. The empty evidence records are preserved in
+[results/interview.md](validation-kit/results/interview.md) and
+[results/report-review.md](validation-kit/results/report-review.md).
+
+This is recorded as `0/3`, **sample insufficient / not passed**. It is not evidence
+that Direction A failed, and it is not evidence that Direction A works. Need, payment
+intent, alternatives, and report decision support all remain unknown.
