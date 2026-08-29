@@ -11,6 +11,7 @@ using LucentMist.Tools.Scanning;
 using LucentMist.Tools.Security;
 using LucentMist.Tools.Sirius;
 using LucentMist.Tools.Vulnerability;
+using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using Spectre.Console;
 
@@ -41,6 +42,8 @@ public class CliApp
             "report" => await ReportCommand(commandArgs),
             "agent" => await AgentCommand(commandArgs),
             "audit" => await AuditCommand(commandArgs),
+            "backup" => BackupCommand(commandArgs),
+            "restore" => RestoreCommand(commandArgs),
             "config" => await ConfigCommand(commandArgs),
             "status" => StatusCommand(),
             "help" => HelpCommand(),
@@ -2125,6 +2128,72 @@ public class CliApp
         return 0;
     }
 
+    private static int BackupCommand(string[] args)
+    {
+        var database = Environment.GetEnvironmentVariable("LMIST_DB")
+            ?? Path.Combine("data", "lucentmist.db");
+        var output = Path.Combine(
+            "backups",
+            $"lucentmist-{DateTime.UtcNow:yyyyMMddHHmmss}.db");
+        var overwrite = args.Contains("--force", StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--output" && i + 1 < args.Length) output = args[++i];
+            else if (args[i].StartsWith("--output=", StringComparison.Ordinal))
+                output = args[i].Split('=', 2)[1];
+            else if (args[i] == "--database" && i + 1 < args.Length) database = args[++i];
+            else if (args[i].StartsWith("--database=", StringComparison.Ordinal))
+                database = args[i].Split('=', 2)[1];
+        }
+
+        try
+        {
+            var path = DatabaseBackupService.Backup(database, output, overwrite);
+            AnsiConsole.MarkupLine($"[green]备份完成：{Escape(path)}[/]");
+            AnsiConsole.MarkupLine("[grey]已执行 WAL checkpoint、SQLite 在线备份与完整性检查。[/]");
+            return 0;
+        }
+        catch (Exception ex) when (ex is IOException or SqliteException or InvalidOperationException)
+        {
+            return CliError($"备份失败：{ex.Message}");
+        }
+    }
+
+    private static int RestoreCommand(string[] args)
+    {
+        var backup = args.FirstOrDefault(argument => !argument.StartsWith('-')) ?? "";
+        var database = Environment.GetEnvironmentVariable("LMIST_DB")
+            ?? Path.Combine("data", "lucentmist.db");
+        var confirmed = args.Contains("--yes", StringComparer.OrdinalIgnoreCase);
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--database" && i + 1 < args.Length) database = args[++i];
+            else if (args[i].StartsWith("--database=", StringComparison.Ordinal))
+                database = args[i].Split('=', 2)[1];
+        }
+
+        if (string.IsNullOrWhiteSpace(backup))
+            return CliError("请指定备份文件：lmist restore <backup.db> --yes");
+        if (!confirmed)
+            return CliError("恢复会替换当前数据库；停止 API/Web 后添加 --yes 再执行");
+
+        try
+        {
+            var result = DatabaseBackupService.Restore(backup, database);
+            AnsiConsole.MarkupLine($"[green]恢复完成：{Escape(result.DatabasePath)}[/]");
+            if (result.SafetyCopyDirectory != null)
+            {
+                AnsiConsole.MarkupLine(
+                    $"[yellow]旧数据库及 WAL/SHM 已移至：{Escape(result.SafetyCopyDirectory)}[/]");
+            }
+            return 0;
+        }
+        catch (Exception ex) when (ex is IOException or SqliteException or InvalidOperationException)
+        {
+            return CliError($"恢复失败：{ex.Message}");
+        }
+    }
+
     // ========================================
     // STATUS
     // ========================================
@@ -2182,6 +2251,8 @@ public class CliApp
         table.AddRow("[yellow]report[/]", "生成报告", "[grey]lmist report --format html[/]");
         table.AddRow("[yellow]agent[/]", "AI 智能体对话", "[grey]lmist agent \"分析网络\"[/]");
         table.AddRow("[yellow]audit[/]", "查看扫描审计", "[grey]lmist audit --limit 50[/]");
+        table.AddRow("[yellow]backup[/]", "安全备份数据", "[grey]lmist backup --output backups/me.db[/]");
+        table.AddRow("[yellow]restore[/]", "恢复扫描数据", "[grey]lmist restore backups/me.db --yes[/]");
         table.AddRow("[yellow]config[/]", "查看/切换配置", "[grey]lmist config --set Model=qwen2.5:7b[/]");
         table.AddRow("[yellow]status[/]", "系统状态", "[grey]lmist status[/]");
         table.AddRow("[yellow]help[/]", "帮助信息", "[grey]lmist help[/]");
