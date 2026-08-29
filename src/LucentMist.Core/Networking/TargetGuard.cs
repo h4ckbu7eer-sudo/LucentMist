@@ -22,6 +22,19 @@ public static class TargetGuard
 
     public static async Task<TargetValidationResult> ValidateAsync(
         string target,
+        CancellationToken ct = default) =>
+        await ValidateAsync(
+            target,
+            Environment.GetEnvironmentVariable("LMIST_ALLOWED_TARGETS"),
+            ct);
+
+    /// <summary>
+    /// 校验目标及可选授权范围。allowedTargets 使用逗号或分号分隔，支持精确 IP、
+    /// CIDR、精确域名及 *.example.com 形式的域名后缀。
+    /// </summary>
+    public static async Task<TargetValidationResult> ValidateAsync(
+        string target,
+        string? allowedTargets,
         CancellationToken ct = default)
     {
         ct.ThrowIfCancellationRequested();
@@ -33,15 +46,16 @@ public static class TargetGuard
             return TargetValidationResult.Reject("INVALID_TARGET", "扫描目标包含非法控制字符");
 
         if (target.Contains('/'))
-            return ValidateCidr(target);
+            return ValidateCidr(target, allowedTargets);
 
         if (IPAddress.TryParse(target, out var address))
         {
             if (address.AddressFamily != AddressFamily.InterNetwork)
                 return TargetValidationResult.Reject("IPV6_NOT_SUPPORTED", "当前仅支持 IPv4 扫描目标", "ipv6");
-            return IsForbiddenIp(address)
+            var result = IsForbiddenIp(address)
                 ? TargetValidationResult.Reject("FORBIDDEN_ADDRESS", "扫描目标位于受保护或保留地址范围", "ipv4")
                 : TargetValidationResult.Allow("ipv4", [address]);
+            return ApplyAuthorizationPolicy(target, result, allowedTargets);
         }
 
         if (!IsValidHostname(target))
@@ -63,7 +77,10 @@ public static class TargetGuard
                     "主机名解析到了受保护或保留地址范围",
                     "hostname",
                     ipv4);
-            return TargetValidationResult.Allow("hostname", ipv4);
+            return ApplyAuthorizationPolicy(
+                target,
+                TargetValidationResult.Allow("hostname", ipv4),
+                allowedTargets);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -87,7 +104,7 @@ public static class TargetGuard
         return result.ResolvedAddresses.FirstOrDefault()?.ToString();
     }
 
-    private static TargetValidationResult ValidateCidr(string target)
+    private static TargetValidationResult ValidateCidr(string target, string? allowedTargets)
     {
         var slash = target.IndexOf('/');
         if (slash == 0 || target.IndexOf('/', slash + 1) >= 0 ||
@@ -114,8 +131,158 @@ public static class TargetGuard
                 "cidr");
         }
 
-        return TargetValidationResult.Allow("cidr", [ip]);
+        return ApplyAuthorizationPolicy(
+            target,
+            TargetValidationResult.Allow("cidr", [ip]),
+            allowedTargets);
     }
+
+    private static TargetValidationResult ApplyAuthorizationPolicy(
+        string target,
+        TargetValidationResult result,
+        string? allowedTargets)
+    {
+        var requiresAuthorization = IsPublicTarget(target, result);
+        if (string.IsNullOrWhiteSpace(allowedTargets))
+            return result with { RequiresPublicAuthorization = requiresAuthorization };
+
+        if (!TryParseAllowedTargets(allowedTargets, out var rules))
+        {
+            return TargetValidationResult.Reject(
+                "INVALID_ALLOWED_TARGETS",
+                "LMIST_ALLOWED_TARGETS 包含无效条目；已拒绝扫描以避免越权",
+                result.TargetType,
+                result.ResolvedAddresses);
+        }
+
+        if (!IsCoveredByRules(target, result, rules))
+        {
+            return TargetValidationResult.Reject(
+                "TARGET_OUTSIDE_ALLOWED_SCOPE",
+                "扫描目标不在 LMIST_ALLOWED_TARGETS 授权范围内",
+                result.TargetType,
+                result.ResolvedAddresses);
+        }
+
+        return result with
+        {
+            RequiresPublicAuthorization = false,
+            IsExplicitlyAllowed = true,
+        };
+    }
+
+    private static bool IsPublicTarget(string target, TargetValidationResult result)
+    {
+        if (result.TargetType == "cidr" && TryParseCidr(target, out var range))
+            return !PrivateRanges.Any(privateRange => Contains(privateRange, range));
+
+        return result.ResolvedAddresses.Any(address => !IsPrivateOrLoopback(address));
+    }
+
+    private static bool IsPrivateOrLoopback(IPAddress address)
+    {
+        if (address.AddressFamily != AddressFamily.InterNetwork) return false;
+        var value = ToUInt32(address);
+        return value >= ToUInt32(127, 0, 0, 0) && value <= ToUInt32(127, 255, 255, 255)
+            || value >= ToUInt32(10, 0, 0, 0) && value <= ToUInt32(10, 255, 255, 255)
+            || value >= ToUInt32(172, 16, 0, 0) && value <= ToUInt32(172, 31, 255, 255)
+            || value >= ToUInt32(192, 168, 0, 0) && value <= ToUInt32(192, 168, 255, 255);
+    }
+
+    private static readonly IpRange[] PrivateRanges =
+    [
+        new(ToUInt32(127, 0, 0, 0), ToUInt32(127, 255, 255, 255)),
+        new(ToUInt32(10, 0, 0, 0), ToUInt32(10, 255, 255, 255)),
+        new(ToUInt32(172, 16, 0, 0), ToUInt32(172, 31, 255, 255)),
+        new(ToUInt32(192, 168, 0, 0), ToUInt32(192, 168, 255, 255)),
+    ];
+
+    private static bool TryParseAllowedTargets(string value, out List<AllowedTargetRule> rules)
+    {
+        rules = [];
+        foreach (var raw in value.Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+        {
+            if (IPAddress.TryParse(raw, out var ip) && ip.AddressFamily == AddressFamily.InterNetwork)
+            {
+                var number = ToUInt32(ip);
+                rules.Add(new AllowedTargetRule(null, new IpRange(number, number), false));
+                continue;
+            }
+
+            if (TryParseCidr(raw, out var range))
+            {
+                rules.Add(new AllowedTargetRule(null, range, false));
+                continue;
+            }
+
+            var wildcard = raw.StartsWith("*.", StringComparison.Ordinal);
+            var hostname = wildcard ? raw[2..] : raw;
+            if (!IsValidHostname(hostname))
+                return false;
+
+            rules.Add(new AllowedTargetRule(hostname.ToLowerInvariant(), null, wildcard));
+        }
+
+        return rules.Count > 0;
+    }
+
+    private static bool IsCoveredByRules(
+        string target,
+        TargetValidationResult result,
+        IReadOnlyList<AllowedTargetRule> rules)
+    {
+        if (result.TargetType == "hostname")
+        {
+            var normalized = target.TrimEnd('.').ToLowerInvariant();
+            if (rules.Any(rule => rule.Hostname != null &&
+                    (rule.Wildcard
+                        ? normalized.EndsWith('.' + rule.Hostname, StringComparison.OrdinalIgnoreCase)
+                        : normalized.Equals(rule.Hostname, StringComparison.OrdinalIgnoreCase))))
+            {
+                return true;
+            }
+        }
+
+        if (result.TargetType == "cidr")
+        {
+            return TryParseCidr(target, out var targetRange)
+                && rules.Any(rule => rule.Range is { } allowed && Contains(allowed, targetRange));
+        }
+
+        return result.ResolvedAddresses.Count > 0
+            && result.ResolvedAddresses.All(address =>
+                rules.Any(rule => rule.Range is { } allowed
+                    && Contains(allowed, new IpRange(ToUInt32(address), ToUInt32(address)))));
+    }
+
+    private static bool TryParseCidr(string value, out IpRange range)
+    {
+        range = default;
+        var slash = value.IndexOf('/');
+        if (slash <= 0 || value.IndexOf('/', slash + 1) >= 0
+            || !IPAddress.TryParse(value[..slash], out var ip)
+            || ip.AddressFamily != AddressFamily.InterNetwork
+            || !int.TryParse(value[(slash + 1)..], out var prefix)
+            || prefix is < 0 or > 32)
+        {
+            return false;
+        }
+
+        var number = ToUInt32(ip);
+        var mask = prefix == 0 ? 0u : uint.MaxValue << (32 - prefix);
+        range = new IpRange(number & mask, (number & mask) | ~mask);
+        return true;
+    }
+
+    private static bool Contains(IpRange container, IpRange value) =>
+        container.Start <= value.Start && container.End >= value.End;
+
+    private readonly record struct IpRange(uint Start, uint End);
+
+    private readonly record struct AllowedTargetRule(
+        string? Hostname,
+        IpRange? Range,
+        bool Wildcard);
 
     private static bool IsForbiddenIp(IPAddress address)
     {
@@ -170,6 +337,10 @@ public sealed record TargetValidationResult(
     string TargetType,
     IReadOnlyList<IPAddress> ResolvedAddresses)
 {
+    public bool RequiresPublicAuthorization { get; init; }
+
+    public bool IsExplicitlyAllowed { get; init; }
+
     public static TargetValidationResult Allow(string targetType, IReadOnlyList<IPAddress> addresses) =>
         new(true, "OK", "", targetType, addresses);
 

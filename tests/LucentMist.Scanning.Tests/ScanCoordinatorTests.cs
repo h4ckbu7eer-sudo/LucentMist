@@ -102,4 +102,31 @@ public class ScanCoordinatorTests
             if (File.Exists(dbPath)) File.Delete(dbPath);
         }
     }
+
+    [Fact]
+    public async Task StartAsync_PublicTarget_RequiresExplicitAuthorization()
+    {
+        var dbPath = Path.Combine(Path.GetTempPath(), $"lmist-coord-public-{Guid.NewGuid():N}.db");
+        try
+        {
+            var store = new ScanStore(dbPath);
+            var coordinator = new ScanCoordinator(store);
+
+            var error = await Assert.ThrowsAsync<InvalidScanTargetException>(() =>
+                coordinator.StartAsync("8.8.8.8", "tcp", "443"));
+            Assert.Equal("PUBLIC_TARGET_AUTHORIZATION_REQUIRED", error.Code);
+            Assert.Empty(await store.ListAsync(1, 10));
+
+            var taskId = await coordinator.StartAsync(
+                "8.8.8.8",
+                "tcp",
+                "443",
+                context: new ScanRequestContext("test", PublicTargetAuthorized: true));
+            Assert.NotNull(await store.GetAsync(taskId));
+        }
+        finally
+        {
+            if (File.Exists(dbPath)) File.Delete(dbPath);
+        }
+    }
 }

@@ -33,7 +33,8 @@ public class ScanCoordinator : IScanCoordinator
         string target,
         string scanType = "ping",
         string ports = "",
-        CancellationToken ct = default)
+        CancellationToken ct = default,
+        ScanRequestContext? context = null)
     {
         scanType = (scanType ?? "ping").Trim().ToLowerInvariant();
         if (scanType is not ("ping" or "tcp" or "udp"))
@@ -44,6 +45,12 @@ public class ScanCoordinator : IScanCoordinator
         var validation = await TargetGuard.ValidateAsync(target, ct);
         if (!validation.IsAllowed)
             throw new InvalidScanTargetException(validation.Code, validation.Message);
+        if (validation.RequiresPublicAuthorization && context?.PublicTargetAuthorized != true)
+        {
+            throw new InvalidScanTargetException(
+                "PUBLIC_TARGET_AUTHORIZATION_REQUIRED",
+                "公网目标需要先确认你拥有扫描授权");
+        }
 
         ports = ports?.Trim() ?? "";
         if (scanType == "ping")
