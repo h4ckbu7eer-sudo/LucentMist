@@ -93,7 +93,30 @@ public class PingScanToolTests
         Assert.Equal(1, tcpCalls);
         using var doc = JsonDocument.Parse(result.Data);
         Assert.Equal(1, doc.RootElement.GetProperty("alive").GetInt32());
-        Assert.Contains("已使用 TCP", doc.RootElement.GetProperty("icmpFallback").GetString());
+        var fallback = doc.RootElement.GetProperty("icmpFallback").GetString();
+        Assert.Contains("ICMP 被拒绝", fallback);
+        Assert.DoesNotContain("ICMP 无响应", fallback);
+    }
+
+    [Fact]
+    public async Task Execute_IcmpTimeout_ReportsNoResponseFallback()
+    {
+        var tool = new PingScanTool(
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<PingScanTool>.Instance,
+            (_, _, _) => Task.FromResult(IPStatus.TimedOut),
+            (_, _, _) => Task.FromResult(true));
+
+        var result = await tool.ExecuteAsync(new()
+        {
+            ["target"] = "127.0.0.1",
+            ["timeout_ms"] = "200"
+        });
+
+        Assert.True(result.Success, result.Error);
+        using var doc = JsonDocument.Parse(result.Data);
+        var fallback = doc.RootElement.GetProperty("icmpFallback").GetString();
+        Assert.Contains("ICMP 无响应", fallback);
+        Assert.DoesNotContain("ICMP 被拒绝", fallback);
     }
 
     [Fact]
