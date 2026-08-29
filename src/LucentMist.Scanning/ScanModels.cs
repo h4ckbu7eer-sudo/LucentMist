@@ -1,7 +1,12 @@
 namespace LucentMist.Scanning;
 
 /// <summary>入队后的扫描任务。</summary>
-public record ScanJob(string TaskId, string Target, string ScanType, string Ports);
+public record ScanJob(
+    string TaskId,
+    string Target,
+    string ScanType,
+    string Ports,
+    string Initiator = "unknown");
 
 /// <summary>SQLite 中的扫描任务记录。</summary>
 public record ScanTaskRecord
@@ -26,3 +31,16 @@ public record ScanProgressEvent(
     string Message,
     int Percent,
     string? ResultJson = null);
+
+public sealed record ScanAuditRecord
+{
+    public long Id { get; init; }
+    public string EventId { get; init; } = "";
+    public string? ScanTaskId { get; init; }
+    public DateTime OccurredAt { get; init; }
+    public string Target { get; init; } = "";
+    public string Initiator { get; init; } = "unknown";
+    public string ScanType { get; init; } = "unknown";
+    public string Status { get; init; } = "unknown";
+    public string Summary { get; init; } = "";
+}

@@ -281,6 +281,32 @@ public class ScanStoreTests : IDisposable
         Assert.Null(await _store.GetAsync(rec.Id));
     }
 
+    [Fact]
+    public async Task AuditLog_StoresOnlyBoundedSummaryAndRejectsInvalidStatus()
+    {
+        var summary = "完成\n" + new string('x', 400);
+        await _store.AppendAuditAsync(
+            "event-1",
+            "task-1",
+            "192.168.1.10",
+            "web",
+            "tcp",
+            "completed",
+            summary);
+
+        var item = Assert.Single(await _store.ListAuditAsync());
+        Assert.Equal("event-1", item.EventId);
+        Assert.Equal("task-1", item.ScanTaskId);
+        Assert.Equal("web", item.Initiator);
+        Assert.Equal("completed", item.Status);
+        Assert.DoesNotContain('\n', item.Summary);
+        Assert.True(item.Summary.Length <= 256);
+
+        await Assert.ThrowsAsync<ArgumentOutOfRangeException>(() =>
+            _store.AppendAuditAsync(
+                "event-2", null, "127.0.0.1", "cli", "ping", "unknown"));
+    }
+
     private static void CreateLegacySchema(string dbPath)
     {
         using var conn = new SqliteConnection($"Data Source={dbPath};Pooling=False");
