@@ -103,3 +103,33 @@ suite was rerun instead: 28 tests passed, including offsets 37/72, SMB2-first wi
 SMB1 reconnect fallback, OpenSSH `9.0p1` through `9.3p1` matching, and `9.3p2`/`9.4`
 not matching. Those tests establish parser and matching behavior only, not real-service
 validation.
+
+### Real OpenSSH services in local containers
+
+Later on 2026-08-29, Docker Desktop became available. Two temporary, authorized
+containers were run one at a time on the local Windows host and published only for
+this validation at `192.168.99.9:22`:
+
+| Container base | Installed package | Observed real SSH banner | LucentMist result |
+|---|---|---|---|
+| Ubuntu 22.04 | `1:8.9p1-3ubuntu0.16` | `OpenSSH_8.9p1 Ubuntu-3ubuntu0.16` | CVE-2023-38408 reported as a candidate |
+| Ubuntu 24.04 | `1:9.6p1-3ubuntu13.18` | `OpenSSH_9.6p1 Ubuntu-3ubuntu13.18` | CVE-2023-38408 not reported |
+
+For the 8.9p1 service, an independent OpenSSH client completed a real SSH handshake
+and logged the remote software version before LucentMist was run. `lmist vuln-scan
+192.168.99.9 --all` then identified port 22 as SSH version `8.9p1`, CPE
+`cpe:2.3:a:openbsd:openssh:8.9p1`, and reported CVE-2023-38408 with CVSS 7.5 as an
+unconfirmed candidate. The same full command against the 9.6p1 service identified
+version `9.6p1` and did not report CVE-2023-38408.
+
+This is real-service validation, not a TCP banner simulator. It establishes that the
+network connection, SSH banner parser, product-version extraction, and CVE threshold
+work end to end for representative versions below and above the fix threshold. It
+does **not** establish that the Ubuntu 8.9p1 package is exploitable: Ubuntu may backport
+security fixes while retaining the upstream version in its banner, and an SSH server
+banner cannot prove the affected runtime path. The finding must therefore remain a
+candidate. Exact `9.3p1` and `9.3p2` adjacency is still covered by deterministic banner
+tests rather than separately compiled real daemons.
+
+Both temporary containers were removed after validation, the host port was released,
+and the WSL Ubuntu distribution was returned to its original stopped state.
