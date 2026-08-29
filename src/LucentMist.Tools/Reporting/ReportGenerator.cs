@@ -18,7 +18,10 @@ public class ReportGenerator
         public string ScanStatus { get; set; } = "not_scanned";
         public string StatusMessage { get; set; } = "扫描尚未完成";
         public ScanScope Scope { get; set; } = new();
+        /// <summary>会影响暴露面或漏洞结论完整性的警告。</summary>
         public List<string> Warnings { get; set; } = new();
+        /// <summary>不影响结论完整性的补充说明。</summary>
+        public List<string> Notes { get; set; } = new();
         public List<DeviceEntry> Devices { get; set; } = new();
         public List<PortEntry> OpenPorts { get; set; } = new();
         public List<SslEntry> SslInfo { get; set; } = new();
@@ -83,6 +86,14 @@ public class ReportGenerator
         };
     }
 
+    public static void ApplyCompletionStatus(ScanReport report, int scannedDevices)
+    {
+        report.ScanStatus = report.Warnings.Count == 0 ? "completed" : "partial";
+        report.StatusMessage = report.ScanStatus == "completed"
+            ? $"已完成 {scannedDevices} 台在线设备的端口与漏洞候选检测"
+            : $"已扫描 {scannedDevices} 台在线设备，但关键阶段失败，结果不完整";
+    }
+
     public string Generate(ScanReport r, Format f) => f switch
     {
         Format.Json => ToJson(r),
@@ -107,6 +118,14 @@ public class ReportGenerator
             CsvEscape("扫描范围"), CsvEscape(r.Target), "", CsvEscape("TCP"), "", "", "", "",
             CsvEscape($"发现: {r.Scope.Discovery}; TCP: {r.Scope.TcpPorts}; 漏洞: {r.Scope.VulnerabilityChecks}"),
             CsvEscape(r.Scope.Limitations), ""));
+        foreach (var warning in r.Warnings)
+            sb.AppendLine(string.Join(",",
+                CsvEscape("完整性警告"), CsvEscape(r.Target), "", "", CsvEscape("partial"),
+                "", "", "", CsvEscape(warning), "", ""));
+        foreach (var note in r.Notes)
+            sb.AppendLine(string.Join(",",
+                CsvEscape("补充说明"), CsvEscape(r.Target), "", "", CsvEscape("note"),
+                "", "", "", CsvEscape(note), "", ""));
         foreach (var port in r.OpenPorts)
         {
             sb.AppendLine(string.Join(",",
@@ -185,6 +204,12 @@ public class ReportGenerator
             foreach (var warning in r.Warnings) sb.AppendLine($"- {MdEscape(warning)}");
             sb.AppendLine();
         }
+        if (r.Notes.Count > 0)
+        {
+            sb.AppendLine("## ℹ️ 补充说明\n");
+            foreach (var note in r.Notes) sb.AppendLine($"- {MdEscape(note)}");
+            sb.AppendLine();
+        }
 
         sb.AppendLine("## 🌐 网络暴露\n");
         if (!IsConclusive(r) && r.OpenPorts.Count == 0)
@@ -260,9 +285,12 @@ public class ReportGenerator
         var warningItems = r.Warnings.Count == 0
             ? ""
             : $"<ul>{string.Join("", r.Warnings.Select(w => $"<li>{E(w)}</li>"))}</ul>";
+        var noteItems = r.Notes.Count == 0
+            ? ""
+            : $"<div class='scan-notes'><strong>补充说明：</strong><ul>{string.Join("", r.Notes.Select(note => $"<li>{E(note)}</li>"))}</ul></div>";
         var statusBanner = $@"<div class='scan-status status-{statusClass}'>
   <div class='status-title'>{StatusEmoji(r)} 扫描状态：{E(StatusLabel(r))}</div>
-  <div>{E(r.StatusMessage)}</div>{warningItems}
+  <div>{E(r.StatusMessage)}</div>{warningItems}{noteItems}
 </div>";
         var scope = $@"<div class='section scope'><h2>🧭 扫描范围与边界</h2>
 <ul><li><strong>目标发现：</strong>{E(r.Scope.Discovery)}</li>
@@ -405,7 +433,7 @@ code{{background:var(--surface2);padding:.1rem .4rem;border-radius:3px;font-size
 .fix-cell{{font-size:.78rem;color:#94a3b8;max-width:250px}}
 .safe-msg{{color:#4ade80;text-align:center;padding:2rem}}
 .incomplete-msg{{color:#fbbf24;text-align:center;padding:2rem;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.22);border-radius:10px}}
-.scan-status{{margin:1.5rem 0;padding:1rem 1.2rem;border-radius:10px;border:1px solid;font-size:.88rem}}.scan-status ul{{margin:.6rem 0 0 1.2rem}}.status-title{{font-weight:800;margin-bottom:.25rem}}.status-completed{{color:#4ade80;background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25)}}.status-partial,.status-no_targets,.status-not_scanned,.status-running{{color:#fbbf24;background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.25)}}.status-failed{{color:#f87171;background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.25)}}
+.scan-status{{margin:1.5rem 0;padding:1rem 1.2rem;border-radius:10px;border:1px solid;font-size:.88rem}}.scan-status ul{{margin:.6rem 0 0 1.2rem}}.scan-notes{{margin-top:.7rem;color:#cbd5e1}}.status-title{{font-weight:800;margin-bottom:.25rem}}.status-completed{{color:#4ade80;background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25)}}.status-partial,.status-no_targets,.status-not_scanned,.status-running{{color:#fbbf24;background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.25)}}.status-failed{{color:#f87171;background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.25)}}
 .scope ul{{margin-left:1.2rem;display:grid;gap:.45rem;color:#94a3b8}}.scope strong{{color:var(--text)}}
 .tls-status{{font-weight:700}}.tls-valid{{color:#4ade80}}.tls-warning{{color:#fbbf24}}.tls-expired{{color:#ef4444}}
 .fix-list{{display:flex;flex-direction:column;gap:.5rem}}

@@ -886,11 +886,15 @@ public class CliApp
                                 using var od = JsonDocument.Parse(osResult.Data);
                                 osGuess = od.RootElement.GetProperty("osFamily").GetString() ?? "";
                             }
+                            else
+                            {
+                                report.Notes.Add($"{ip}: OS 指纹未识别，不影响端口与漏洞候选结论");
+                            }
                         }
                         catch (Exception ex)
                         {
                             Logger.LogWarning(ex, "Failed to detect OS fingerprint for report");
-                            report.Warnings.Add($"{ip}: OS 指纹识别失败");
+                            report.Notes.Add($"{ip}: OS 指纹识别失败，不影响端口与漏洞候选结论");
                         }
 
                         report.Devices.Add(new() { Ip = ip, IsAlive = true, OsGuess = osGuess });
@@ -900,10 +904,7 @@ public class CliApp
                     if (devices.Count > 0)
                     {
                         report.VulnInfo = await CollectVulnerabilityInfoAsync(report, devices);
-                        report.ScanStatus = report.Warnings.Count == 0 ? "completed" : "partial";
-                        report.StatusMessage = report.ScanStatus == "completed"
-                            ? $"已完成 {devices.Count} 台在线设备的端口与漏洞候选检测"
-                            : $"已扫描 {devices.Count} 台在线设备，但部分阶段失败，结果不完整";
+                        ReportGenerator.ApplyCompletionStatus(report, devices.Count);
                     }
                 }
                 catch (Exception ex)
