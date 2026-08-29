@@ -1,3 +1,4 @@
+using LucentMist.CLI;
 using LucentMist.Tools.Reporting;
 using LucentMist.Tools.Sirius;
 
@@ -371,7 +372,7 @@ public class ReportGeneratorTests
     public void ParseVulnerabilityFinding_PreservesToolContract()
     {
         using var document = System.Text.Json.JsonDocument.Parse("""
-            {"port":22,"service":"SSH","banner":"OpenSSH_9.2p1","cve":"CVE-2023-38408","name":"OpenSSH RCE","risk":"high","cvss":8.1,"source":"OSV.dev","confirmed":false,"verificationDetail":"未执行 PoC","fix":"upgrade"}
+            {"port":22,"service":"SSH","banner":"OpenSSH_9.2p1","cve":"CVE-2023-38408","name":"OpenSSH RCE","risk":"high","cvss":8.1,"source":"OSV.dev","confirmed":false,"versionVerified":false,"versionStatus":"unverified","verificationDetail":"未执行 PoC","fix":"upgrade"}
             """);
 
         var finding = ReportGenerator.ParseVulnerabilityFinding("192.0.2.22", document.RootElement);
@@ -381,8 +382,65 @@ public class ReportGeneratorTests
         Assert.Equal(8.1, finding.Cvss);
         Assert.Equal("OSV.dev", finding.Source);
         Assert.False(finding.Confirmed);
+        Assert.Equal("unverified", finding.VersionStatus);
         Assert.Equal("OpenSSH_9.2p1", finding.Banner);
         Assert.Equal("未执行 PoC", finding.VerificationDetail);
+    }
+
+    [Fact]
+    public void Generate_AllUserFormats_DistinguishVersionEvidence()
+    {
+        var report = new ReportGenerator.ScanReport
+        {
+            Target = "192.0.2.22",
+            ScanStatus = "completed",
+            StatusMessage = "扫描已完成",
+            VulnInfo = new()
+            {
+                HighCount = 2,
+                Findings =
+                {
+                    new()
+                    {
+                        Target = "192.0.2.22", Port = 22, Service = "SSH",
+                        Cve = "CVE-VERIFIED", Risk = "high", Confirmed = false,
+                        VersionStatus = "verified", Description = "version-aware"
+                    },
+                    new()
+                    {
+                        Target = "192.0.2.22", Port = 22, Service = "SSH",
+                        Cve = "CVE-UNVERIFIED", Risk = "high", Confirmed = false,
+                        VersionStatus = "unverified", Description = "keyword-only"
+                    }
+                }
+            }
+        };
+        var generator = new ReportGenerator();
+
+        foreach (var format in new[]
+                 {
+                     ReportGenerator.Format.Html,
+                     ReportGenerator.Format.Markdown,
+                     ReportGenerator.Format.Csv
+                 })
+        {
+            var output = generator.Generate(report, format);
+            Assert.Contains("候选（版本已验证）", output);
+            Assert.Contains("候选（版本未验证）", output);
+        }
+    }
+
+    [Theory]
+    [InlineData(false, "verified", "⚠候选（版本已验证）")]
+    [InlineData(false, "unverified", "⚠候选（版本未验证）")]
+    [InlineData(false, "unknown", "⚠候选（版本未知）")]
+    [InlineData(true, "unverified", "✔已验证")]
+    public void CliConfidenceLabel_ExposesVersionEvidence(
+        bool confirmed,
+        string versionStatus,
+        string expected)
+    {
+        Assert.Equal(expected, CliApp.VulnerabilityConfidenceLabel(confirmed, versionStatus));
     }
 
     [Fact]

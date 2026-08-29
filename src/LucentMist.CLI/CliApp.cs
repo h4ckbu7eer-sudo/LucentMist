@@ -1291,6 +1291,7 @@ public class CliApp
                         cvss: f.TryGetProperty("cvss", out var cs) && cs.TryGetDouble(out var sc) ? sc : double.NaN,
                         source: f.TryGetProperty("source", out var sr) ? sr.GetString() ?? "—" : "—",
                         confirmed: f.TryGetProperty("confirmed", out var cf) && cf.GetBoolean(),
+                        versionStatus: ReadVersionStatus(f),
                         fix: f.TryGetProperty("fix", out var fx) ? fx.GetString() : null,
                         name: f.TryGetProperty("name", out var nm) ? nm.GetString() : null
                     ))
@@ -1319,10 +1320,12 @@ public class CliApp
                         var cveDisplay = item.cve ?? "—";
                         var desc = item.name ?? "";
                         if (desc.Length > 50) desc = desc[..50] + "...";
-                        // 置信度：已验证才绿色勾，未验证一律黄色"候选"（防把误报当结论）
+                        var confidence = VulnerabilityConfidenceLabel(
+                            item.confirmed,
+                            item.versionStatus);
                         var confTag = item.confirmed
-                            ? "[green]✔已验证[/]"
-                            : "[yellow]⚠候选[/]";
+                            ? $"[green]{confidence}[/]"
+                            : $"[yellow]{confidence}[/]";
                         AnsiConsole.MarkupLine($"  [grey]├─[/] [teal]{Escape(cveDisplay)}[/] {cvssStr} {confTag} [grey]— {Escape(desc)}[/]");
                     }
                     AnsiConsole.WriteLine();
@@ -1360,7 +1363,7 @@ public class CliApp
                     };
                     foreach (var p in openPorts.Take(3))
                         if (portAdvice.TryGetValue(p, out var advice))
-                            uniqueFixes.Add((p, "?", $"端口 {p}", "low", double.NaN, "内置库", false, advice, (string?)null));
+                            uniqueFixes.Add((p, "?", $"端口 {p}", "low", double.NaN, "内置库", false, "unknown", advice, (string?)null));
                 }
 
                 if (uniqueFixes.Count > 0)
@@ -1474,6 +1477,35 @@ public class CliApp
         "medium" => "中危漏洞",
         _ => "低危漏洞"
     };
+
+    internal static string VulnerabilityConfidenceLabel(
+        bool confirmed,
+        string? versionStatus)
+    {
+        if (confirmed) return "✔已验证";
+
+        return versionStatus?.Trim().ToLowerInvariant() switch
+        {
+            "verified" => "⚠候选（版本已验证）",
+            "unverified" => "⚠候选（版本未验证）",
+            _ => "⚠候选（版本未知）"
+        };
+    }
+
+    private static string ReadVersionStatus(JsonElement finding)
+    {
+        if (finding.TryGetProperty("versionStatus", out var status)
+            && status.ValueKind == JsonValueKind.String)
+        {
+            return status.GetString() ?? "unknown";
+        }
+
+        return finding.TryGetProperty("versionVerified", out var verified)
+            && verified.ValueKind is JsonValueKind.True or JsonValueKind.False
+            && verified.GetBoolean()
+                ? "verified"
+                : "unknown";
+    }
 
     // AGENT — 使用配置文件中的模型
     // ========================================

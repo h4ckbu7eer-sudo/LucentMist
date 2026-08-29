@@ -42,6 +42,7 @@ public class ReportGenerator
         public double? Cvss { get; set; }
         public string Source { get; set; } = "";
         public bool Confirmed { get; set; }
+        public string VersionStatus { get; set; } = "unknown";
         public string Banner { get; set; } = "";
         public string VerificationDetail { get; set; } = "";
         public string Description { get; set; } = "";
@@ -58,6 +59,7 @@ public class ReportGenerator
         Cvss = finding.TryGetProperty("cvss", out var cvss) && cvss.TryGetDouble(out var score) ? score : null,
         Source = finding.TryGetProperty("source", out var source) ? source.GetString() ?? "" : "",
         Confirmed = finding.TryGetProperty("confirmed", out var confirmed) && confirmed.GetBoolean(),
+        VersionStatus = ReadVersionStatus(finding),
         Banner = finding.TryGetProperty("banner", out var banner) ? banner.GetString() ?? "" : "",
         VerificationDetail = finding.TryGetProperty("verificationDetail", out var detail) ? detail.GetString() ?? "" : "",
         Description = finding.TryGetProperty("name", out var name) ? name.GetString() ?? "" : "",
@@ -166,7 +168,7 @@ public class ReportGenerator
                     CsvEscape(f.Target),
                     f.Port,
                     CsvEscape(f.Service),
-                    CsvEscape(f.Confirmed ? "已验证" : "候选"),
+                    CsvEscape(ConfidenceLabel(f)),
                     CsvEscape(string.IsNullOrWhiteSpace(f.Cve) ? "-" : f.Cve),
                     CsvEscape(SafeZhRisk(f.Risk)),
                     CsvEscape(f.Cvss?.ToString("F1", System.Globalization.CultureInfo.InvariantCulture) ?? "N/A"),
@@ -602,8 +604,40 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
             ? $"CVSS {score.ToString("F1", System.Globalization.CultureInfo.InvariantCulture)}"
             : "CVSS N/A";
 
-    private static string ConfidenceLabel(VulnFinding finding) =>
-        finding.Confirmed ? "✔ 已验证" : "⚠ 候选";
+    internal static string ConfidenceLabel(VulnFinding finding)
+    {
+        if (finding.Confirmed) return "✔ 已验证";
+
+        return NormalizeVersionStatus(finding.VersionStatus) switch
+        {
+            "verified" => "⚠ 候选（版本已验证）",
+            "unverified" => "⚠ 候选（版本未验证）",
+            _ => "⚠ 候选（版本未知）"
+        };
+    }
+
+    private static string ReadVersionStatus(JsonElement finding)
+    {
+        if (finding.TryGetProperty("versionStatus", out var status)
+            && status.ValueKind == JsonValueKind.String)
+        {
+            return NormalizeVersionStatus(status.GetString());
+        }
+
+        return finding.TryGetProperty("versionVerified", out var verified)
+            && verified.ValueKind is JsonValueKind.True or JsonValueKind.False
+            && verified.GetBoolean()
+                ? "verified"
+                : "unknown";
+    }
+
+    private static string NormalizeVersionStatus(string? status) =>
+        status?.Trim().ToLowerInvariant() switch
+        {
+            "verified" => "verified",
+            "unverified" => "unverified",
+            _ => "unknown"
+        };
 
     private static string NormalizeRisk(string risk) =>
         (risk ?? "").Trim().ToLowerInvariant() switch
