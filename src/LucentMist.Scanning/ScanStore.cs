@@ -162,7 +162,7 @@ public class ScanStore : IScanTaskReader
         return rec;
     }
 
-    public async Task<ScanTaskRecord?> GetAsync(string id)
+    public async Task<ScanTaskRecord?> GetAsync(string id, CancellationToken ct = default)
     {
         using var conn = Open();
         using var cmd = conn.CreateCommand();
@@ -173,8 +173,8 @@ public class ScanStore : IScanTaskReader
             """;
         cmd.Parameters.AddWithValue("$id", id);
 
-        using var reader = await cmd.ExecuteReaderAsync();
-        if (!await reader.ReadAsync()) return null;
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        if (!await reader.ReadAsync(ct)) return null;
         return ReadRecord(reader);
     }
 
