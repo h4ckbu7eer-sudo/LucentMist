@@ -194,3 +194,32 @@ The local Windows Docker path was also attempted but did not complete: a direct
 60-second sample downloaded 1,626,944 of 29,752,807 bytes from one layer, averaging
 26,829 bytes/second. The local result is recorded as a network timeout, not a product
 success. The GitHub-hosted run above is the successful deployment evidence.
+
+## 6. First Direction A Execution Material
+
+Date: 2026-08-29
+
+The first prerequisite for the report-usability protocol was executed against an
+isolated Docker `/29` using the published `0.9.4` CLI image. Three real services were
+started temporarily and removed after the run:
+
+| Target | Observed service | Report result |
+|---|---|---|
+| `172.30.0.9:22` | Ubuntu 22.04 OpenSSH 8.9p1 | CVE-2023-38408 candidate; upgrade/verification guidance |
+| `172.30.0.10:80` | nginx HTTP | Open HTTP exposure with plain-protocol guidance |
+| `172.30.0.11:443` | nginx TLS, seven-day self-signed certificate | TLS subject/issuer and six-day expiry warning |
+
+LucentMist completed the report run with `3/6` online devices, three open ports, and
+one vulnerability candidate. The rendered artifact is
+[validation-report.html](validation-report.html); reproducible target definitions are
+under [validation-kit/controlled-targets](validation-kit/controlled-targets/README.md).
+The scanner image lacked a `ping` executable, so discovery recorded ICMP warnings and
+used TCP fallback to find the three intended targets. The final report remained
+`completed`; this controlled run is evidence about report content, not a claim that
+all discovery environments are equivalent.
+
+The facilitator-ready [interview script](validation-kit/interview-script.md) and
+[report review rubric](validation-kit/report-review-rubric.md) are now available.
+No non-contributor has yet been interviewed or observed using the report. Direction A
+demand and non-expert usability therefore remain **pending recruitment**; this kit is
+execution material, not fabricated user evidence.

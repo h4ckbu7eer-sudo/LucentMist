@@ -52,30 +52,51 @@ code{background:var(--surface2);padding:.1rem .4rem;border-radius:3px;font-size:
 .badge-low{background:rgba(148,163,184,.1);color:#94a3b8}
 .fix-cell{font-size:.78rem;color:#94a3b8;max-width:250px}
 .safe-msg{color:#4ade80;text-align:center;padding:2rem}
+.incomplete-msg{color:#fbbf24;text-align:center;padding:2rem;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.22);border-radius:10px}
+.scan-status{margin:1.5rem 0;padding:1rem 1.2rem;border-radius:10px;border:1px solid;font-size:.88rem}.scan-status ul{margin:.6rem 0 0 1.2rem}.scan-notes{margin-top:.7rem;color:#cbd5e1}.status-title{font-weight:800;margin-bottom:.25rem}.status-completed{color:#4ade80;background:rgba(74,222,128,.08);border-color:rgba(74,222,128,.25)}.status-partial,.status-no_targets,.status-not_scanned,.status-running{color:#fbbf24;background:rgba(251,191,36,.08);border-color:rgba(251,191,36,.25)}.status-failed{color:#f87171;background:rgba(248,113,113,.08);border-color:rgba(248,113,113,.25)}
+.scope ul{margin-left:1.2rem;display:grid;gap:.45rem;color:#94a3b8}.scope strong{color:var(--text)}
+.tls-status{font-weight:700}.tls-valid{color:#4ade80}.tls-warning{color:#fbbf24}.tls-expired{color:#ef4444}
 .fix-list{display:flex;flex-direction:column;gap:.5rem}
 .fix-item{background:var(--surface);border:1px solid rgba(255,255,255,.05);border-radius:8px;padding:.8rem 1rem;font-size:.84rem;border-left:3px solid var(--cyan)}
 .fix-item::before{content:'🔧 '}
 footer{text-align:center;padding:2rem 0;color:var(--muted);font-size:.75rem;border-top:1px solid rgba(255,255,255,.04);margin-top:3rem}
-details{margin:.4rem 0}details summary{cursor:pointer;padding:.6rem .8rem;background:var(--surface2);border-radius:8px;font-weight:600;font-size:.85rem;user-select:none;list-style:none}details summary::before{content:'▶ ';font-size:.7rem;margin-right:.4rem}details[open] summary::before{content:'▼ '}details[open] summary{border-radius:8px 8px 0 0}details table{margin-top:0}details[open] table{margin-top:0}.nvd-link{color:var(--cyan);text-decoration:none;word-break:break-all;font-size:.78rem}.nvd-link:hover{text-decoration:underline;color:#5ee8d4}.filter-note{background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.2);border-radius:8px;padding:.6rem 1rem;font-size:.82rem;color:#fbbf24;margin-top:.5rem;text-align:center}@media(max-width:768px){.stats,.urgent-summary{grid-template-columns:repeat(2,1fr)}.urgent-grid{grid-template-columns:1fr}h1{font-size:1.5rem}}
+details{margin:.4rem 0}details summary{cursor:pointer;padding:.6rem .8rem;background:var(--surface2);border-radius:8px;font-weight:600;font-size:.85rem;user-select:none;list-style:none}details summary::before{content:'▶ ';font-size:.7rem;margin-right:.4rem}details[open] summary::before{content:'▼ '}details[open] summary{border-radius:8px 8px 0 0}details table{margin-top:0}details[open] table{margin-top:0}.nvd-link{color:var(--cyan);text-decoration:none;word-break:break-all;font-size:.78rem}.nvd-link:hover{text-decoration:underline;color:#5ee8d4}@media(max-width:768px){.stats,.urgent-summary{grid-template-columns:repeat(2,1fr)}.urgent-grid{grid-template-columns:1fr}h1{font-size:1.5rem}}
 </style></head><body><div class='container'>
-<header><h1>🌫️ LucentMist 扫描报告</h1><p class='meta'>127.0.0.1 · 2026-08-28 05:27:06 · 耗时 28.9s</p></header>
-<div class='stats'>
-  <div class='stat-card devices'><div class='val'>1</div><div class='lbl'>总设备</div></div>
-  <div class='stat-card online'><div class='val'>1</div><div class='lbl'>在线</div></div>
-  <div class='stat-card ports'><div class='val'>4</div><div class='lbl'>开放端口</div></div>
-  <div class='stat-card risk'><div class='val'>安全</div><div class='lbl'>综合风险</div></div>
+<header><h1>🌫️ LucentMist 扫描报告</h1><p class='meta'>172.30.0.8/29 · 2026-08-29 14:55:51 · 耗时 1.8s</p></header>
+<div class='scan-status status-completed'>
+  <div class='status-title'>✅ 扫描状态：已完成</div>
+  <div>已完成 3 台在线设备的端口与漏洞候选检测</div>
 </div>
+<div class='section scope'><h2>🧭 扫描范围与边界</h2>
+<ul><li><strong>目标发现：</strong>ICMP 存活探测；ICMP 不可用时由工具尝试常见 TCP 端口回退</li>
+<li><strong>TCP 端口：</strong>TCP 1-1000</li>
+<li><strong>漏洞检测：</strong>默认候选检测端口 22,80,135,139,445,3389,3306,6379,8080,2375；外部数据源优先，内置 Banner 规则兜底</li>
+<li><strong>能力边界：</strong>未扫描 UDP 和其余 TCP 端口；候选命中不能证明补丁状态或可利用性</li></ul></div>
+<div class='stats'>
+  <div class='stat-card devices'><div class='val'>6</div><div class='lbl'>总设备</div></div>
+  <div class='stat-card online'><div class='val'>3</div><div class='lbl'>在线</div></div>
+  <div class='stat-card ports'><div class='val'>3</div><div class='lbl'>开放端口</div></div>
+  <div class='stat-card risk'><div class='val'>高</div><div class='lbl'>综合风险</div></div>
+</div>
+<div class='section'><h2>🌐 网络暴露</h2><table><thead><tr><th>目标</th><th>端口</th><th>服务</th><th>状态</th><th>建议</th></tr></thead><tbody><tr><td>172.30.0.10</td><td><code>80</code></td><td>HTTP</td><td>open</td><td class='fix-cell'>明文协议；如非必需请关闭，或改用加密协议</td></tr><tr><td>172.30.0.11</td><td><code>443</code></td><td>HTTPS</td><td>open</td><td class='fix-cell'>确认业务必要性，并仅允许受信来源访问</td></tr><tr><td>172.30.0.9</td><td><code>22</code></td><td>SSH</td><td>open</td><td class='fix-cell'>管理入口；限制来源 IP，启用强认证和登录审计</td></tr></tbody></table></div>
+<div class='section'><h2>🔐 TLS 证书</h2><table><thead><tr><th>目标</th><th>端口</th><th>证书主体</th><th>签发者</th><th>到期时间</th><th>状态</th></tr></thead><tbody><tr><td>172.30.0.11</td><td><code>443</code></td><td>CN=validation-tls.local</td><td>CN=validation-tls.local</td><td>2026-09-05T14:55:21.0000000+00:00</td><td class='tls-status tls-warning'>⚠️ 6 天后到期</td></tr></tbody></table></div>
 
 <div class='urgent-summary'>
   <div class='sum-card severe'><div class='val'>0</div><div class='lbl'>🔴 严重</div></div>
-  <div class='sum-card high'><div class='val'>0</div><div class='lbl'>🟡 高危</div></div>
+  <div class='sum-card high'><div class='val'>1</div><div class='lbl'>🟡 高危</div></div>
   <div class='sum-card medium'><div class='val'>0</div><div class='lbl'>🟢 中危</div></div>
   <div class='sum-card low'><div class='val'>0</div><div class='lbl'>⚪ 低危</div></div>
-  <div class='sum-card total'><div class='val'>0</div><div class='lbl'>📊 相关</div></div>
+  <div class='sum-card total'><div class='val'>1</div><div class='lbl'>📊 相关</div></div>
 </div>
-
-<div class='section'><h2>📋 漏洞详情</h2></div>
-<div class='section'><h2>🖥️ 设备清单</h2><table><thead><tr><th>IP</th><th>状态</th><th>OS</th></tr></thead><tbody><tr><td>127.0.0.1</td><td>✅ 在线</td><td>Windows</td></tr></tbody></table></div>
-
-<footer>LucentMist v0.9.3 · 2026-08-28 05:27:06 · AI-Powered Network Security Scanner</footer>
+<div class='section'><h2>🚨 紧急漏洞</h2><div class='urgent-grid'><div class='urgent-card high'>
+                      <div class='urgent-badge'>🟡 高危</div>
+                      <div class='urgent-title'>CVE-2023-38408 — OpenSSH RCE</div>
+                      <div class='urgent-meta'>目标 <code>172.30.0.9</code> · 端口 <code>22</code> · SSH</div>
+                      <div class='urgent-meta'>CVSS 7.5 · ⚠ 候选 · 内置库</div>
+                      <div class='urgent-fix'>&#128295; 升级 OpenSSH 到 9.3p2+</div>
+                    </div></div></div>
+<div class='section'><h2>📋 漏洞详情</h2><details open><summary>🔴🟡 严重 + 高危漏洞 (1)</summary><table><thead><tr><th>目标</th><th>CVE</th><th>端口/服务</th><th>风险/CVSS</th><th>置信度</th><th>来源</th><th>说明</th><th>修复建议</th></tr></thead><tbody><tr class='row-high'><td><code>172.30.0.9</code></td><td>CVE-2023-38408</td><td><code>22</code> SSH</td><td><span class='badge badge-high'>🟡 高危</span><br>CVSS 7.5</td><td>⚠ 候选</td><td>内置库</td><td>OpenSSH RCE 未内置该 CVE 验证逻辑</td><td class='fix-cell'>&#128295; 升级 OpenSSH 到 9.3p2+</td></tr></tbody></table></details></div>
+<div class='section'><h2>🖥️ 设备清单</h2><table><thead><tr><th>IP</th><th>状态</th><th>OS</th></tr></thead><tbody><tr><td>172.30.0.10</td><td>✅ 在线</td><td>未知 (不可达)</td></tr><tr><td>172.30.0.11</td><td>✅ 在线</td><td>未知 (不可达)</td></tr><tr><td>172.30.0.9</td><td>✅ 在线</td><td>未知 (不可达)</td></tr></tbody></table></div>
+<div class='section'><h2>🛠️ 优先修复操作</h2><div class='fix-list'><div class='fix-item'>&#128295; 升级 OpenSSH 到 9.3p2+</div></div></div>
+<footer>LucentMist v0.9.4 · 2026-08-29 14:55:51 · AI-Powered Network Security Scanner</footer>
 </div></body></html>

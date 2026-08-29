@@ -1,5 +1,10 @@
 # Direction A Validation Protocols
 
+Execution status on 2026-08-29: the first controlled report and facilitator kit are
+ready in [validation-kit](validation-kit/README.md), but no independent participant
+has yet been recruited. Product demand and report usability therefore remain
+**unvalidated**, not passed.
+
 Direction A: a lightweight exposure self-check tool for non-security experts.
 
 The value proposition to validate:
