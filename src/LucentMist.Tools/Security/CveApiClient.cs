@@ -68,21 +68,57 @@ public class CveApiClient
             }
         }
 
-        // API 全部无结果 → 只有抓到具体版本号才回退内置库匹配
-        // 绝不按纯端口回退，防止"445 开放就报 EternalBlue"这类系统性误报
-        if (results.Count == 0 && !string.IsNullOrWhiteSpace(version))
-        {
-            foreach (var cve in CveDatabase.Match(port, version))
-            {
-                results.Add(new CveDetail(cve.Cve, cve.Name,
-                    cve.Risk switch { "critical" => 9.8, "high" => 7.5, "medium" => 5.0, _ => 3.0 },
-                    "内置库", cve.Fix));
-            }
-        }
+        // Keyword APIs do not prove that the observed version is affected. Exclude
+        // only mismatches that the local banner rules can prove; every retained
+        // external result remains explicitly version-unverified at the finding layer.
+        results = FilterExternalResultsByBanner(port, version, results);
 
         Cache[cacheKey] = (DateTime.UtcNow.Add(CacheTtl), results);
         PruneCache();
         return results;
+    }
+
+    internal static List<CveDetail> FilterExternalResultsByBanner(
+        int port,
+        string? banner,
+        IEnumerable<CveDetail> externalResults)
+    {
+        if (string.IsNullOrWhiteSpace(banner))
+            return externalResults.ToList();
+
+        var matchedIds = CveDatabase.Match(port, banner)
+            .Select(entry => entry.Cve)
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        return externalResults
+            .Where(detail =>
+            {
+                var known = CveDatabase.FindByCve(detail.Cve);
+                if (known == null || known.Port != port || !known.CanMatchBanner)
+                    return true;
+                if (!BannerCanDecideKnownRule(known, banner))
+                    return true;
+                return matchedIds.Contains(detail.Cve);
+            })
+            .ToList();
+    }
+
+    private static bool BannerCanDecideKnownRule(
+        CveDatabase.CveEntry entry,
+        string banner)
+    {
+        if (entry.MatchBanner.Contains('<'))
+        {
+            var product = entry.MatchBanner.Split('<', 2)[0].Trim();
+            return banner.Contains(product, StringComparison.OrdinalIgnoreCase)
+                && CveDatabase.ExtractVersion(banner) != null;
+        }
+
+        // A negotiated SMB dialect can rule between the built-in SMBv1/SMBv3
+        // candidates. Other negative substring matches are not strong enough to
+        // discard an external result.
+        return entry.MatchBanner.StartsWith("SMBv", StringComparison.OrdinalIgnoreCase)
+            && banner.Contains("SMBv", StringComparison.OrdinalIgnoreCase);
     }
 
     private static void PruneCache()
