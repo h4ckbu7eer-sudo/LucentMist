@@ -838,66 +838,18 @@ public class CliApp
                         report.Warnings.Add("目标可能离线，也可能屏蔽了 ICMP 和回退探测；本报告不是安全结论");
                     }
 
-                    // 2. 对在线设备做端口扫描和 OS 识别
-                    foreach (var ip in devices)
+                    // 2. 对在线设备做有界并行端口、TLS 和 OS 采集。
+                    var deviceResults = await ReportDeviceCollector.CollectAsync(
+                        devices,
+                        (ip, ct) => ScanReportDeviceAsync(ip, lf, sslTool, ct),
+                        GetReportConcurrency());
+                    foreach (var deviceResult in deviceResults)
                     {
-                        // Port scan
-                        var portTool = new PortScanTool(lf.CreateLogger<PortScanTool>());
-                        var portResult = await portTool.ExecuteAsync(new ToolArguments { ["target"] = ip, ["ports"] = "1-1000", ["timeout_ms"] = "2000" });
-                        if (portResult.Success)
-                        {
-                            try
-                            {
-                                using var ppd = JsonDocument.Parse(portResult.Data);
-                                var ppr = ppd.RootElement;
-                                if (ppr.TryGetProperty("openPorts", out var ops))
-                                {
-                                    foreach (var p in ops.EnumerateArray())
-                                    {
-                                        var port = p.GetInt32();
-                                        report.OpenPorts.Add(new() { Target = ip, Port = port, Service = PortHelper.GetServiceName(port) ?? "?", State = "open" });
-                                    }
-                                }
-                            }
-                            catch (Exception ex)
-                            {
-                                Logger.LogWarning(ex, "Failed to parse port scan result for report");
-                                report.Warnings.Add($"{ip}: 端口扫描结果无法解析");
-                            }
-                        }
-                        else
-                        {
-                            report.Warnings.Add($"{ip}: 端口扫描失败（{portResult.Error ?? "未知错误"}）");
-                        }
-
-                        // Only probe ports that conventionally carry TLS. This fills the
-                        // certificate section without repeating failed TLS handshakes on
-                        // every open port.
-                        await CollectSslInfoAsync(report, ip, sslTool);
-
-                        // OS fingerprint
-                        string osGuess = "";
-                        try
-                        {
-                            var osTool = new OsFingerprintTool();
-                            var osResult = await osTool.ExecuteAsync(new ToolArguments { ["target"] = ip, ["timeout_ms"] = "2000" });
-                            if (osResult.Success)
-                            {
-                                using var od = JsonDocument.Parse(osResult.Data);
-                                osGuess = od.RootElement.GetProperty("osFamily").GetString() ?? "";
-                            }
-                            else
-                            {
-                                report.Notes.Add($"{ip}: OS 指纹未识别，不影响端口与漏洞候选结论");
-                            }
-                        }
-                        catch (Exception ex)
-                        {
-                            Logger.LogWarning(ex, "Failed to detect OS fingerprint for report");
-                            report.Notes.Add($"{ip}: OS 指纹识别失败，不影响端口与漏洞候选结论");
-                        }
-
-                        report.Devices.Add(new() { Ip = ip, IsAlive = true, OsGuess = osGuess });
+                        report.Devices.Add(deviceResult.Device);
+                        report.OpenPorts.AddRange(deviceResult.OpenPorts);
+                        report.SslInfo.AddRange(deviceResult.SslInfo);
+                        report.Warnings.AddRange(deviceResult.Warnings);
+                        report.Notes.AddRange(deviceResult.Notes);
                     }
 
                     // 3. 对所有在线设备做有界并行漏洞候选检测。
@@ -945,7 +897,8 @@ public class CliApp
     private static async Task CollectSslInfoAsync(
         ReportGenerator.ScanReport report,
         string target,
-        SslCertificateTool sslTool)
+        SslCertificateTool sslTool,
+        CancellationToken cancellationToken = default)
     {
         var tlsPorts = report.OpenPorts
             .Where(port => port.Target == target && PortHelper.IsLikelyTlsPort(port.Port))
@@ -961,7 +914,7 @@ public class CliApp
                 ["target"] = target,
                 ["port"] = port.ToString(),
                 ["timeout_ms"] = "3000"
-            });
+            }, cancellationToken);
             if (!result.Success) continue;
 
             try
@@ -1004,6 +957,95 @@ public class CliApp
             }
         }
     }
+
+    private static async Task<ReportDeviceScanResult> ScanReportDeviceAsync(
+        string ip,
+        ILoggerFactory loggerFactory,
+        SslCertificateTool sslTool,
+        CancellationToken cancellationToken)
+    {
+        var local = new ReportGenerator.ScanReport();
+        var portTool = new PortScanTool(loggerFactory.CreateLogger<PortScanTool>());
+        var portResult = await portTool.ExecuteAsync(new ToolArguments
+        {
+            ["target"] = ip,
+            ["ports"] = "1-1000",
+            ["timeout_ms"] = "2000"
+        }, cancellationToken);
+        if (portResult.Success)
+        {
+            try
+            {
+                using var ppd = JsonDocument.Parse(portResult.Data);
+                if (ppd.RootElement.TryGetProperty("openPorts", out var openPorts))
+                {
+                    foreach (var item in openPorts.EnumerateArray())
+                    {
+                        var port = item.GetInt32();
+                        local.OpenPorts.Add(new ReportGenerator.PortEntry
+                        {
+                            Target = ip,
+                            Port = port,
+                            Service = PortHelper.GetServiceName(port) ?? "?",
+                            State = "open"
+                        });
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException)
+            {
+                Logger.LogWarning(ex, "Failed to parse port scan result for report");
+                local.Warnings.Add($"{ip}: 端口扫描结果无法解析");
+            }
+        }
+        else
+        {
+            local.Warnings.Add($"{ip}: 端口扫描失败（{portResult.Error ?? "未知错误"}）");
+        }
+
+        await CollectSslInfoAsync(local, ip, sslTool, cancellationToken);
+
+        var osGuess = "";
+        try
+        {
+            var osTool = new OsFingerprintTool();
+            var osResult = await osTool.ExecuteAsync(new ToolArguments
+            {
+                ["target"] = ip,
+                ["timeout_ms"] = "2000"
+            }, cancellationToken);
+            if (osResult.Success)
+            {
+                using var osDocument = JsonDocument.Parse(osResult.Data);
+                osGuess = osDocument.RootElement.GetProperty("osFamily").GetString() ?? "";
+            }
+            else
+            {
+                local.Notes.Add($"{ip}: OS 指纹未识别，不影响端口与漏洞候选结论");
+            }
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            Logger.LogWarning(ex, "Failed to detect OS fingerprint for report");
+            local.Notes.Add($"{ip}: OS 指纹识别失败，不影响端口与漏洞候选结论");
+        }
+
+        return new ReportDeviceScanResult(
+            new ReportGenerator.DeviceEntry { Ip = ip, IsAlive = true, OsGuess = osGuess },
+            local.OpenPorts,
+            local.SslInfo,
+            local.Warnings,
+            local.Notes);
+    }
+
+    private static int GetReportConcurrency() =>
+        int.TryParse(Environment.GetEnvironmentVariable("LMIST_REPORT_CONCURRENCY"), out var configured)
+            ? Math.Clamp(configured, 1, 8)
+            : 4;
 
     private static async Task<ReportGenerator.VulnSummary?> CollectVulnerabilityInfoAsync(
         ReportGenerator.ScanReport report,
