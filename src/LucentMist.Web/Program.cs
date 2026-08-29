@@ -31,6 +31,7 @@ builder.Services.AddHttpClient("AgentApi", client =>
     client.BaseAddress = new Uri(
         Environment.GetEnvironmentVariable("LMIST_API_URL") ?? "http://localhost:5050");
     client.Timeout = TimeSpan.FromMinutes(5);
+    client.DefaultRequestHeaders.Add("X-LMist-Initiator", "web");
     var apiToken = Environment.GetEnvironmentVariable("LMIST_API_TOKEN");
     if (!string.IsNullOrWhiteSpace(apiToken))
         client.DefaultRequestHeaders.Authorization =

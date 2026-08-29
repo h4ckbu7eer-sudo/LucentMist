@@ -22,17 +22,20 @@ public class AgentController : ControllerBase
     private readonly AgentSessionStore _sessions;
     private readonly ILogger<AgentController> _logger;
     private readonly ILoggerFactory _loggerFactory;
+    private readonly ScanStore _scanStore;
 
     public AgentController(
         ILLMProvider llm,
         ToolRegistry tools,
         AgentSessionStore sessions,
+        ScanStore scanStore,
         ILogger<AgentController> logger,
         ILoggerFactory loggerFactory)
     {
         _llm = llm;
         _tools = tools;
         _sessions = sessions;
+        _scanStore = scanStore;
         _logger = logger;
         _loggerFactory = loggerFactory;
     }
@@ -71,8 +74,18 @@ public class AgentController : ControllerBase
                 : request.Message;
 
             var systemPrompt = LoadSystemPrompt();
+            var auditInitiator = Request.Headers["X-LMist-Initiator"].ToString()
+                .Equals("web", StringComparison.OrdinalIgnoreCase)
+                    ? "web-agent"
+                    : "api-agent";
 
-            var engine = new ReActEngine(_llm, _tools, systemPrompt, _loggerFactory.CreateLogger<ReActEngine>())
+            var engine = new ReActEngine(
+                _llm,
+                _tools,
+                systemPrompt,
+                _loggerFactory.CreateLogger<ReActEngine>(),
+                new SqliteNetworkAuditSink(_scanStore, auditInitiator),
+                auditInitiator)
             {
                 MaxRounds = 5,
             };

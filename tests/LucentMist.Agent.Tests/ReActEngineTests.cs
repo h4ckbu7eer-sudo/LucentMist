@@ -1,5 +1,6 @@
 using LucentMist.Agent;
 using LucentMist.Agent.LLM;
+using LucentMist.Core.Compliance;
 using LucentMist.Tools;
 using LucentMist.Tools.Scanning;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -581,5 +582,69 @@ public class ReActEngineTests
 
         Assert.True(result.Success);
         Assert.Equal(21, result.Observations.Count); // 1 port_scan + 20 service_identify
+    }
+
+    [Fact]
+    public async Task RunAsync_NetworkTool_WritesBoundedLifecycleAudit()
+    {
+        var sink = new CapturingAuditSink();
+        var registry = new ToolRegistry().Register(new SuccessfulNetworkTool());
+        var llm = CreateMockLLM(
+            new ReActStep
+            {
+                Action = "safe_network_tool",
+                ActionInput = "{\"target\":\"192.168.1.25\"}"
+            },
+            new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(
+            llm.Object,
+            registry,
+            "prompt",
+            NullLogger<ReActEngine>.Instance,
+            sink,
+            "web-agent");
+
+        var result = await engine.RunAsync("test");
+
+        Assert.True(result.Success);
+        Assert.Collection(
+            sink.Events,
+            item =>
+            {
+                Assert.Equal("queued", item.Status);
+                Assert.Equal("web-agent", item.Initiator);
+                Assert.Equal("192.168.1.25", item.Target);
+            },
+            item =>
+            {
+                Assert.Equal("completed", item.Status);
+                Assert.DoesNotContain("sensitive-result", item.Summary);
+            });
+        Assert.Equal(sink.Events[0].EventId, sink.Events[1].EventId);
+    }
+
+    private sealed class SuccessfulNetworkTool : INetworkTargetTool
+    {
+        public string Name => "safe_network_tool";
+        public string Description => "test";
+        public ToolParameter[] Parameters => [];
+
+        public Task<ToolResult> ExecuteAsync(
+            ToolArguments args,
+            CancellationToken cancellationToken = default) =>
+            Task.FromResult(ToolResult.Ok("sensitive-result", TimeSpan.Zero));
+    }
+
+    private sealed class CapturingAuditSink : INetworkAuditSink
+    {
+        public List<NetworkAuditEvent> Events { get; } = [];
+
+        public Task RecordAsync(
+            NetworkAuditEvent auditEvent,
+            CancellationToken ct = default)
+        {
+            Events.Add(auditEvent);
+            return Task.CompletedTask;
+        }
     }
 }

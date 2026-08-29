@@ -1732,8 +1732,13 @@ public class CliApp
 
         var toolRegistry = ToolRegistryFactory.CreateDefault(lf);
 
-        var engine = new ReActEngine(llm, toolRegistry, systemPrompt,
-            lf.CreateLogger<ReActEngine>())
+        var engine = new ReActEngine(
+            llm,
+            toolRegistry,
+            systemPrompt,
+            lf.CreateLogger<ReActEngine>(),
+            new SqliteNetworkAuditSink(CreateScanStore(), "cli-agent"),
+            "cli-agent")
         { MaxRounds = 5 };
 
         try
