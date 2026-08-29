@@ -275,6 +275,22 @@ public class SslCertificateToolTests
             "UTC+08-test",
             "UTC+08-test");
         var nowUtc = new DateTime(2030, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=expiry-boundary.invalid",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        using var certificate = request.CreateSelfSigned(
+            new DateTimeOffset(2029, 12, 30, 0, 0, 0, TimeSpan.Zero),
+            new DateTimeOffset(2030, 1, 1, 7, 0, 0, TimeSpan.FromHours(8)));
+
+        var certificateExpiration = SslCertificateTool.EvaluateExpiration(
+            certificate.NotAfter,
+            nowUtc);
+
+        Assert.True(certificateExpiration.IsExpired);
+
         // 07:00 in UTC+8 is 23:00 UTC on the previous day. A direct comparison
         // against 00:00 UTC incorrectly treats the 07:00 wall-clock value as future.
         var certificateLocalNotAfter = new DateTime(
