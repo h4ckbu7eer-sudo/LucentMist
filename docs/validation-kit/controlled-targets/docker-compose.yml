@@ -24,7 +24,7 @@ services:
 
   report-generator:
     profiles: ["report"]
-    image: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
+    image: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5
     command:
       - dotnet
       - cli/lmist.dll
@@ -46,4 +46,3 @@ networks:
     ipam:
       config:
         - subnet: 172.30.0.0/24
-

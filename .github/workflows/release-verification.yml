@@ -6,12 +6,11 @@ on:
       image:
         description: Published GHCR image to verify
         required: true
-        default: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
+        default: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.5
         type: string
       expected_manifest_digest:
         description: Expected immutable manifest digest
         required: true
-        default: sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af
         type: string
 
 permissions:

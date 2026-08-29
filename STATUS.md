@@ -1,12 +1,10 @@
 # LucentMist 项目状态
 
-> 最后更新: 2026-08-29
+> 最后更新: 2026-08-30
 
-## 当前发布版本: v0.9.4
+## 当前发布版本: v0.9.5
 
-## main 开发版本: 0.9.5-dev
-
-## 整体状态: v0.9.4 已发布（本地、CI 与 GHCR 均已实证）
+## 整体状态: v0.9.5 发布验证进行中（本地门禁已通过，远端证据以发布说明为准）
 
 ```
 Phase 0 >>>>>>>>>>>>  需求分析
@@ -27,11 +25,11 @@ Phase 9 >>>>>>>>>>>>  项目复盘
 |------|------|:--:|
 | 编译 (Debug) | 0 errors, 0 warnings | OK |
 | 编译 (Release) | 0 errors, 0 warnings | OK |
-| 测试 | 319/319 本地全量 passed | OK |
-| CI | Windows + Ubuntu + GHCR，run 39/run 41 success；发布镜像验证 run 33257054498 success | OK |
-| Docker | GHCR `0.9.4` manifest 为 `sha256:11b2bd…`；远端 runner 拉取后 API health 返回 200 | OK |
+| 测试 | 336/336 本地全量 passed | OK |
+| CI | v0.9.5 tag 的 Windows、Ubuntu 与 GHCR 结果待远端运行 | PENDING |
+| Docker | GHCR `0.9.5` manifest 与独立拉取/health 验证待远端运行 | PENDING |
 | 扫描历史 | Web /scan/history 显示真实任务 | OK |
-| 文档 | 部署手册/技术设计/API/README 已对齐 v0.9.4 | OK |
+| 文档 | 部署手册/技术设计/API/README 已对齐 v0.9.5 | OK |
 
 ## LLM 配置
 
