@@ -25,6 +25,13 @@ public class ScanCoordinatorTests
             Assert.Equal(taskId, job!.TaskId);
             Assert.Equal("tcp", job.ScanType);
             Assert.Equal("80,443", job.Ports);
+
+            var audit = await store.ListAuditAsync();
+            var queued = Assert.Single(audit);
+            Assert.Equal(taskId, queued.EventId);
+            Assert.Equal(taskId, queued.ScanTaskId);
+            Assert.Equal("unknown", queued.Initiator);
+            Assert.Equal("queued", queued.Status);
         }
         finally
         {
@@ -116,6 +123,10 @@ public class ScanCoordinatorTests
                 coordinator.StartAsync("8.8.8.8", "tcp", "443"));
             Assert.Equal("PUBLIC_TARGET_AUTHORIZATION_REQUIRED", error.Code);
             Assert.Empty(await store.ListAsync(1, 10));
+            Assert.Contains(
+                await store.ListAuditAsync(),
+                item => item.Status == "rejected"
+                    && item.Summary == "PUBLIC_TARGET_AUTHORIZATION_REQUIRED");
 
             var taskId = await coordinator.StartAsync(
                 "8.8.8.8",
@@ -123,6 +134,11 @@ public class ScanCoordinatorTests
                 "443",
                 context: new ScanRequestContext("test", PublicTargetAuthorized: true));
             Assert.NotNull(await store.GetAsync(taskId));
+            Assert.Contains(
+                await store.ListAuditAsync(),
+                item => item.ScanTaskId == taskId
+                    && item.Initiator == "test"
+                    && item.Status == "queued");
         }
         finally
         {

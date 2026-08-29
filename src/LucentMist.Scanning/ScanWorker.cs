@@ -62,12 +62,12 @@ public sealed class ScanWorker : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            await TryMarkFailedAsync(req.TaskId, "服务关闭，任务未执行");
+            await TryMarkFailedAsync(req, "服务关闭，任务未执行", "canceled");
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "扫描任务执行崩溃: TaskId={TaskId}", req.TaskId);
-            await TryMarkFailedAsync(req.TaskId, ex.Message);
+            await TryMarkFailedAsync(req, "扫描执行异常");
         }
     }
 
@@ -86,19 +86,32 @@ public sealed class ScanWorker : BackgroundService
         finally
         {
             while (_coordinator.Reader.TryRead(out var pending))
-                await TryMarkFailedAsync(pending.TaskId, "服务关闭，队列中的任务未执行");
+                await TryMarkFailedAsync(pending, "服务关闭，队列中的任务未执行", "canceled");
         }
     }
 
-    private async Task TryMarkFailedAsync(string taskId, string error)
+    private async Task TryMarkFailedAsync(
+        ScanJob job,
+        string error,
+        string auditStatus = "failed")
     {
         try
         {
-            await _store.MarkFailedAsync(taskId, error);
+            if (await _store.MarkFailedAsync(job.TaskId, error))
+            {
+                await _store.AppendAuditAsync(
+                    job.TaskId,
+                    job.TaskId,
+                    job.Target,
+                    job.Initiator,
+                    job.ScanType,
+                    auditStatus,
+                    error);
+            }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "标记任务失败时再次出错: TaskId={TaskId}", taskId);
+            _logger.LogWarning(ex, "标记任务失败时再次出错: TaskId={TaskId}", job.TaskId);
         }
     }
 
@@ -130,7 +143,10 @@ public sealed class ScanWorker : BackgroundService
             if (outcome.Error != null)
             {
                 if (await _store.MarkFailedAsync(req.TaskId, outcome.Error))
+                {
+                    await AppendAuditTerminalAsync(req, "failed", outcome.Error);
                     await PublishTerminalAsync(req.TaskId, "failed", outcome.Error);
+                }
                 _logger.LogWarning("扫描失败: TaskId={TaskId}, Error={Error}", req.TaskId, outcome.Error);
                 return;
             }
@@ -138,20 +154,26 @@ public sealed class ScanWorker : BackgroundService
             var resultJson = outcome.ResultJson
                 ?? throw new InvalidOperationException("扫描成功但缺少结果");
             await PersistCompletedAndPublishAsync(
-                req.TaskId, outcome.TotalDevices, resultJson);
+                req.TaskId, outcome.TotalDevices, resultJson, req);
             _logger.LogInformation("扫描完成: TaskId={TaskId}, Alive={Alive}",
                 req.TaskId, outcome.TotalDevices);
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             if (await _store.MarkFailedAsync(req.TaskId, "扫描被取消"))
+            {
+                await AppendAuditTerminalAsync(req, "canceled", "扫描被取消");
                 await PublishTerminalAsync(req.TaskId, "failed", "扫描被取消");
+            }
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "扫描异常: TaskId={TaskId}", req.TaskId);
             if (await _store.MarkFailedAsync(req.TaskId, ex.Message))
+            {
+                await AppendAuditTerminalAsync(req, "failed", "扫描执行异常");
                 await PublishTerminalAsync(req.TaskId, "failed", ex.Message);
+            }
         }
         finally
         {
@@ -368,7 +390,8 @@ public sealed class ScanWorker : BackgroundService
     internal async Task PersistCompletedAndPublishAsync(
         string taskId,
         int totalDevices,
-        string resultJson)
+        string resultJson,
+        ScanJob? job = null)
     {
         if (!await _store.MarkCompletedAsync(taskId, totalDevices, resultJson))
         {
@@ -376,8 +399,26 @@ public sealed class ScanWorker : BackgroundService
             return;
         }
 
+        if (job != null)
+        {
+            await AppendAuditTerminalAsync(
+                job,
+                "completed",
+                $"扫描完成；发现设备 {totalDevices} 台");
+        }
+
         await PublishTerminalAsync(taskId, "completed", "扫描完成", resultJson);
     }
+
+    private Task AppendAuditTerminalAsync(ScanJob job, string status, string summary) =>
+        _store.AppendAuditAsync(
+            job.TaskId,
+            job.TaskId,
+            job.Target,
+            job.Initiator,
+            job.ScanType,
+            status,
+            summary);
 
     private async Task PublishTerminalAsync(
         string taskId,

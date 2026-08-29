@@ -28,22 +28,104 @@ public class CliApp
     public async Task<int> RunAsync(string[] args)
     {
         var command = args.Length > 0 ? args[0].ToLower() : "help";
-        return command switch
+        var commandArgs = args.Length > 0 ? args[1..] : [];
+        async Task<int> ExecuteAsync() => command switch
         {
-            "scan" => await ScanCommand(args[1..]),
-            "ssl-check" => await SslCheckCommand(args[1..]),
-            "os-fingerprint" => await OsFingerprintCommand(args[1..]),
-            "vuln-scan" => await VulnScanCommand(args[1..]),
-            "vuln-detail" => await VulnDetailCommand(args[1..]),
-            "sirius" => await SiriusCommand(args[1..]),
-            "sirius-scan" => await SiriusScanCommand(args[1..]),
-            "report" => await ReportCommand(args[1..]),
-            "agent" => await AgentCommand(args[1..]),
-            "config" => await ConfigCommand(args[1..]),
+            "scan" => await ScanCommand(commandArgs),
+            "ssl-check" => await SslCheckCommand(commandArgs),
+            "os-fingerprint" => await OsFingerprintCommand(commandArgs),
+            "vuln-scan" => await VulnScanCommand(commandArgs),
+            "vuln-detail" => await VulnDetailCommand(commandArgs),
+            "sirius" => await SiriusCommand(commandArgs),
+            "sirius-scan" => await SiriusScanCommand(commandArgs),
+            "report" => await ReportCommand(commandArgs),
+            "agent" => await AgentCommand(commandArgs),
+            "audit" => await AuditCommand(commandArgs),
+            "config" => await ConfigCommand(commandArgs),
             "status" => StatusCommand(),
             "help" => HelpCommand(),
             _ => UnknownCommand(command)
         };
+
+        if (!TryGetAuditedTarget(command, commandArgs, out var target, out var scanType))
+            return await ExecuteAsync();
+
+        var store = CreateScanStore();
+        var eventId = Guid.NewGuid().ToString("N");
+        await store.AppendAuditAsync(
+            eventId, null, target, "cli", scanType, "queued", "CLI 扫描请求已接收");
+        try
+        {
+            var exitCode = await ExecuteAsync();
+            await store.AppendAuditAsync(
+                eventId,
+                null,
+                target,
+                "cli",
+                scanType,
+                exitCode == 0 ? "completed" : "failed",
+                exitCode == 0 ? "CLI 命令完成" : $"CLI 命令退出码 {exitCode}");
+            return exitCode;
+        }
+        catch (OperationCanceledException)
+        {
+            await store.AppendAuditAsync(
+                eventId, null, target, "cli", scanType, "canceled", "CLI 命令被取消");
+            throw;
+        }
+        catch
+        {
+            await store.AppendAuditAsync(
+                eventId, null, target, "cli", scanType, "failed", "CLI 命令异常终止");
+            throw;
+        }
+    }
+
+    private static ScanStore CreateScanStore() => new(
+        Environment.GetEnvironmentVariable("LMIST_DB") ?? Path.Combine("data", "lucentmist.db"));
+
+    private static bool TryGetAuditedTarget(
+        string command,
+        string[] args,
+        out string target,
+        out string scanType)
+    {
+        target = "";
+        scanType = command;
+        if (command == "report")
+        {
+            for (var i = 0; i < args.Length; i++)
+            {
+                if (args[i] == "--target" && i + 1 < args.Length) target = args[i + 1];
+                else if (args[i].StartsWith("--target=", StringComparison.Ordinal))
+                    target = args[i].Split('=', 2)[1];
+            }
+            return !string.IsNullOrWhiteSpace(target);
+        }
+
+        if (command is "ssl-check" or "os-fingerprint" or "vuln-scan" or "sirius-scan")
+        {
+            target = args.FirstOrDefault(argument => !argument.StartsWith('-')) ?? "";
+            return !string.IsNullOrWhiteSpace(target);
+        }
+
+        if (command != "scan") return false;
+
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] is "--ports" or "-p" or "--service" or "-s")
+            {
+                i++;
+                continue;
+            }
+            if (!args[i].StartsWith('-'))
+            {
+                target = args[i];
+                break;
+            }
+        }
+        scanType = args.Contains("--udp", StringComparer.OrdinalIgnoreCase) ? "udp" : "scan";
+        return !string.IsNullOrWhiteSpace(target);
     }
 
     // ========================================
@@ -1997,6 +2079,53 @@ public class CliApp
     }
 
     // ========================================
+    // AUDIT
+    // ========================================
+    private static async Task<int> AuditCommand(string[] args)
+    {
+        var limit = 50;
+        for (var i = 0; i < args.Length; i++)
+        {
+            if (args[i] == "--limit" && i + 1 < args.Length)
+            {
+                if (!int.TryParse(args[++i], out limit) || limit is < 1 or > 1000)
+                    return CliError("--limit 必须是 1-1000 的整数");
+            }
+            else if (args[i].StartsWith("--limit=", StringComparison.Ordinal)
+                && (!int.TryParse(args[i].Split('=', 2)[1], out limit) || limit is < 1 or > 1000))
+            {
+                return CliError("--limit 必须是 1-1000 的整数");
+            }
+        }
+
+        var records = await CreateScanStore().ListAuditAsync(limit);
+        var table = new Table()
+            .BorderColor(Color.Grey)
+            .AddColumn("UTC 时间")
+            .AddColumn("发起者")
+            .AddColumn("目标")
+            .AddColumn("类型")
+            .AddColumn("状态")
+            .AddColumn("摘要");
+        foreach (var record in records)
+        {
+            table.AddRow(
+                record.OccurredAt.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                Escape(record.Initiator),
+                Escape(record.Target),
+                Escape(record.ScanType),
+                Escape(record.Status),
+                Escape(record.Summary));
+        }
+
+        AnsiConsole.Write(new Rule("[teal]扫描审计记录[/]"));
+        AnsiConsole.Write(table);
+        if (records.Count == 0)
+            AnsiConsole.MarkupLine("[grey]暂无扫描审计记录[/]");
+        return 0;
+    }
+
+    // ========================================
     // STATUS
     // ========================================
     private static int StatusCommand()
@@ -2052,6 +2181,7 @@ public class CliApp
         table.AddRow("[yellow]sirius[/]", "Sirius 漏洞", "[grey]lmist sirius summary|target|vuln|status[/]");
         table.AddRow("[yellow]report[/]", "生成报告", "[grey]lmist report --format html[/]");
         table.AddRow("[yellow]agent[/]", "AI 智能体对话", "[grey]lmist agent \"分析网络\"[/]");
+        table.AddRow("[yellow]audit[/]", "查看扫描审计", "[grey]lmist audit --limit 50[/]");
         table.AddRow("[yellow]config[/]", "查看/切换配置", "[grey]lmist config --set Model=qwen2.5:7b[/]");
         table.AddRow("[yellow]status[/]", "系统状态", "[grey]lmist status[/]");
         table.AddRow("[yellow]help[/]", "帮助信息", "[grey]lmist help[/]");

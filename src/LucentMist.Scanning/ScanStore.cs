@@ -47,6 +47,21 @@ public class ScanStore : IScanTaskReader
                 error_message  TEXT
             );
             CREATE INDEX IF NOT EXISTS idx_scan_tasks_created ON scan_tasks(created_at);
+
+            CREATE TABLE IF NOT EXISTS scan_audit (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                event_id       TEXT NOT NULL,
+                scan_task_id   TEXT,
+                occurred_at    TEXT NOT NULL,
+                target         TEXT NOT NULL,
+                initiator      TEXT NOT NULL,
+                scan_type      TEXT NOT NULL,
+                status         TEXT NOT NULL
+                               CHECK (status IN ('queued', 'completed', 'failed', 'rejected', 'canceled')),
+                summary        TEXT NOT NULL DEFAULT ''
+            );
+            CREATE INDEX IF NOT EXISTS idx_scan_audit_occurred ON scan_audit(occurred_at);
+            CREATE INDEX IF NOT EXISTS idx_scan_audit_event ON scan_audit(event_id);
             """;
         cmd.ExecuteNonQuery();
 
@@ -188,6 +203,85 @@ public class ScanStore : IScanTaskReader
         cmd.Parameters.AddWithValue("$heartbeat_at", rec.CreatedAt.ToString("O"));
         await cmd.ExecuteNonQueryAsync();
         return rec;
+    }
+
+    public async Task AppendAuditAsync(
+        string eventId,
+        string? scanTaskId,
+        string target,
+        string initiator,
+        string scanType,
+        string status,
+        string summary = "",
+        CancellationToken ct = default)
+    {
+        var validStatus = status is "queued" or "completed" or "failed" or "rejected" or "canceled";
+        if (!validStatus) throw new ArgumentOutOfRangeException(nameof(status));
+
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO scan_audit
+                (event_id, scan_task_id, occurred_at, target, initiator, scan_type, status, summary)
+            VALUES
+                ($eventId, $scanTaskId, $occurredAt, $target, $initiator, $scanType, $status, $summary)
+            """;
+        cmd.Parameters.AddWithValue("$eventId", CleanAuditValue(eventId, 64));
+        cmd.Parameters.AddWithValue("$scanTaskId", (object?)scanTaskId ?? DBNull.Value);
+        cmd.Parameters.AddWithValue("$occurredAt", DateTime.UtcNow.ToString("O"));
+        cmd.Parameters.AddWithValue("$target", CleanAuditValue(target, 253));
+        cmd.Parameters.AddWithValue("$initiator", CleanAuditValue(initiator, 64));
+        cmd.Parameters.AddWithValue("$scanType", CleanAuditValue(scanType, 32));
+        cmd.Parameters.AddWithValue("$status", status);
+        cmd.Parameters.AddWithValue("$summary", CleanAuditValue(summary, 256));
+        await cmd.ExecuteNonQueryAsync(ct);
+    }
+
+    public async Task<IReadOnlyList<ScanAuditRecord>> ListAuditAsync(
+        int limit = 100,
+        CancellationToken ct = default)
+    {
+        limit = Math.Clamp(limit, 1, 1000);
+        var records = new List<ScanAuditRecord>();
+        using var conn = Open();
+        using var cmd = conn.CreateCommand();
+        cmd.CommandText = """
+            SELECT id, event_id, scan_task_id, occurred_at, target,
+                   initiator, scan_type, status, summary
+            FROM scan_audit
+            ORDER BY id DESC
+            LIMIT $limit
+            """;
+        cmd.Parameters.AddWithValue("$limit", limit);
+        using var reader = await cmd.ExecuteReaderAsync(ct);
+        while (await reader.ReadAsync(ct))
+        {
+            records.Add(new ScanAuditRecord
+            {
+                Id = reader.GetInt64(0),
+                EventId = reader.GetString(1),
+                ScanTaskId = reader.IsDBNull(2) ? null : reader.GetString(2),
+                OccurredAt = DateTime.Parse(
+                    reader.GetString(3),
+                    null,
+                    System.Globalization.DateTimeStyles.RoundtripKind),
+                Target = reader.GetString(4),
+                Initiator = reader.GetString(5),
+                ScanType = reader.GetString(6),
+                Status = reader.GetString(7),
+                Summary = reader.GetString(8),
+            });
+        }
+
+        return records;
+    }
+
+    private static string CleanAuditValue(string? value, int maxLength)
+    {
+        var clean = new string((value ?? "")
+            .Where(character => !char.IsControl(character))
+            .ToArray());
+        return clean.Length <= maxLength ? clean : clean[..maxLength];
     }
 
     public async Task<ScanTaskRecord?> GetAsync(string id, CancellationToken ct = default)
