@@ -19,6 +19,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\LucentMist.Tools\LucentMist.Tools.csproj" />
     <ProjectReference Include="..\..\src\LucentMist.Core\LucentMist.Core.csproj" />
+    <ProjectReference Include="..\..\src\LucentMist.CLI\LucentMist.CLI.csproj" />
   </ItemGroup>
 
 </Project>

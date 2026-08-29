@@ -9,6 +9,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="LucentMist.Tools.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\LucentMist.Agent\LucentMist.Agent.csproj" />
     <ProjectReference Include="..\LucentMist.Scanning\LucentMist.Scanning.csproj" />
   </ItemGroup>
