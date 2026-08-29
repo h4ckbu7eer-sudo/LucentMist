@@ -105,7 +105,10 @@ public static class CveDatabase
 
     internal static string? ExtractVersion(string banner)
     {
-        // Extract version like: "OpenSSH_8.9p1" → "8.9.1"
+        // Preserve the product's version spelling. In particular, OpenSSH's "p"
+        // suffix is part of the upstream version and must not be rewritten before
+        // sending it to a version-aware external source.
+        // Extract version like: "OpenSSH_8.9p1" → "8.9p1"
         // "nginx/1.24.0" → "1.24.0"
         // "SMBv1" → "1.0.0"
         if (banner.Contains("SMBv1", StringComparison.OrdinalIgnoreCase)) return "1.0.0";
@@ -120,18 +123,25 @@ public static class CveDatabase
                 @"OpenSSH[_-]?(?:for[_-]?Windows[_-]?)?(\d+(?:\.\d+)+(?:p\d+)?)",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (openssh.Success)
-                return openssh.Groups[1].Value.Replace("p", ".");
+                return openssh.Groups[1].Value;
         }
 
-        var match = System.Text.RegularExpressions.Regex.Match(banner, @"(\d+\.\d+(?:\.\d+)?(?:p\d+)?)");
+        var match = System.Text.RegularExpressions.Regex.Match(
+            banner,
+            @"(\d+(?:\.\d+)+(?:p\d+)?)",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
         if (!match.Success) return null;
-        return match.Groups[1].Value.Replace("p", ".");
+        return match.Groups[1].Value;
     }
 
     private static int CompareVersion(string a, string b)
     {
-        var ap = a.Split('.').Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
-        var bp = b.Split('.').Select(p => int.TryParse(p, out var n) ? n : 0).ToArray();
+        var ap = System.Text.RegularExpressions.Regex.Matches(a, @"\d+")
+            .Select(match => int.Parse(match.Value, System.Globalization.CultureInfo.InvariantCulture))
+            .ToArray();
+        var bp = System.Text.RegularExpressions.Regex.Matches(b, @"\d+")
+            .Select(match => int.Parse(match.Value, System.Globalization.CultureInfo.InvariantCulture))
+            .ToArray();
         for (int i = 0; i < Math.Max(ap.Length, bp.Length); i++)
         {
             var av = i < ap.Length ? ap[i] : 0;

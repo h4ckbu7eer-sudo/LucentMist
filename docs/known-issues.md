@@ -13,6 +13,11 @@ Current status as of 0.9.4.
 
 - Built-in CVE database is small and heuristic. It is not equivalent to Nmap/Nessus fingerprinting.
 - Service version detection depends on banner format; many real-world banners will not produce exact versions.
+- OSV version verification currently uses an observed OpenSSH upstream version with
+  the corresponding `openssh-portable` GIT tag. SSH banners do not expose a complete
+  Debian/Ubuntu package coordinate (for example `1:9.8p1-1`), so LucentMist does not
+  fabricate one or claim Debian package-level verification. Other banner-only service
+  versions continue through keyword sources as explicitly version-unverified candidates.
 - SMB2-first dialect detection was validated against an authorized real Windows
   SMBv3.1.1 service at `192.168.2.9:445`: it negotiated SMBv3.1.1, did not report
   EternalBlue, and reported SMBGhost only as a candidate. The captured command
