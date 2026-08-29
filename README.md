@@ -4,7 +4,7 @@
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/ci-tests-218%2F218%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/local-tests-299%2F299%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -16,7 +16,7 @@
 - 📡 **UDP 端口扫描** — UDP 探测 DNS/SNMP/NTP 等 11 种服务
 - 🔒 **SSL 证书校验** — SSL/TLS 证书获取、有效期、SAN、证书链检查
 - 🛡️ **漏洞扫描** — 多源 CVE API + OS 指纹识别 + 候选风险与置信度标注
-- 📊 **报告导出** — HTML/Markdown/CSV/JSON 多格式报告
+- 📊 **报告导出** — HTML/Markdown/CSV/JSON，展示具体开放端口、服务与 SSL 信息
 - 🏷️ **服务识别** — Banner 抓取 + HTTP/SSH 检测 + 进程信息
 - 🤖 **AI 推理（实验性）** — ReAct 模式，自动调用工具分析网络
 - 🔄 **双 LLM** — Ollama 本地推理 + Claude API 云端推理，随时切换
@@ -70,7 +70,10 @@ dotnet run --project src/LucentMist.Web
 
 ```bash
 # 国内网络建议指定华为云 NuGet 镜像
-docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.3 .
+docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.4 .
+
+# 或拉取已发布镜像
+docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
 
 # 启动 API + Web
 docker compose up -d
@@ -151,6 +154,7 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 | [Agent 实验状态](docs/agent-experimental.md) | Agent 深化能力边界与验证状态 |
 | [产品验证协议](docs/product-validation-protocols.md) | 方向 A 的用户需求、报告、网段验证 |
 | [已知问题](docs/known-issues.md) | 产品、Agent、测试、部署的已知边界 |
+| [0.9.4 发布说明](docs/RELEASE_0.9.4.md) | 核心变更、验证证据与部署要求 |
 
 ---
 
@@ -174,7 +178,7 @@ Phase 2 ████████████ Core 层     ✅ ReAct + SQLite 持
 Phase 3 ████████████ Tools 层    ✅ 8 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 226/226 通过
+Phase 6 ████████████ 测试        ✅ 299/299 本地全量通过
 Phase 7 ████████████ 文档        ✅
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅

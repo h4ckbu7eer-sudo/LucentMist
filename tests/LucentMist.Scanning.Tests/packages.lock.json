@@ -183,7 +183,7 @@
       "lucentmist.scanning": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Tools": "[0.9.3, )",
+          "LucentMist.Tools": "[0.9.4, )",
           "Microsoft.Data.Sqlite": "[10.0.11, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[10.0.10, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )"
@@ -192,7 +192,7 @@
       "lucentmist.tools": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Core": "[0.9.3, )",
+          "LucentMist.Core": "[0.9.4, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "System.ServiceProcess.ServiceController": "[10.0.10, )"
         }
