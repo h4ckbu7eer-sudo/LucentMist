@@ -64,6 +64,7 @@ public class SslCertificateTool : INetworkTargetTool
             var cert = new X509Certificate2(ssl.RemoteCertificate!);
             if (cert == null)
                 return ToolResult.Fail("未获取到证书", sw.Elapsed);
+            var expiration = EvaluateExpiration(cert.NotAfter, DateTime.UtcNow);
 
             var result = new
             {
@@ -73,8 +74,9 @@ public class SslCertificateTool : INetworkTargetTool
                 issuer = cert.Issuer,
                 notBefore = cert.NotBefore.ToString("O"),
                 notAfter = cert.NotAfter.ToString("O"),
-                isExpired = DateTime.UtcNow > cert.NotAfter,
-                daysRemaining = (cert.NotAfter - DateTime.UtcNow).Days,
+                notAfterUtc = expiration.NotAfterUtc.ToString("O"),
+                isExpired = expiration.IsExpired,
+                daysRemaining = expiration.DaysRemaining,
                 thumbprint = cert.Thumbprint,
                 thumbprintSha256 = GetSha256Thumbprint(cert),
                 san = GetSubjectAlternativeNames(cert),
@@ -96,6 +98,30 @@ public class SslCertificateTool : INetworkTargetTool
             return ToolResult.Fail(ex.Message, sw.Elapsed);
         }
     }
+
+    internal static CertificateExpiration EvaluateExpiration(
+        DateTime certificateNotAfter,
+        DateTime utcNow,
+        TimeZoneInfo? certificateTimeZone = null)
+    {
+        var notAfterUtc = certificateTimeZone == null
+            ? certificateNotAfter.ToUniversalTime()
+            : TimeZoneInfo.ConvertTimeToUtc(
+                DateTime.SpecifyKind(certificateNotAfter, DateTimeKind.Unspecified),
+                certificateTimeZone);
+        var normalizedNow = utcNow.Kind == DateTimeKind.Utc
+            ? utcNow
+            : utcNow.ToUniversalTime();
+        return new CertificateExpiration(
+            notAfterUtc,
+            normalizedNow > notAfterUtc,
+            (notAfterUtc - normalizedNow).Days);
+    }
+
+    internal readonly record struct CertificateExpiration(
+        DateTime NotAfterUtc,
+        bool IsExpired,
+        int DaysRemaining);
 
     private string GetSha256Thumbprint(X509Certificate2 cert)
     {
