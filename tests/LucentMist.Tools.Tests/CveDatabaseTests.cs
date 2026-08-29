@@ -60,6 +60,22 @@ public class CveDatabaseTests
     }
 
     [Fact]
+    public void ExtractVersion_PreservesOpenSshPatchSuffix()
+    {
+        var version = CveDatabase.ExtractVersion("SSH-2.0-OpenSSH_9.8p1 Ubuntu");
+
+        Assert.Equal("9.8p1", version);
+    }
+
+    [Fact]
+    public void ExtractVersion_PreservesAllNumericComponents()
+    {
+        var version = CveDatabase.ExtractVersion("nginx/1.2.3.4");
+
+        Assert.Equal("1.2.3.4", version);
+    }
+
+    [Fact]
     public void Match_SmbV3_IsNotEternalBlue()
     {
         var matches = CveDatabase.Match(445, "SMBv3.1.1");

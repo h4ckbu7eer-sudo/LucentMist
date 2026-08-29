@@ -22,7 +22,20 @@ public class CveApiClient
     private static readonly ConcurrentDictionary<string, (DateTime ExpiresAt, List<CveDetail> Items)> Cache = new();
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
 
-    public record CveDetail(string Cve, string Description, double CvssScore, string Source, string Fix);
+    public record CveDetail(
+        string Cve,
+        string Description,
+        double CvssScore,
+        string Source,
+        string Fix,
+        string VersionStatus = "unverified",
+        string? VerificationDetail = null);
+
+    internal sealed record OsvQuery(
+        string PackageName,
+        string Ecosystem,
+        string Version,
+        string Evidence);
 
     private static string ServiceKey(int port) =>
         PortHelper.GetServiceKey(port) ?? "unknown";
@@ -44,7 +57,6 @@ public class CveApiClient
             return hit.Items.ToList();
 
         var svcKey = ServiceKey(port);
-        var seen = new HashSet<string>();
         var results = new List<CveDetail>();
 
         // 并行调用 4 个源（每个带重试）
@@ -58,19 +70,22 @@ public class CveApiClient
 
         var sourceResults = await Task.WhenAll(tasks);
 
-        foreach (var list in sourceResults)
-        {
-            if (list == null) continue;
-            foreach (var cve in list)
-            {
-                if (seen.Add(cve.Cve))
-                    results.Add(cve);
-            }
-        }
+        // Prefer a version-aware source when several sources return the same CVE.
+        // Otherwise an earlier keyword-only hit could silently discard OSV's
+        // stronger version evidence.
+        results = sourceResults
+            .Where(list => list != null)
+            .SelectMany(list => list!)
+            .GroupBy(detail => detail.Cve, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group
+                .OrderByDescending(detail =>
+                    detail.VersionStatus.Equals("verified", StringComparison.OrdinalIgnoreCase))
+                .First())
+            .ToList();
 
         // Keyword APIs do not prove that the observed version is affected. Exclude
-        // only mismatches that the local banner rules can prove; every retained
-        // external result remains explicitly version-unverified at the finding layer.
+        // only mismatches that the local banner rules can prove. Version-aware OSV
+        // results retain their stronger evidence through the finding layer.
         results = FilterExternalResultsByBanner(port, version, results);
 
         Cache[cacheKey] = (DateTime.UtcNow.Add(CacheTtl), results);
@@ -297,24 +312,25 @@ public class CveApiClient
     private static async Task<List<CveDetail>?> TryOsvSearch(
         string service,
         string? banner,
+        CancellationToken ct) =>
+        await TryOsvSearch(service, banner, _http, ct);
+
+    internal static async Task<List<CveDetail>?> TryOsvSearch(
+        string service,
+        string? banner,
+        HttpClient http,
         CancellationToken ct)
     {
-        var version = CveDatabase.ExtractVersion(banner ?? "");
-        if (string.IsNullOrEmpty(version)) return null;
+        var query = CreateOsvQuery(service, banner);
+        if (query == null) return null;
         try
         {
-            var pkgName = service.ToLower() switch
+            var body = new
             {
-                "ssh" => "openssh",
-                "smb" => "samba",
-                "http" => "nginx",
-                "rdp" => "xrdp",
-                "mysql" => "mysql-server",
-                "redis" => "redis",
-                _ => service.ToLower()
+                package = new { name = query.PackageName, ecosystem = query.Ecosystem },
+                version = query.Version
             };
-            var body = new { package = new { name = pkgName, ecosystem = "Debian" }, version };
-            using var response = await _http.PostAsJsonAsync(
+            using var response = await http.PostAsJsonAsync(
                 "https://api.osv.dev/v1/query",
                 body,
                 ct);
@@ -333,7 +349,14 @@ public class CveApiClient
                         .FirstOrDefault(a => a?.StartsWith("CVE-", StringComparison.OrdinalIgnoreCase) == true) ?? "";
                 if (string.IsNullOrEmpty(cveId)) continue;
                 var desc = vuln.TryGetProperty("summary", out var sum) ? sum.GetString() : "无描述";
-                results.Add(new CveDetail(cveId, desc ?? "无描述", 0, "OSV.dev", "升级到最新版本"));
+                results.Add(new CveDetail(
+                    cveId,
+                    desc ?? "无描述",
+                    0,
+                    "OSV.dev",
+                    "升级到最新版本",
+                    "verified",
+                    $"OSV.dev 按{query.Evidence}返回版本命中；未执行 PoC 验证"));
             }
             return results;
         }
@@ -341,5 +364,32 @@ public class CveApiClient
         catch (HttpRequestException) { throw; }
         catch (TaskCanceledException) { throw; }
         catch (JsonException) { return null; }
+    }
+
+    internal static OsvQuery? CreateOsvQuery(string service, string? banner)
+    {
+        if (!service.Equals("ssh", StringComparison.OrdinalIgnoreCase)
+            || string.IsNullOrWhiteSpace(banner)
+            || !banner.Contains("OpenSSH", StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var version = CveDatabase.ExtractVersion(banner);
+        if (string.IsNullOrWhiteSpace(version)) return null;
+
+        // An SSH banner exposes the OpenSSH upstream version, not a Debian package
+        // version such as 1:9.8p1-1. Query the upstream repository by its real Git
+        // tag instead of sending a fabricated Debian coordinate to OSV.
+        var tag = System.Text.RegularExpressions.Regex.Replace(
+            version.Replace('.', '_'),
+            "p",
+            "_P",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        return new OsvQuery(
+            "https://github.com/openssh/openssh-portable.git",
+            "GIT",
+            $"V_{tag}",
+            $" OpenSSH 上游 GIT 标签 V_{tag} ");
     }
 }
