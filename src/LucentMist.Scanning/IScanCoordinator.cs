@@ -8,5 +8,10 @@ public interface IScanCoordinator
         string target,
         string scanType = "ping",
         string ports = "",
-        CancellationToken ct = default);
+        CancellationToken ct = default,
+        ScanRequestContext? context = null);
 }
+
+public sealed record ScanRequestContext(
+    string Initiator,
+    bool PublicTargetAuthorized = false);

@@ -1,7 +1,9 @@
+using LucentMist.Core.Networking;
 using LucentMist.Scanning;
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.SignalR.Client;
 using Microsoft.Data.Sqlite;
+using Microsoft.JSInterop;
 
 namespace LucentMist.Web;
 
@@ -14,6 +16,7 @@ public sealed class ScanTaskClient : IAsyncDisposable
     private readonly IScanCoordinator _coordinator;
     private readonly IScanTaskReader _store;
     private readonly NavigationManager _navigation;
+    private readonly ITargetAuthorizationPrompt _authorizationPrompt;
     private readonly Func<TimeSpan, CancellationToken, Task> _delay;
     private readonly bool _enableSignalR;
     private readonly TimeSpan _pollTimeout;
@@ -30,14 +33,16 @@ public sealed class ScanTaskClient : IAsyncDisposable
     public ScanTaskClient(
         IScanCoordinator coordinator,
         IScanTaskReader store,
-        NavigationManager navigation)
+        NavigationManager navigation,
+        ITargetAuthorizationPrompt authorizationPrompt)
         : this(
             coordinator,
             store,
             navigation,
             Task.Delay,
             true,
-            GetConfiguredPollTimeout())
+            GetConfiguredPollTimeout(),
+            authorizationPrompt)
     {
     }
 
@@ -47,11 +52,13 @@ public sealed class ScanTaskClient : IAsyncDisposable
         NavigationManager navigation,
         Func<TimeSpan, CancellationToken, Task> delay,
         bool enableSignalR,
-        TimeSpan? pollTimeout = null)
+        TimeSpan? pollTimeout = null,
+        ITargetAuthorizationPrompt? authorizationPrompt = null)
     {
         _coordinator = coordinator;
         _store = store;
         _navigation = navigation;
+        _authorizationPrompt = authorizationPrompt ?? DenyTargetAuthorizationPrompt.Instance;
         _delay = delay;
         _enableSignalR = enableSignalR;
         _pollTimeout = pollTimeout ?? TimeSpan.FromMinutes(10);
@@ -99,11 +106,34 @@ public sealed class ScanTaskClient : IAsyncDisposable
         {
             ObjectDisposedException.ThrowIf(_disposed, this);
 
+            var validation = await TargetGuard.ValidateAsync(target, ct);
+            if (!validation.IsAllowed)
+                throw new InvalidScanTargetException(validation.Code, validation.Message);
+
+            var publicTargetAuthorized = false;
+            if (validation.RequiresPublicAuthorization)
+            {
+                publicTargetAuthorized = await _authorizationPrompt.ConfirmPublicTargetAsync(target, ct);
+                if (!publicTargetAuthorized)
+                {
+                    var rejected = new InvalidScanTargetException(
+                        "PUBLIC_TARGET_AUTHORIZATION_REQUIRED",
+                        "未确认公网目标扫描授权，扫描未启动");
+                    SetStartupError(rejected.Message);
+                    throw rejected;
+                }
+            }
+
             // Queue first. A rejected start must not invalidate the task currently shown.
             string taskId;
             try
             {
-                taskId = await _coordinator.StartAsync(target, scanType, ports, ct);
+                taskId = await _coordinator.StartAsync(
+                    target,
+                    scanType,
+                    ports,
+                    ct,
+                    new ScanRequestContext("web", publicTargetAuthorized));
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {

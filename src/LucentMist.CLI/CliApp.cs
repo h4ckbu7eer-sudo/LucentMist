@@ -186,6 +186,7 @@ public class CliApp
             AnsiConsole.MarkupLine("[red]请指定扫描目标[/]");
             return 1;
         }
+        if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
 
         var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
 
@@ -504,6 +505,7 @@ public class CliApp
                     return CliError("超时时间必须是正整数");
             }
         }
+        if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
 
         var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
         var tool = new SslCertificateTool(lf.CreateLogger<SslCertificateTool>());
@@ -726,6 +728,7 @@ public class CliApp
             if (args[i] == "--format" && i + 1 < args.Length) format = args[++i];
             else if (args[i] == "--output" && i + 1 < args.Length) output = args[++i];
         }
+        if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
 
         AnsiConsole.Write(new Rule($"[teal]Sirius Scan: {Escape(target)}[/]"));
         using var client = new SiriusClient();
@@ -742,7 +745,7 @@ public class CliApp
 
             // Fallback to built-in
             AnsiConsole.MarkupLine("[yellow]回退到内置漏洞扫描...[/]");
-            return await VulnScanCommand(new[] { target });
+            return await VulnScanCommand([target, "--authorized"]);
         }
 
         var report = SiriusClient.ConvertToReport(result);
@@ -784,6 +787,7 @@ public class CliApp
             AnsiConsole.MarkupLine("[grey]示例: lmist report --target 192.168.1.1 --format html[/]");
             return 1;
         }
+        if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
 
         var reportFormat = format.ToLower() switch
         {
@@ -1116,6 +1120,7 @@ public class CliApp
             return 1;
         }
         var target = args[0];
+        if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
         AnsiConsole.Write(new Rule($"[teal]OS 指纹识别: {Escape(target)}[/]"));
         var tool = new OsFingerprintTool();
         var result = await tool.ExecuteAsync(new ToolArguments { ["target"] = target, ["timeout_ms"] = "5000" });
@@ -1168,6 +1173,7 @@ public class CliApp
         var target = args.FirstOrDefault(a => !a.StartsWith("-")) ?? "";
         if (string.IsNullOrWhiteSpace(target))
             return CliError("请指定目标 IP");
+        if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
         var showAll = args.Any(a => a == "--all");
         var useNmap = args.Any(a => a == "--use-nmap");
 
@@ -1477,6 +1483,39 @@ public class CliApp
         "medium" => "中危漏洞",
         _ => "低危漏洞"
     };
+
+    private static async Task<bool> ConfirmTargetAuthorizationAsync(
+        string target,
+        IReadOnlyCollection<string> args)
+    {
+        var validation = await TargetGuard.ValidateAsync(target);
+        if (!validation.IsAllowed)
+        {
+            AnsiConsole.MarkupLine(
+                $"[red]目标被拒绝 ({Escape(validation.Code)}): {Escape(validation.Message)}[/]");
+            return false;
+        }
+
+        if (!validation.RequiresPublicAuthorization)
+            return true;
+
+        if (args.Contains("--authorized", StringComparer.OrdinalIgnoreCase))
+        {
+            AnsiConsole.MarkupLine("[yellow]已通过 --authorized 确认拥有公网目标扫描授权。[/]");
+            return true;
+        }
+
+        if (Console.IsInputRedirected)
+        {
+            AnsiConsole.MarkupLine(
+                "[red]公网目标需要授权确认；非交互运行请在确认有权扫描后添加 --authorized。[/]");
+            return false;
+        }
+
+        return AnsiConsole.Confirm(
+            $"目标 {Escape(target)} 位于公网。你确认拥有扫描该目标的授权吗？",
+            defaultValue: false);
+    }
 
     internal static string VulnerabilityConfidenceLabel(
         bool confirmed,

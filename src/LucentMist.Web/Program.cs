@@ -25,6 +25,7 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddScoped<AppState>();
 builder.Services.AddSingleton<ScanService>();
 builder.Services.AddTransient<ScanTaskClient>();
+builder.Services.AddScoped<ITargetAuthorizationPrompt, BrowserTargetAuthorizationPrompt>();
 builder.Services.AddHttpClient("AgentApi", client =>
 {
     client.BaseAddress = new Uri(

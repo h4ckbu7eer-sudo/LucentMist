@@ -38,4 +38,51 @@ public class TargetGuardTests
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
             TargetGuard.ValidateAsync("does-not-exist.example.invalid", cts.Token));
     }
+
+    [Theory]
+    [InlineData("127.0.0.1", false)]
+    [InlineData("10.2.3.4", false)]
+    [InlineData("172.31.255.1", false)]
+    [InlineData("192.168.10.0/24", false)]
+    [InlineData("8.8.8.8", true)]
+    [InlineData("203.0.113.0/24", true)]
+    public async Task ValidateAsync_ClassifiesPublicTargets(
+        string target,
+        bool requiresAuthorization)
+    {
+        var result = await TargetGuard.ValidateAsync(target, allowedTargets: null);
+
+        Assert.True(result.IsAllowed);
+        Assert.Equal(requiresAuthorization, result.RequiresPublicAuthorization);
+    }
+
+    [Theory]
+    [InlineData("10.2.3.4", "10.0.0.0/8")]
+    [InlineData("203.0.113.10", "203.0.113.0/24")]
+    [InlineData("203.0.113.0/25", "203.0.113.0/24")]
+    public async Task ValidateAsync_AllowsTargetsInsideConfiguredScope(
+        string target,
+        string allowedTargets)
+    {
+        var result = await TargetGuard.ValidateAsync(target, allowedTargets);
+
+        Assert.True(result.IsAllowed);
+        Assert.True(result.IsExplicitlyAllowed);
+        Assert.False(result.RequiresPublicAuthorization);
+    }
+
+    [Theory]
+    [InlineData("10.2.3.4", "192.168.0.0/16", "TARGET_OUTSIDE_ALLOWED_SCOPE")]
+    [InlineData("203.0.113.0/24", "203.0.113.0/25", "TARGET_OUTSIDE_ALLOWED_SCOPE")]
+    [InlineData("10.2.3.4", "not a target", "INVALID_ALLOWED_TARGETS")]
+    public async Task ValidateAsync_RejectsTargetsOutsideConfiguredScope(
+        string target,
+        string allowedTargets,
+        string expectedCode)
+    {
+        var result = await TargetGuard.ValidateAsync(target, allowedTargets);
+
+        Assert.False(result.IsAllowed);
+        Assert.Equal(expectedCode, result.Code);
+    }
 }

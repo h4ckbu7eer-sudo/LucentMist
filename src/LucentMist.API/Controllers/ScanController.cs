@@ -27,7 +27,12 @@ public class ScanController : ControllerBase
         string taskId;
         try
         {
-            taskId = await _coordinator.StartAsync(request.Target, scanType, request.Ports, ct);
+            taskId = await _coordinator.StartAsync(
+                request.Target,
+                scanType,
+                request.Ports,
+                ct,
+                new ScanRequestContext("api", request.PublicTargetAuthorized));
         }
         catch (InvalidScanRequestException ex)
         {
@@ -104,4 +109,5 @@ public class ScanRequest
     public string ScanType { get; set; } = "ping";
     [MaxLength(64)]
     public string Ports { get; set; } = "";
+    public bool PublicTargetAuthorized { get; set; }
 }

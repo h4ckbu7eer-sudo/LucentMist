@@ -134,17 +134,45 @@ public sealed class ScanTaskClientTests
         Assert.Contains("role=\"alert\"", html);
     }
 
+    [Fact]
+    public async Task PublicTarget_RequiresVisibleConfirmationBeforeQueueing()
+    {
+        var coordinator = new CapturingCoordinator();
+        await using var denied = CreateClient(
+            coordinator,
+            new NeverCompletingReader(),
+            authorizationPrompt: new FixedAuthorizationPrompt(false));
+
+        var exception = await Assert.ThrowsAsync<InvalidScanTargetException>(() =>
+            denied.StartAsync("8.8.8.8", "tcp", "443"));
+
+        Assert.Equal("PUBLIC_TARGET_AUTHORIZATION_REQUIRED", exception.Code);
+        Assert.Null(coordinator.Context);
+        Assert.Contains("未确认", denied.LastError);
+
+        await using var allowed = CreateClient(
+            coordinator,
+            new NeverCompletingReader(),
+            authorizationPrompt: new FixedAuthorizationPrompt(true));
+        await allowed.StartAsync("8.8.8.8", "tcp", "443");
+
+        Assert.True(coordinator.Context?.PublicTargetAuthorized);
+        Assert.Equal("web", coordinator.Context?.Initiator);
+    }
+
     private static ScanTaskClient CreateClient(
         IScanCoordinator coordinator,
         IScanTaskReader reader,
-        TimeSpan? pollTimeout = null) =>
+        TimeSpan? pollTimeout = null,
+        LucentMistWeb::LucentMist.Web.ITargetAuthorizationPrompt? authorizationPrompt = null) =>
         new(
             coordinator,
             reader,
             new TestNavigationManager(),
             (_, token) => Task.Delay(1, token),
             enableSignalR: false,
-            pollTimeout);
+            pollTimeout,
+            authorizationPrompt);
 
     private static ScanTaskRecord Completed(string id, string target) => new()
     {
@@ -179,7 +207,8 @@ public sealed class ScanTaskClientTests
             string target,
             string scanType = "ping",
             string ports = "",
-            CancellationToken ct = default) =>
+            CancellationToken ct = default,
+            ScanRequestContext? context = null) =>
             Task.FromResult(_ids.Dequeue());
     }
 
@@ -189,8 +218,33 @@ public sealed class ScanTaskClientTests
             string target,
             string scanType = "ping",
             string ports = "",
-            CancellationToken ct = default) =>
+            CancellationToken ct = default,
+            ScanRequestContext? context = null) =>
             Task.FromException<string>(new InvalidOperationException(message));
+    }
+
+    private sealed class CapturingCoordinator : IScanCoordinator
+    {
+        public ScanRequestContext? Context { get; private set; }
+
+        public Task<string> StartAsync(
+            string target,
+            string scanType = "ping",
+            string ports = "",
+            CancellationToken ct = default,
+            ScanRequestContext? context = null)
+        {
+            Context = context;
+            return Task.FromResult("public-task");
+        }
+    }
+
+    private sealed class FixedAuthorizationPrompt(bool result)
+        : LucentMistWeb::LucentMist.Web.ITargetAuthorizationPrompt
+    {
+        public ValueTask<bool> ConfirmPublicTargetAsync(
+            string target,
+            CancellationToken ct = default) => ValueTask.FromResult(result);
     }
 
     private sealed class BusyThenCompletedReader(ScanTaskRecord completed) : IScanTaskReader
