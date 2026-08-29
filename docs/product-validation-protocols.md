@@ -1,9 +1,13 @@
 # Direction A Validation Protocols
 
 Execution status on 2026-08-29: the first controlled report and facilitator kit are
-ready in [validation-kit](validation-kit/README.md), but no independent participant
-has yet been recruited. Product demand and report usability therefore remain
-**unvalidated**, not passed.
+ready in [validation-kit](validation-kit/README.md). A first execution could not
+start recruitment because no participant roster, authorized outreach channel,
+incentive, or consent workflow was available. The resulting
+[interview](validation-kit/results/interview.md) and
+[report-review](validation-kit/results/report-review.md) records are explicitly
+`0/3`, sample insufficient, and not passed. Product demand and report usability remain
+**unvalidated**.
 
 Direction A: a lightweight exposure self-check tool for non-security experts.
 
