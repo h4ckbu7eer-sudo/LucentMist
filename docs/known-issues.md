@@ -16,11 +16,17 @@ Current status as of 0.9.3.
 - A real SMBv1 positive target is still needed. The positive path currently uses a
   local TCP test server for SMB2-first/reconnect behavior and byte offset 37; this is
   simulator coverage, not real-target proof.
-- Real OpenSSH `9.0`-`9.3p1` and `9.3p2+` boundary targets remain unavailable. Port 22
-  on the local host was closed and no Docker service was available during the
-  2026-08-29 follow-up. Banner tests pin `9.0p1`, `9.1`, `9.2p1`, and `9.3p1` as
-  matching CVE-2023-38408, while `9.3p2` and `9.4` do not; real-service validation
-  remains pending.
+- Real OpenSSH services were validated using authorized local Docker containers bound
+  to `192.168.2.9:22`. Ubuntu 22.04 exposed a real OpenSSH 8.9p1 service (banner
+  `OpenSSH_8.9p1 Ubuntu-3ubuntu0.16`) and produced a CVE-2023-38408 **candidate**;
+  Ubuntu 24.04 exposed `OpenSSH_9.6p1 Ubuntu-3ubuntu13.18` and did not produce that
+  candidate. This proves
+  real SSH banner capture and version matching on both sides of the threshold. It does
+  not prove exploitability: distribution packages may backport security fixes without
+  changing the upstream banner version, and a server banner alone cannot establish the
+  affected runtime path. Exact `9.3p1`/`9.3p2` adjacency remains pinned by banner tests.
+  Full evidence is recorded in
+  [product-validation.md](product-validation.md#real-openssh-services-in-local-containers).
 - The bundled verifier currently reports SMBv1 exposure only as a candidate. It does
   not confirm EternalBlue patch state or exploitability; the verifier interface is an
   extension point for future evidence-backed checks.
