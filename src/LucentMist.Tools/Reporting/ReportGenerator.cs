@@ -29,7 +29,7 @@ public class ReportGenerator
     }
     public class DeviceEntry { public string Ip { get; set; } = ""; public bool IsAlive { get; set; } public string OsGuess { get; set; } = ""; }
     public class PortEntry { public string Target { get; set; } = ""; public int Port { get; set; } public string Service { get; set; } = ""; public string State { get; set; } = "open"; }
-    public class SslEntry { public string Target { get; set; } = ""; public int Port { get; set; } public string Subject { get; set; } = ""; public string Issuer { get; set; } = ""; public string NotAfter { get; set; } = ""; public int DaysRemaining { get; set; } public bool IsExpired { get; set; } }
+    public class SslEntry { public string Target { get; set; } = ""; public int Port { get; set; } public string Subject { get; set; } = ""; public string Issuer { get; set; } = ""; public string NotAfter { get; set; } = ""; public int DaysRemaining { get; set; } public bool IsExpired { get; set; } public List<string> TrustErrors { get; set; } = new(); }
     public class ScanScope { public string Discovery { get; set; } = "未记录"; public string TcpPorts { get; set; } = "未记录"; public string VulnerabilityChecks { get; set; } = "未记录"; public string Limitations { get; set; } = "扫描结果不代表穷尽式安全证明"; }
     public class VulnSummary { public string OverallRisk { get; set; } = "安全"; public int CriticalCount { get; set; } public int HighCount { get; set; } public int MediumCount { get; set; } public int LowCount { get; set; } public List<VulnFinding> Findings { get; set; } = new(); }
     public class VulnFinding
@@ -144,7 +144,7 @@ public class ReportGenerator
 
         foreach (var ssl in r.SslInfo)
         {
-            var state = ssl.IsExpired ? "已过期" : ssl.DaysRemaining <= 30 ? "即将过期" : "有效";
+            var (state, _) = SslStatus(ssl);
             sb.AppendLine(string.Join(",",
                 CsvEscape("TLS 证书"),
                 CsvEscape(ssl.Target),
@@ -152,10 +152,10 @@ public class ReportGenerator
                 CsvEscape("TLS"),
                 CsvEscape(state),
                 CsvEscape("-"),
-                CsvEscape(ssl.IsExpired ? "high" : ssl.DaysRemaining <= 30 ? "medium" : "low"),
+                CsvEscape(ssl.IsExpired ? "high" : ssl.TrustErrors.Count > 0 || ssl.DaysRemaining <= 30 ? "medium" : "low"),
                 CsvEscape("-"),
-                CsvEscape($"主体: {ssl.Subject}; 签发者: {ssl.Issuer}; 到期: {ssl.NotAfter}"),
-                CsvEscape(ssl.IsExpired || ssl.DaysRemaining <= 30 ? "尽快更换或续期证书" : "保持自动续期并定期检查"),
+                CsvEscape($"主体: {ssl.Subject}; 签发者: {ssl.Issuer}; 到期: {ssl.NotAfter}; 信任错误: {TrustErrorLabel(ssl)}"),
+                CsvEscape(SslAdvice(ssl)),
                 CsvEscape("TLS 检查")));
         }
 
@@ -517,9 +517,39 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
 
     private static (string Label, string Css) SslStatus(SslEntry ssl)
     {
-        if (ssl.IsExpired) return ("❌ 已过期", "tls-expired");
-        if (ssl.DaysRemaining <= 30) return ($"⚠️ {ssl.DaysRemaining} 天后到期", "tls-warning");
-        return ($"✅ 有效（剩余 {ssl.DaysRemaining} 天）", "tls-valid");
+        var validity = ssl.IsExpired
+            ? "❌ 已过期"
+            : ssl.DaysRemaining <= 30
+                ? $"⚠️ {ssl.DaysRemaining} 天后到期"
+                : $"✅ 有效期内（剩余 {ssl.DaysRemaining} 天）";
+        if (ssl.TrustErrors.Count > 0)
+            return ($"{validity}；信任错误: {TrustErrorLabel(ssl)}", ssl.IsExpired ? "tls-expired" : "tls-warning");
+        return (validity, ssl.IsExpired ? "tls-expired" : ssl.DaysRemaining <= 30 ? "tls-warning" : "tls-valid");
+    }
+
+    private static string TrustErrorLabel(SslEntry ssl) =>
+        ssl.TrustErrors.Count == 0
+            ? "无"
+            : string.Join(", ", ssl.TrustErrors.Select(error => error switch
+            {
+                "UntrustedRoot" => "不可信根或自签证书 (UntrustedRoot)",
+                "NameMismatch" => "主机名不匹配 (NameMismatch)",
+                "NotTimeValid" => "证书不在有效期内 (NotTimeValid)",
+                "RevocationStatusUnknown" => "无法确认吊销状态 (RevocationStatusUnknown)",
+                "PartialChain" => "证书链不完整 (PartialChain)",
+                "ChainErrors" => "证书链验证失败 (ChainErrors)",
+                _ => error
+            }));
+
+    private static string SslAdvice(SslEntry ssl)
+    {
+        if (ssl.IsExpired || ssl.DaysRemaining <= 30)
+            return ssl.TrustErrors.Count > 0
+                ? "更换为与主机名匹配且由受信任 CA 签发的证书，并检查续期"
+                : "尽快更换或续期证书";
+        return ssl.TrustErrors.Count > 0
+            ? "更换为与主机名匹配且由受信任 CA 签发的证书"
+            : "保持自动续期并定期检查";
     }
 
     private static string PortAdvice(PortEntry port) => port.Port switch

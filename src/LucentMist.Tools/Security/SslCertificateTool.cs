@@ -52,8 +52,15 @@ public class SslCertificateTool : INetworkTargetTool
             using var client = new TcpClient();
             await client.ConnectAsync(connectTarget, port, cts.Token);
 
+            var handshakeTrustErrors = new HashSet<string>(StringComparer.Ordinal);
             using var ssl = new SslStream(client.GetStream(), false,
-                (sender, certificate, chain, errors) => true);
+                (_, _, chain, errors) =>
+                {
+                    AddSslPolicyErrors(handshakeTrustErrors, errors);
+                    if (chain != null)
+                        AddChainStatusErrors(handshakeTrustErrors, chain.ChainStatus);
+                    return true;
+                });
             await ssl.AuthenticateAsClientAsync(new SslClientAuthenticationOptions
             {
                 TargetHost = requestedTarget,
@@ -65,6 +72,11 @@ public class SslCertificateTool : INetworkTargetTool
             if (cert == null)
                 return ToolResult.Fail("未获取到证书", sw.Elapsed);
             var expiration = EvaluateExpiration(cert.NotAfter, DateTime.UtcNow);
+            var chainInfo = GetChainInfo(cert);
+            handshakeTrustErrors.UnionWith(chainInfo.TrustErrors);
+            var trustErrors = handshakeTrustErrors
+                .Order(StringComparer.Ordinal)
+                .ToArray();
 
             var result = new
             {
@@ -80,7 +92,9 @@ public class SslCertificateTool : INetworkTargetTool
                 thumbprint = cert.Thumbprint,
                 thumbprintSha256 = GetSha256Thumbprint(cert),
                 san = GetSubjectAlternativeNames(cert),
-                chain = GetChainInfo(cert),
+                isTrusted = trustErrors.Length == 0,
+                trustErrors,
+                chain = chainInfo.Elements,
                 scanDuration = sw.Elapsed.ToString()
             };
 
@@ -122,6 +136,32 @@ public class SslCertificateTool : INetworkTargetTool
         DateTime NotAfterUtc,
         bool IsExpired,
         int DaysRemaining);
+
+    private static void AddSslPolicyErrors(
+        HashSet<string> trustErrors,
+        SslPolicyErrors errors)
+    {
+        if (errors.HasFlag(SslPolicyErrors.RemoteCertificateNotAvailable))
+            trustErrors.Add("CertificateNotAvailable");
+        if (errors.HasFlag(SslPolicyErrors.RemoteCertificateNameMismatch))
+            trustErrors.Add("NameMismatch");
+        if (errors.HasFlag(SslPolicyErrors.RemoteCertificateChainErrors))
+            trustErrors.Add("ChainErrors");
+    }
+
+    private static void AddChainStatusErrors(
+        HashSet<string> trustErrors,
+        IEnumerable<X509ChainStatus> statuses)
+    {
+        foreach (var status in statuses)
+        {
+            foreach (var flag in Enum.GetValues<X509ChainStatusFlags>())
+            {
+                if (flag != X509ChainStatusFlags.NoError && status.Status.HasFlag(flag))
+                    trustErrors.Add(flag.ToString());
+            }
+        }
+    }
 
     private string GetSha256Thumbprint(X509Certificate2 cert)
     {
@@ -168,16 +208,18 @@ public class SslCertificateTool : INetworkTargetTool
         return names.Distinct().ToList();
     }
 
-    private List<object> GetChainInfo(X509Certificate2 cert)
+    private ChainEvaluation GetChainInfo(X509Certificate2 cert)
     {
-        var chain = new List<object>();
+        var elements = new List<object>();
+        var trustErrors = new HashSet<string>(StringComparer.Ordinal);
         try
         {
             using var chainObj = new X509Chain();
             chainObj.Build(cert);
+            AddChainStatusErrors(trustErrors, chainObj.ChainStatus);
             foreach (var element in chainObj.ChainElements)
             {
-                chain.Add(new
+                elements.Add(new
                 {
                     subject = element.Certificate.Subject,
                     issuer = element.Certificate.Issuer,
@@ -189,7 +231,12 @@ public class SslCertificateTool : INetworkTargetTool
         catch (Exception ex)
         {
             _logger.LogWarning(ex, "Failed to build certificate chain");
+            trustErrors.Add("ChainBuildFailed");
         }
-        return chain;
+        return new ChainEvaluation(elements, trustErrors);
     }
+
+    private sealed record ChainEvaluation(
+        List<object> Elements,
+        HashSet<string> TrustErrors);
 }
