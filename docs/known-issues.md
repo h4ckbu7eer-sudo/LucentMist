@@ -6,10 +6,21 @@ Current status as of 0.9.3.
 
 - Built-in CVE database is small and heuristic. It is not equivalent to Nmap/Nessus fingerprinting.
 - Service version detection depends on banner format; many real-world banners will not produce exact versions.
-- SMB2-first dialect detection has been validated against a real Windows SMBv3.1.1
-  service. A real SMBv1 positive target and real OpenSSH 9.0-9.3p2 boundary targets
-  are still needed; current coverage for those paths uses constructed SMB responses
-  and OpenSSH banner regression tests.
+- SMB2-first dialect detection was validated against an authorized real Windows
+  SMBv3.1.1 service at `192.168.99.9:445`: it negotiated SMBv3.1.1, did not report
+  EternalBlue, and reported SMBGhost only as a candidate. The captured command
+  output and environment facts are recorded in
+  [product-validation.md](product-validation.md#real-windows-smb-target). A follow-up
+  reachability check on 2026-08-29 found that endpoint unavailable, so the real-target
+  scan could not be repeated in this session.
+- A real SMBv1 positive target is still needed. The positive path currently uses a
+  local TCP test server for SMB2-first/reconnect behavior and byte offset 37; this is
+  simulator coverage, not real-target proof.
+- Real OpenSSH `9.0`-`9.3p1` and `9.3p2+` boundary targets remain unavailable. Port 22
+  on the local host was closed and no Docker service was available during the
+  2026-08-29 follow-up. Banner tests pin `9.0p1`, `9.1`, `9.2p1`, and `9.3p1` as
+  matching CVE-2023-38408, while `9.3p2` and `9.4` do not; real-service validation
+  remains pending.
 - The bundled verifier currently reports SMBv1 exposure only as a candidate. It does
   not confirm EternalBlue patch state or exploitability; the verifier interface is an
   extension point for future evidence-backed checks.
