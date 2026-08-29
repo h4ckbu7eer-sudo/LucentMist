@@ -6,6 +6,7 @@ Current status as of 0.9.4.
 
 - `v0.9.4` is published from commit `d56e4f0e`. Its [tag workflow](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244573226) completed Windows, Ubuntu, and GHCR jobs successfully.
 - `ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4` has a readable Docker manifest; the inspected image config digest is `sha256:66397206f4c24956b4b1b9278e379032fb90b6361d944a5e39e421f5a1d93278`.
+- The image manifest digest is `sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af`. Independent [release verification run 33257054498](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33257054498) pulled that exact digest from GHCR, started the published API image, and received `{"status":"healthy","version":"0.9.4","uptime":"0h 0m"}`.
 - The first simultaneous main workflow exposed a timer-sensitive Windows test. The assertion guard was fixed without changing the production monitoring timeout, and the follow-up [main workflow](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244948229) completed all three jobs successfully.
 
 ## Product Limitations
@@ -62,3 +63,7 @@ Current status as of 0.9.4.
 
 - Docker compose auto-generates random credentials and prints them to container logs.
 - Production deployments must override credentials through `.env`.
+- The GHCR package currently requires authenticated access. Deployers need a classic personal access token with `read:packages`; credentials must be supplied through `docker login --password-stdin`, not committed to configuration.
+- The `0.9.4` GHCR tag is not claimed to be immutable. Exact rollback uses `ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af`.
+- There is no GitHub Release object for `v0.9.4`, and repository ruleset visibility was unavailable to the verification credential (`403`), so Git tag immutability is not claimed. Enable GitHub immutable Releases before publishing the next version; that protects the Git tag and release assets, while the container still needs digest pinning.
+- The local Windows route to GHCR blobs was unusually slow (about 26.8 KB/s in a 60-second sample), so the local full pull exceeded its 10-minute verification budget. The independent GitHub-hosted pull-and-run succeeded; this local network condition is not presented as a successful deployment test.
