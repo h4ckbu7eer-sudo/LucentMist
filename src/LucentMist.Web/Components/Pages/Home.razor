@@ -52,10 +52,7 @@
     </div>
 }
 
-@if (ScanTask.LastError != null)
-{
-    <div class="card"><div style="color:var(--red);font-weight:600;">@ScanTask.LastError</div></div>
-}
+<ScanStatusAlerts Client="ScanTask" />
 
 @if (State.LastResults.Count > 0)
 {
