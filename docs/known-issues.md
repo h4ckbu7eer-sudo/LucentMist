@@ -13,6 +13,11 @@ Current status as of 0.9.4.
 
 - Built-in CVE database is small and heuristic. It is not equivalent to Nmap/Nessus fingerprinting.
 - Service version detection depends on banner format; many real-world banners will not produce exact versions.
+- UDP `closed` is an inference from an unreachable/refused socket error or a connection
+  reset. Some firewalls synthesize reset-style errors, so a reset can be reported as
+  `closed` even when the service is filtered or otherwise not directly observable.
+  Timeout remains `open|filtered`; use a protocol-aware follow-up before treating
+  `closed` as absolute proof.
 - When a platform certificate provider exposes `NotAfter` with `DateTimeKind.Unspecified`,
   LucentMist interprets that wall-clock value in the scanner host's local time zone.
   X.509 validity timestamps do not carry a separately recoverable source time-zone ID;

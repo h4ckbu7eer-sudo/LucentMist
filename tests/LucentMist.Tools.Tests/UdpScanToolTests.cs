@@ -328,4 +328,30 @@ public class UdpScanToolTests
         Assert.Equal("unprobeable", port.GetProperty("state").GetString());
         Assert.Empty(doc.RootElement.GetProperty("closedPorts").EnumerateArray());
     }
+
+    [Fact]
+    public async Task ExecuteAsync_ResultExplainsConnectionResetLimitation()
+    {
+        var result = await _tool.ExecuteAsync(new ToolArguments
+        {
+            ["target"] = "127.0.0.1",
+            ["ports"] = "514",
+            ["timeout_ms"] = "150"
+        });
+
+        Assert.True(result.Success, result.Error);
+        using var doc = JsonDocument.Parse(result.Data);
+        var interpretation = doc.RootElement.GetProperty("interpretation").GetString();
+        Assert.Contains("closed 基于不可达或连接重置推断", interpretation);
+        Assert.Contains("防火墙重置可能造成误判", interpretation);
+    }
+
+    [Fact]
+    public void ClosedInferenceDetail_ConnectionResetIsNotPresentedAsCertain()
+    {
+        var detail = UdpScanTool.ClosedInferenceDetail(SocketError.ConnectionReset);
+
+        Assert.Contains("防火墙重置", detail);
+        Assert.Contains("推断状态", detail);
+    }
 }
