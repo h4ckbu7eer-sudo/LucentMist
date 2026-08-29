@@ -16,8 +16,11 @@ public class PingScanTool : INetworkTargetTool
     private readonly ILogger<PingScanTool> _logger;
     private readonly Func<string, int, CancellationToken, Task<IPStatus>> _icmpProbeAsync;
     private readonly Func<string, int, CancellationToken, Task<bool>> _tcpProbeAsync;
+    private const int IcmpNoResponse = 1;
+    private const int IcmpRejected = 2;
+    private const int IcmpUnavailable = 4;
     private int _icmpBlocked;
-    private int _tcpFallbackUsed;
+    private int _icmpFallbackReasons;
 
     public string Name => "ping_scan";
     public string Description => "探测网络中存活设备，支持 CIDR 子网（如 192.168.1.0/24）";
@@ -67,7 +70,7 @@ public class PingScanTool : INetworkTargetTool
 
         try
         {
-            Volatile.Write(ref _tcpFallbackUsed, 0);
+            Volatile.Write(ref _icmpFallbackReasons, 0);
             _logger.LogInformation("PingScan 开始: Target={Target}, Timeout={Timeout}ms", target, timeout);
 
             var ips = ParseTarget(target);
@@ -97,9 +100,8 @@ public class PingScanTool : INetworkTargetTool
                 hint = alive.Count == 0
                     ? $"目标 {requestedTarget} 无设备响应。请确认：1) 子网是否与当前网卡匹配 2) 防火墙是否阻止 ICMP"
                     : null,
-                icmpFallback = Volatile.Read(ref _tcpFallbackUsed) != 0
-                    ? "ICMP 不可用，已使用 TCP 端口探测（80/443/22/445）"
-                    : null,
+                icmpFallback = DescribeIcmpFallback(
+                    Volatile.Read(ref _icmpFallbackReasons)),
             };
 
             _logger.LogInformation("PingScan 完成: Alive={Alive}/{Total}", alive.Count, ips.Count);
@@ -205,7 +207,9 @@ public class PingScanTool : INetworkTargetTool
                     return true;
                 if (!ShouldFallbackToTcp(status))
                     return false;
-                Volatile.Write(ref _tcpFallbackUsed, 1);
+                RecordFallbackReason(status == IPStatus.TimedOut
+                    ? IcmpNoResponse
+                    : IcmpRejected);
             }
             catch (OperationCanceledException)
             {
@@ -214,21 +218,41 @@ public class PingScanTool : INetworkTargetTool
             catch (PingException ex) when (IsPermissionError(ex))
             {
                 Volatile.Write(ref _icmpBlocked, 1);
+                RecordFallbackReason(IcmpUnavailable);
                 _logger.LogWarning("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
             }
             catch (UnauthorizedAccessException)
             {
                 Volatile.Write(ref _icmpBlocked, 1);
+                RecordFallbackReason(IcmpUnavailable);
                 _logger.LogWarning("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
             }
             catch (Exception ex)
             {
+                RecordFallbackReason(IcmpUnavailable);
                 _logger.LogWarning(ex, "Ping 失败: {Target}", ip);
             }
         }
+        else
+        {
+            RecordFallbackReason(IcmpUnavailable);
+        }
 
-        Volatile.Write(ref _tcpFallbackUsed, 1);
         return await _tcpProbeAsync(ip, timeoutMs, cancellationToken);
+    }
+
+    private void RecordFallbackReason(int reason) =>
+        Interlocked.Or(ref _icmpFallbackReasons, reason);
+
+    internal static string? DescribeIcmpFallback(int reasons)
+    {
+        if (reasons == 0) return null;
+
+        var descriptions = new List<string>();
+        if ((reasons & IcmpNoResponse) != 0) descriptions.Add("ICMP 无响应");
+        if ((reasons & IcmpRejected) != 0) descriptions.Add("ICMP 被拒绝");
+        if ((reasons & IcmpUnavailable) != 0) descriptions.Add("ICMP 不可用");
+        return $"{string.Join("；", descriptions)}，已使用 TCP 端口探测（80/443/22/445）";
     }
 
     private static async Task<IPStatus> SendIcmpAsync(
