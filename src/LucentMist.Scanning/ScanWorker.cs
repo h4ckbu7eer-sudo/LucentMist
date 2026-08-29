@@ -9,7 +9,7 @@ namespace LucentMist.Scanning;
 
 /// <summary>
 /// 后台扫描 worker — 从 Channel 消费任务，调用真实扫描工具，状态落 SQLite 并推送进度。
-/// 并发上限 1，防止 /24 级大范围扫描打爆资源。
+/// 默认最多并发 2 个扫描，避免慢 ping 队头阻塞，同时限制网络资源放大。
 /// </summary>
 public sealed class ScanWorker : BackgroundService
 {
@@ -18,9 +18,6 @@ public sealed class ScanWorker : BackgroundService
     private readonly IScanProgressPublisher _progress;
     private readonly ILogger<ScanWorker> _logger;
     private readonly ILoggerFactory _loggerFactory;
-    private readonly PingScanTool _pingTool;
-    private readonly PortScanTool _portTool;
-    private readonly UdpScanTool _udpTool;
 
     public ScanWorker(
         ScanCoordinator coordinator,
@@ -34,9 +31,6 @@ public sealed class ScanWorker : BackgroundService
         _progress = progress;
         _logger = logger;
         _loggerFactory = services.GetRequiredService<ILoggerFactory>();
-        _pingTool = new PingScanTool(_loggerFactory.CreateLogger<PingScanTool>());
-        _portTool = new PortScanTool(_loggerFactory.CreateLogger<PortScanTool>());
-        _udpTool = new UdpScanTool(_loggerFactory.CreateLogger<UdpScanTool>());
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -53,24 +47,34 @@ public sealed class ScanWorker : BackgroundService
             _logger.LogWarning(ex, "启动时清理陈旧任务失败，继续运行");
         }
 
-        await foreach (var req in _coordinator.Reader.ReadAllAsync(stoppingToken))
+        await BoundedScanDispatcher.RunAsync(
+            _coordinator.Reader,
+            ExecuteQueuedJobAsync,
+            GetWorkerConcurrency(),
+            stoppingToken);
+    }
+
+    private async Task ExecuteQueuedJobAsync(ScanJob req, CancellationToken stoppingToken)
+    {
+        try
         {
-            try
-            {
-                await ExecuteOneAsync(req, stoppingToken);
-            }
-            catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
-            {
-                await TryMarkFailedAsync(req.TaskId, "服务关闭，任务未执行");
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "扫描任务执行崩溃: TaskId={TaskId}", req.TaskId);
-                await TryMarkFailedAsync(req.TaskId, ex.Message);
-            }
+            await ExecuteOneAsync(req, stoppingToken);
+        }
+        catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
+        {
+            await TryMarkFailedAsync(req.TaskId, "服务关闭，任务未执行");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "扫描任务执行崩溃: TaskId={TaskId}", req.TaskId);
+            await TryMarkFailedAsync(req.TaskId, ex.Message);
         }
     }
+
+    private static int GetWorkerConcurrency() =>
+        int.TryParse(Environment.GetEnvironmentVariable("LMIST_SCAN_WORKER_CONCURRENCY"), out var configured)
+            ? Math.Clamp(configured, 1, 3)
+            : 2;
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
@@ -166,7 +170,9 @@ public sealed class ScanWorker : BackgroundService
     private async Task<ScanOutcome> RunPingAsync(
         ScanJob req, DateTime startedAt, CancellationToken ct)
     {
-        var pingResult = await _pingTool.ExecuteAsync(new ToolArguments
+        var pingTool = new PingScanTool(_loggerFactory.CreateLogger<PingScanTool>());
+        var portTool = new PortScanTool(_loggerFactory.CreateLogger<PortScanTool>());
+        var pingResult = await pingTool.ExecuteAsync(new ToolArguments
         {
             ["target"] = req.Target,
             ["timeout_ms"] = "3000",
@@ -210,7 +216,7 @@ public sealed class ScanWorker : BackgroundService
                     },
                     async (ip, token) =>
                     {
-                        var portResult = await _portTool.ExecuteAsync(new ToolArguments
+                        var portResult = await portTool.ExecuteAsync(new ToolArguments
                         {
                             ["target"] = ip,
                             ["ports"] = "22,80,443,3389,8080,8443",
@@ -276,7 +282,8 @@ public sealed class ScanWorker : BackgroundService
         ScanJob req, DateTime startedAt, CancellationToken ct)
     {
         await PublishAsync(req.TaskId, "running", "TCP 扫描进行中", 50, ct);
-        var result = await _portTool.ExecuteAsync(new ToolArguments
+        var portTool = new PortScanTool(_loggerFactory.CreateLogger<PortScanTool>());
+        var result = await portTool.ExecuteAsync(new ToolArguments
         {
             ["target"] = req.Target,
             ["ports"] = string.IsNullOrWhiteSpace(req.Ports) ? "1-1000" : req.Ports,
@@ -294,7 +301,8 @@ public sealed class ScanWorker : BackgroundService
         ScanJob req, DateTime startedAt, CancellationToken ct)
     {
         await PublishAsync(req.TaskId, "running", "UDP 扫描进行中", 50, ct);
-        var result = await _udpTool.ExecuteAsync(new ToolArguments
+        var udpTool = new UdpScanTool(_loggerFactory.CreateLogger<UdpScanTool>());
+        var result = await udpTool.ExecuteAsync(new ToolArguments
         {
             ["target"] = req.Target,
             ["ports"] = string.IsNullOrWhiteSpace(req.Ports) ? "1-1000" : req.Ports,
