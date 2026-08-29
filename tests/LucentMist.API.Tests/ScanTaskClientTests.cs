@@ -112,6 +112,8 @@ public sealed class ScanTaskClientTests
         var html = await RenderAlertsAsync(client);
         Assert.Contains("监控状态", html);
         Assert.Contains("无法确认扫描结果", html);
+        Assert.Contains("href=\"/scan/history\"", html);
+        Assert.Contains("查看扫描历史 →", html);
         Assert.Contains("role=\"status\"", html);
     }
 
