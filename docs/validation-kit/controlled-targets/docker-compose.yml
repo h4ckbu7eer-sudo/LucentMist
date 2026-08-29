@@ -1,0 +1,49 @@
+name: lucentmist-product-validation
+
+services:
+  ssh-target:
+    build: .
+    command: ["/usr/sbin/sshd", "-D", "-e"]
+    networks:
+      validation:
+        ipv4_address: 172.30.0.9
+
+  http-target:
+    build: .
+    command: ["/usr/local/bin/start-http.sh"]
+    networks:
+      validation:
+        ipv4_address: 172.30.0.10
+
+  tls-target:
+    build: .
+    command: ["/usr/local/bin/start-tls.sh"]
+    networks:
+      validation:
+        ipv4_address: 172.30.0.11
+
+  report-generator:
+    profiles: ["report"]
+    image: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
+    command:
+      - dotnet
+      - cli/lmist.dll
+      - report
+      - --target
+      - 172.30.0.8/29
+      - --format
+      - html
+      - --output
+      - /output/validation-report.html
+    volumes:
+      - ../../:/output
+    networks:
+      validation:
+        ipv4_address: 172.30.0.2
+
+networks:
+  validation:
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
+
