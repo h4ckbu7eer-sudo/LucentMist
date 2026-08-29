@@ -1,0 +1,67 @@
+# LucentMist 0.9.4 Release Notes
+
+Release date: 2026-08-29
+
+LucentMist 0.9.4 is a reliability and security-detection release. It turns the accumulated scanner fixes into a versioned, auditable delivery without changing the public product direction.
+
+## What changed for users
+
+### Vulnerability detection
+
+- SMB negotiation is SMB2-first with SMB1 fallback, and both paths use one dialect parser. SMB1 reads the dialect index from byte offset 37; SMB2/3 reads the dialect revision from byte offset 72.
+- Modern SMBv3 services are no longer incorrectly treated as SMB1/EternalBlue candidates. SMBGhost remains a candidate when SMBv3.1.1 is observed because dialect alone does not prove patch state.
+- OpenSSH CVE-2023-38408 matching now uses the upstream 9.3p2 fix boundary. Versions through 9.3p1 match; 9.3p2 and later do not.
+- CVEs that cannot be concluded from the collected banner are marked as not banner-matchable instead of being silently presented as automatically checked.
+
+### Reports for non-experts
+
+- HTML, Markdown and CSV reports list the actual open ports and service names rather than only a count.
+- The report command collects SSL information for eligible HTTPS services, and HTML renders the result.
+- Findings excluded by report scoping are genuinely excluded from summary, urgency and detail sections.
+- Only warnings that affect exposure or vulnerability completeness downgrade a report to `partial`; informational gaps remain visible as notes.
+
+### Monitoring and lifecycle reliability
+
+- Web monitoring has a bounded timeout and distinguishes “scan failed” from “result could not be confirmed.”
+- Monitoring errors and rejected scan requests are visible on Home, Scan and Devices pages.
+- Completed and failed scan states cannot be reversed by late cancellation or duplicate worker updates; the database also constrains allowed status values.
+- Polling failures are isolated, cancellation is propagated, and queue/back-pressure behavior avoids unbounded work.
+
+## Validation evidence
+
+- Local full suite: 299/299 tests passed before release.
+- SMB parsing and reconnect regression tests cover both byte offsets 37 and 72.
+- An authorized real Windows SMB service negotiated SMBv3.1.1. LucentMist did not report EternalBlue and reported SMBGhost only as a candidate.
+- Authorized local Docker containers exposed real OpenSSH 8.9p1 and 9.6p1 services. LucentMist reported CVE-2023-38408 as a candidate for 8.9p1 and did not report it for 9.6p1.
+- Exact OpenSSH 9.3p1/9.3p2 adjacency remains deterministic banner-test evidence, not a pair of separately compiled real daemons.
+
+Full evidence and limitations are recorded in [product-validation.md](product-validation.md) and [known-issues.md](known-issues.md).
+
+## Known limitations
+
+- A real SMBv1 positive target has not been available. The SMBv1 positive path is proven with a local TCP protocol simulator, not a real vulnerable host.
+- SMBGhost and EternalBlue results derived from dialect exposure are candidates, not proof of patch state or exploitability.
+- Distribution vendors can backport OpenSSH fixes without changing the upstream version in the SSH banner. Banner matches therefore remain candidates.
+- If Web monitoring exceeds its configured time budget, the UI reports that the result cannot be confirmed and directs the user to scan history; it does not claim the underlying scan failed.
+- The built-in CVE catalog and service fingerprinting are intentionally small and heuristic. LucentMist is not a replacement for a full authenticated enterprise scanner.
+- Agent analysis remains experimental.
+
+## Deployment requirements
+
+The versioned container is:
+
+```text
+ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4
+```
+
+Production deployments must explicitly set strong values for:
+
+- `LMIST_API_TOKEN`
+- `LMIST_WEB_USER`
+- `LMIST_WEB_PASSWORD`
+
+The compose startup helper can generate credentials and prints them to container logs. That behavior is for local demonstration only, not production secret management.
+
+## Next product step
+
+The report path is now suitable for structured usability testing. The next milestone is not another broad code sweep: it is interviewing non-expert users with the protocols in [product-validation-protocols.md](product-validation-protocols.md) to determine whether they understand what is exposed and what to fix first.

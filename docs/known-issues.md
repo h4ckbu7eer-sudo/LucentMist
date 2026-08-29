@@ -1,6 +1,6 @@
 # Known Issues
 
-Current status as of 0.9.3.
+Current status as of 0.9.4.
 
 ## Product Limitations
 

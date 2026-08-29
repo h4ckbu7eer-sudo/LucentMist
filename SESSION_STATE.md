@@ -1,8 +1,8 @@
 # LucentMist 会话状态 — 下次恢复只需读这个文件
 
 > 最后更新: 2026-08-28
-> 当前版本: v0.9.3
-> 状态: 0.9.3 工程交付；Agent 分析保持实验性
+> 当前版本: v0.9.4
+> 状态: 0.9.4 发布收尾；Agent 分析保持实验性
 
 ---
 
@@ -79,7 +79,7 @@ E:\LucentMist\
 
 ### 关键指标
 - 编译: 0 errors, 0 warnings
-- 测试: CI 218/218 通过；本地全量另含外部 SSL 用例
+- 测试: 本地全量 299/299 通过；CI 排除 External 用例，发布后以 Actions 实际结果为准
 - CLI 命令: scan / ssl-check / os-fingerprint / vuln-scan / vuln-detail / sirius-scan / report / agent / config / status / help
 - 工具: ping_scan / port_scan / udp_scan / service_identify / os_fingerprint / vuln_scan / ssl_check / sirius_scan
 
