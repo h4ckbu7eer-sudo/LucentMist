@@ -102,9 +102,9 @@ public class SmbProbeTests
     {
         using var client = await listener.AcceptTcpClientAsync();
         using var stream = client.GetStream();
-        var header = new byte[8];
-        await stream.ReadExactlyAsync(header);
-        Assert.Equal(new byte[] { 0xFE, 0x53, 0x4D, 0x42 }, header[4..8]);
+        var request = new byte[SmbProbe.Smb2NegotiatePacket.Length];
+        await stream.ReadExactlyAsync(request);
+        Assert.Equal(new byte[] { 0xFE, 0x53, 0x4D, 0x42 }, request[4..8]);
         await stream.WriteAsync(CreateSmb2Response(0x0311));
     }
 
@@ -112,16 +112,16 @@ public class SmbProbeTests
     {
         using (var smb2Client = await listener.AcceptTcpClientAsync())
         {
-            var header = new byte[8];
-            await smb2Client.GetStream().ReadExactlyAsync(header);
-            Assert.Equal(new byte[] { 0xFE, 0x53, 0x4D, 0x42 }, header[4..8]);
+            var request = new byte[SmbProbe.Smb2NegotiatePacket.Length];
+            await smb2Client.GetStream().ReadExactlyAsync(request);
+            Assert.Equal(new byte[] { 0xFE, 0x53, 0x4D, 0x42 }, request[4..8]);
         }
 
         using var smb1Client = await listener.AcceptTcpClientAsync();
         using var smb1Stream = smb1Client.GetStream();
-        var smb1Header = new byte[8];
-        await smb1Stream.ReadExactlyAsync(smb1Header);
-        Assert.Equal(new byte[] { 0xFF, 0x53, 0x4D, 0x42 }, smb1Header[4..8]);
+        var smb1Request = new byte[SmbProbe.Smb1NegotiatePacket.Length];
+        await smb1Stream.ReadExactlyAsync(smb1Request);
+        Assert.Equal(new byte[] { 0xFF, 0x53, 0x4D, 0x42 }, smb1Request[4..8]);
         await smb1Stream.WriteAsync(CreateSmb1Response(dialectIndex: 4));
     }
 
