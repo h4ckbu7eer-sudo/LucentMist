@@ -14,7 +14,10 @@ namespace LucentMist.Tools.Scanning;
 public class PingScanTool : INetworkTargetTool
 {
     private readonly ILogger<PingScanTool> _logger;
+    private readonly Func<string, int, CancellationToken, Task<IPStatus>> _icmpProbeAsync;
+    private readonly Func<string, int, CancellationToken, Task<bool>> _tcpProbeAsync;
     private int _icmpBlocked;
+    private int _tcpFallbackUsed;
 
     public string Name => "ping_scan";
     public string Description => "探测网络中存活设备，支持 CIDR 子网（如 192.168.1.0/24）";
@@ -26,8 +29,18 @@ public class PingScanTool : INetworkTargetTool
     ];
 
     public PingScanTool(ILogger<PingScanTool> logger)
+        : this(logger, SendIcmpAsync, TcpProbeAsync)
+    {
+    }
+
+    internal PingScanTool(
+        ILogger<PingScanTool> logger,
+        Func<string, int, CancellationToken, Task<IPStatus>> icmpProbeAsync,
+        Func<string, int, CancellationToken, Task<bool>> tcpProbeAsync)
     {
         _logger = logger;
+        _icmpProbeAsync = icmpProbeAsync;
+        _tcpProbeAsync = tcpProbeAsync;
     }
 
     public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
@@ -54,6 +67,7 @@ public class PingScanTool : INetworkTargetTool
 
         try
         {
+            Volatile.Write(ref _tcpFallbackUsed, 0);
             _logger.LogInformation("PingScan 开始: Target={Target}, Timeout={Timeout}ms", target, timeout);
 
             var ips = ParseTarget(target);
@@ -83,7 +97,7 @@ public class PingScanTool : INetworkTargetTool
                 hint = alive.Count == 0
                     ? $"目标 {requestedTarget} 无设备响应。请确认：1) 子网是否与当前网卡匹配 2) 防火墙是否阻止 ICMP"
                     : null,
-                icmpFallback = Volatile.Read(ref _icmpBlocked) != 0
+                icmpFallback = Volatile.Read(ref _tcpFallbackUsed) != 0
                     ? "ICMP 不可用，已使用 TCP 端口探测（80/443/22/445）"
                     : null,
             };
@@ -186,12 +200,12 @@ public class PingScanTool : INetworkTargetTool
         {
             try
             {
-                using var ping = new Ping();
-                var reply = await ping.SendPingAsync(ip, timeoutMs).WaitAsync(cancellationToken);
-                if (reply.Status == IPStatus.Success)
+                var status = await _icmpProbeAsync(ip, timeoutMs, cancellationToken);
+                if (status == IPStatus.Success)
                     return true;
-                if (reply.Status != IPStatus.TimedOut)
+                if (!ShouldFallbackToTcp(status))
                     return false;
+                Volatile.Write(ref _tcpFallbackUsed, 1);
             }
             catch (OperationCanceledException)
             {
@@ -213,7 +227,18 @@ public class PingScanTool : INetworkTargetTool
             }
         }
 
-        return await TcpProbeAsync(ip, timeoutMs, cancellationToken);
+        Volatile.Write(ref _tcpFallbackUsed, 1);
+        return await _tcpProbeAsync(ip, timeoutMs, cancellationToken);
+    }
+
+    private static async Task<IPStatus> SendIcmpAsync(
+        string ip,
+        int timeoutMs,
+        CancellationToken cancellationToken)
+    {
+        using var ping = new Ping();
+        var reply = await ping.SendPingAsync(ip, timeoutMs).WaitAsync(cancellationToken);
+        return reply.Status;
     }
 
     private static async Task<bool> TcpProbeAsync(string ip, int timeoutMs, CancellationToken cancellationToken)
@@ -267,4 +292,12 @@ public class PingScanTool : INetworkTargetTool
         return ex.Message.Contains("permission", StringComparison.OrdinalIgnoreCase) ||
                ex.Message.Contains("access", StringComparison.OrdinalIgnoreCase);
     }
+
+    internal static bool ShouldFallbackToTcp(IPStatus status) => status is
+        IPStatus.TimedOut or
+        IPStatus.DestinationUnreachable or
+        IPStatus.DestinationHostUnreachable or
+        IPStatus.DestinationProtocolUnreachable or
+        IPStatus.DestinationPortUnreachable or
+        IPStatus.DestinationNetworkUnreachable;
 }
