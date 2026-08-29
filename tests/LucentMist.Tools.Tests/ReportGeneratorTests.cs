@@ -329,6 +329,40 @@ public class ReportGeneratorTests
     }
 
     [Fact]
+    public void ApplyCompletionStatus_InformationalNoteDoesNotSuppressScopedAllClear()
+    {
+        var report = new ReportGenerator.ScanReport
+        {
+            Target = "192.0.2.10",
+            OnlineDevices = 1,
+            VulnInfo = new(),
+            Notes = { "192.0.2.10: OS 指纹未识别，不影响端口与漏洞候选结论" }
+        };
+
+        ReportGenerator.ApplyCompletionStatus(report, 1);
+
+        Assert.Equal("completed", report.ScanStatus);
+        var generator = new ReportGenerator();
+        Assert.Contains("在已披露的扫描范围内未发现", generator.Generate(report, ReportGenerator.Format.Html));
+        Assert.Contains("补充说明", generator.Generate(report, ReportGenerator.Format.Markdown));
+        Assert.Contains("OS 指纹未识别", generator.Generate(report, ReportGenerator.Format.Csv));
+    }
+
+    [Fact]
+    public void ApplyCompletionStatus_CompletenessWarningMakesReportPartial()
+    {
+        var report = new ReportGenerator.ScanReport
+        {
+            Warnings = { "192.0.2.10: 漏洞候选检测失败" }
+        };
+
+        ReportGenerator.ApplyCompletionStatus(report, 1);
+
+        Assert.Equal("partial", report.ScanStatus);
+        Assert.Contains("结果不完整", report.StatusMessage);
+    }
+
+    [Fact]
     public void ParseVulnerabilityFinding_PreservesToolContract()
     {
         using var document = System.Text.Json.JsonDocument.Parse("""
