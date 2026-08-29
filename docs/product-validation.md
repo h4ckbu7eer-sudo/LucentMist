@@ -133,3 +133,35 @@ tests rather than separately compiled real daemons.
 
 Both temporary containers were removed after validation, the host port was released,
 and the WSL Ubuntu distribution was returned to its original stopped state.
+
+## 5. Version 0.9.4 Release Verification
+
+Date: 2026-08-29
+
+Version `v0.9.4` was published from commit `d56e4f0e`. The release contains the
+real Windows SMB and real containerized OpenSSH validation paths documented above.
+
+Remote evidence:
+
+- The [v0.9.4 tag workflow (run 39)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244573226)
+  completed Windows build-and-test, Ubuntu build-and-test, and GHCR publishing with
+  `success`.
+- `docker manifest inspect ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.4` returned a valid
+  schema-v2 manifest. Its config digest was
+  `sha256:66397206f4c24956b4b1b9278e379032fb90b6361d944a5e39e421f5a1d93278`.
+- The simultaneous first main workflow (run 40) was not called green: its Windows job
+  failed because a 2-second assertion guard expired while a 25-millisecond test timer
+  was delayed on the shared runner. The same commit's tag Windows job passed. The test
+  retained a short injected product timeout but received a longer deadlock guard, and
+  the [follow-up main workflow (run 41)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33244948229)
+  completed Windows, Ubuntu, and GHCR jobs with `success`.
+
+This release evidence does not widen the vulnerability claims: the real Windows target
+proved SMBv3.1.1 negotiation and absence of an EternalBlue misclassification, not a
+real SMBv1 positive; the real OpenSSH services proved end-to-end banner capture and
+matching on representative versions, not exploitability or separately compiled
+9.3p1/9.3p2 daemons.
+
+With the report path now deliverable, the next product step is the non-expert user
+interview protocol in [product-validation-protocols.md](product-validation-protocols.md),
+not another unbounded code sweep.
