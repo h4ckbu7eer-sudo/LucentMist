@@ -44,7 +44,8 @@ public class ReportGeneratorTests
                     Issuer = "CN=GlobalSign",
                     NotAfter = "2027-01-01",
                     DaysRemaining = 150,
-                    IsExpired = false
+                    IsExpired = false,
+                    TrustErrors = new() { "UntrustedRoot", "NameMismatch" }
                 }
             },
             VulnInfo = new()
@@ -135,7 +136,11 @@ public class ReportGeneratorTests
         Assert.Contains("TLS 证书", html);
         Assert.Contains("CN=*.baidu.com", html);
         Assert.Contains("CN=GlobalSign", html);
-        Assert.Contains("有效（剩余 150 天）", html);
+        Assert.Contains("有效期内（剩余 150 天）", html);
+        Assert.Contains("不可信根或自签证书", html);
+        Assert.Contains("主机名不匹配", html);
+        Assert.Contains("UntrustedRoot", html);
+        Assert.Contains("NameMismatch", html);
     }
 
     [Fact]

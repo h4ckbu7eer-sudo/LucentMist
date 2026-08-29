@@ -988,7 +988,14 @@ public class CliApp
                     DaysRemaining = root.TryGetProperty("daysRemaining", out var days)
                         ? days.GetInt32()
                         : 0,
-                    IsExpired = root.TryGetProperty("isExpired", out var expired) && expired.GetBoolean()
+                    IsExpired = root.TryGetProperty("isExpired", out var expired) && expired.GetBoolean(),
+                    TrustErrors = root.TryGetProperty("trustErrors", out var trustErrors)
+                        && trustErrors.ValueKind == JsonValueKind.Array
+                            ? trustErrors.EnumerateArray()
+                                .Select(error => error.GetString() ?? "")
+                                .Where(error => error.Length > 0)
+                                .ToList()
+                            : new List<string>()
                 });
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)

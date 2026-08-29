@@ -1,3 +1,9 @@
+using System.Net;
+using System.Net.Security;
+using System.Net.Sockets;
+using System.Security.Authentication;
+using System.Security.Cryptography;
+using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using LucentMist.Tools;
 using LucentMist.Tools.Security;
@@ -136,6 +142,8 @@ public class SslCertificateToolTests
         Assert.True(root.TryGetProperty("thumbprint", out _));
         Assert.True(root.TryGetProperty("thumbprintSha256", out _));
         Assert.True(root.TryGetProperty("san", out _));
+        Assert.True(root.TryGetProperty("isTrusted", out _));
+        Assert.True(root.TryGetProperty("trustErrors", out _));
         Assert.True(root.TryGetProperty("chain", out _));
         Assert.True(root.TryGetProperty("scanDuration", out _));
     }
@@ -323,5 +331,84 @@ public class SslCertificateToolTests
 
         using var doc = JsonDocument.Parse(result.Data);
         Assert.Equal(443, doc.RootElement.GetProperty("port").GetInt32());
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithSelfSignedCertificate_ReportsUntrustedRoot()
+    {
+        var result = await ExecuteAgainstSelfSignedServerAsync(includeLoopbackSan: true);
+
+        Assert.True(result.Success, result.Error);
+        using var doc = JsonDocument.Parse(result.Data);
+        var root = doc.RootElement;
+        Assert.False(root.GetProperty("isTrusted").GetBoolean());
+        Assert.Contains(
+            root.GetProperty("trustErrors").EnumerateArray().Select(x => x.GetString()),
+            error => error == "UntrustedRoot");
+    }
+
+    [Fact]
+    public async Task ExecuteAsync_WithHostnameMismatch_ReportsNameMismatch()
+    {
+        var result = await ExecuteAgainstSelfSignedServerAsync(includeLoopbackSan: false);
+
+        Assert.True(result.Success, result.Error);
+        using var doc = JsonDocument.Parse(result.Data);
+        Assert.Contains(
+            doc.RootElement.GetProperty("trustErrors").EnumerateArray().Select(x => x.GetString()),
+            error => error == "NameMismatch");
+    }
+
+    private async Task<ToolResult> ExecuteAgainstSelfSignedServerAsync(bool includeLoopbackSan)
+    {
+        using var rsa = RSA.Create(2048);
+        var request = new CertificateRequest(
+            "CN=validation.invalid",
+            rsa,
+            HashAlgorithmName.SHA256,
+            RSASignaturePadding.Pkcs1);
+        var san = new SubjectAlternativeNameBuilder();
+        if (includeLoopbackSan)
+            san.AddIpAddress(IPAddress.Loopback);
+        else
+            san.AddDnsName("validation.invalid");
+        request.CertificateExtensions.Add(san.Build());
+        using var generatedCertificate = request.CreateSelfSigned(
+            DateTimeOffset.UtcNow.AddMinutes(-5),
+            DateTimeOffset.UtcNow.AddHours(1));
+        using var certificate = X509CertificateLoader.LoadPkcs12(
+            generatedCertificate.Export(X509ContentType.Pfx),
+            password: null,
+            X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var serverTask = Task.Run(async () =>
+        {
+            using var client = await listener.AcceptTcpClientAsync();
+            using var stream = new SslStream(client.GetStream(), leaveInnerStreamOpen: false);
+            await stream.AuthenticateAsServerAsync(
+                certificate,
+                clientCertificateRequired: false,
+                enabledSslProtocols: SslProtocols.Tls12 | SslProtocols.Tls13,
+                checkCertificateRevocation: false);
+        });
+
+        try
+        {
+            var result = await _tool.ExecuteAsync(new ToolArguments
+            {
+                ["target"] = "127.0.0.1",
+                ["port"] = port.ToString(),
+                ["timeout_ms"] = "5000"
+            });
+            await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+            return result;
+        }
+        finally
+        {
+            listener.Stop();
+        }
     }
 }
