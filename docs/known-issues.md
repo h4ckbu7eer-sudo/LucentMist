@@ -95,9 +95,15 @@ Current status as of the verified 0.9.5 release.
   `LMIST_WEB_PASSWORD`, before startup.
 - The `0.9.5` entrypoint fixes that coordination defect by reusing the existing
   non-empty shared token file and generates Web credentials only for the Web process.
-  Generated credentials are still only for isolated local demonstration and are
-  printed to container logs. Production deployments must override all credentials
-  through an uncommitted `.env` or a proper secret manager.
+  Current `main` persists generated local-demo credentials in the protected data volume
+  and logs only their file locations, never their values. The published 0.9.5 image
+  predates that hardening and still prints generated demo credentials; production
+  deployments must override all credentials through an uncommitted `.env` or a proper
+  secret manager.
+- Scan results, Agent sessions, audit records and generated credential files are not
+  application-layer encrypted. Self-use deployments should protect the host with
+  full-disk encryption and restrict filesystem access. See
+  [data-security-and-recovery.md](data-security-and-recovery.md).
 - The GHCR package currently requires authenticated access. Deployers need a classic personal access token with `read:packages`; credentials must be supplied through `docker login --password-stdin`, not committed to configuration.
 - The `0.9.4` GHCR tag is not claimed to be immutable. Exact rollback uses `ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:11b2bdcd909697e1509370231daf06f1bd56c25beb38d251774bc3f96d41d2af`.
 - There is no GitHub Release object for `v0.9.4`, and repository ruleset visibility was unavailable to the verification credential (`403`), so Git tag immutability is not claimed. Enable GitHub immutable Releases before publishing the next version; that protects the Git tag and release assets, while the container still needs digest pinning.

@@ -25,6 +25,7 @@
 - 🌐 **Web 管理界面** — Blazor Server 仪表板，实时监控 + 扫描控制
 - 📡 **双接口** — CLI 命令行 + RESTful API (SSE 流式)
 - 💾 **持久化** — SQLite 存储扫描记录与 Agent 会话
+- 🧾 **自用合规护栏** — 公网授权确认、允许范围、扫描审计与 WAL 安全备份
 
 ---
 
@@ -58,6 +59,10 @@ dotnet run --project src/LucentMist.CLI -- vuln-scan 192.168.1.1
 
 # 生成报告
 dotnet run --project src/LucentMist.CLI -- report --target 192.168.1.1 --format html
+
+# 查看扫描审计并安全备份
+dotnet run --project src/LucentMist.CLI -- audit --limit 20
+dotnet run --project src/LucentMist.CLI -- backup --output backups/lucentmist.db
 
 # AI 对话
 dotnet run --project src/LucentMist.CLI -- agent "分析我的网络安全性"
@@ -103,8 +108,21 @@ curl -X POST http://localhost:5050/api/v1/scan \
   -d '{"target":"127.0.0.1","scanType":"ping"}'
 ```
 
-`0.9.5` 在留空时会生成随机凭据，并让 API/Web 通过共享的 token 文件复用同一
-API token；该行为只用于隔离的本地演示。生产环境必须显式设置三项强凭据。
+留空时容器会生成随机凭据，并让 API/Web 通过共享数据卷复用。凭据值不写日志；本地演示可按需用
+`docker compose exec lucentmist cat /app/data/lucentmist-api-token`、
+`docker compose exec lucentmist-web cat /app/data/lucentmist-web-user` 和
+`docker compose exec lucentmist-web cat /app/data/lucentmist-web-password` 主动读取。
+生产环境必须显式设置三项强凭据。
+
+## 🔐 自用与数据边界
+
+- 公网扫描在 CLI/Web 会要求授权确认；无交互自动化需在确认有权扫描后传 `--authorized`。
+- 设置 `LMIST_ALLOWED_TARGETS=192.168.1.0/24,router.home,*.lab.example` 后，范围外目标会被所有入口拒绝。
+- 扫描数据是明文 SQLite；建议使用全盘加密并限制 `data/`、报告和备份的文件权限。
+- 默认不上传扫描结果或遥测；云端 LLM、外部 CVE、DNS 与 Sirius 的精确边界见
+  [隐私与网络出口审计](docs/compliance-telemetry-audit.md)。
+- 完整自用核验见 [自用资格清单](docs/self-use-checklist.md)，备份恢复见
+  [数据安全与恢复](docs/data-security-and-recovery.md)。
 
 ---
 
