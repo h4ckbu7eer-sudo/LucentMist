@@ -1895,7 +1895,7 @@ public class CliApp
             }
 
             userMessage = string.Join(' ', args[2..]);
-            message = BuildHistoryContext(history) + userMessage;
+            message = AgentConversationContext.Build(history.Select(item => new ChatMessage(item.Role, item.Content)), userMessage);
         }
 
         // 默认不泄露本机拓扑；仅显式开启时注入。
@@ -2151,18 +2151,6 @@ public class CliApp
             var content = m.Content.Length > 200 ? m.Content[..200] + "..." : m.Content;
             AnsiConsole.MarkupLine($"  [teal]{role}:[/] {Escape(content)}");
         }
-    }
-
-    private static string BuildHistoryContext(List<AgentMessageRecord> messages)
-    {
-        if (messages.Count == 0) return "";
-
-        var sb = new System.Text.StringBuilder();
-        sb.AppendLine("以下是之前会话的历史记录，请基于此继续回答：");
-        foreach (var m in messages)
-            sb.AppendLine($"{m.Role}: {m.Content}");
-        sb.AppendLine();
-        return sb.ToString();
     }
 
     private static string TitleFrom(string message)

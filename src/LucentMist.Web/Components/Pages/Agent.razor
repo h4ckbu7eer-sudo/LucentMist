@@ -247,6 +247,12 @@ else
         {
             using var doc = JsonDocument.Parse(data);
             var root = doc.RootElement;
+            if (eventName == "session" && root.TryGetProperty("sessionId", out var session))
+            {
+                _sessionId = session.GetString() ?? "";
+                StateHasChanged();
+                return;
+            }
             var content = root.TryGetProperty("content", out var c)
                 ? c.GetString() ?? ""
                 : "";
@@ -260,7 +266,8 @@ else
             };
 
             if (kind == "action" && root.TryGetProperty("tool", out var t))
-                content = $"{t.GetString()}: {content}";
+                content = $"{t.GetString()}: {(root.TryGetProperty("input", out var input) ? input.GetString() : "")} " +
+                    (root.TryGetProperty("success", out var success) && success.GetBoolean() ? "完成" : "失败/未确认");
 
             _lines.Add(new AgentLine(kind, content));
             StateHasChanged();

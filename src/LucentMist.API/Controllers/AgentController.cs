@@ -1,6 +1,6 @@
 using System.ComponentModel.DataAnnotations;
-using System.Runtime.CompilerServices;
 using System.Text.Json;
+using System.Threading.Channels;
 using LucentMist.Agent;
 using LucentMist.Agent.LLM;
 using LucentMist.Core.Networking;
@@ -45,16 +45,17 @@ public class AgentController : ControllerBase
     /// LLM 不可用时输出 error 事件，不再静默返回写死内容。
     /// </summary>
     [HttpPost("chat")]
-    public async IAsyncEnumerable<string> Chat([FromBody] AgentChatRequest request, [EnumeratorCancellation] CancellationToken ct)
+    public async Task Chat([FromBody] AgentChatRequest request, CancellationToken ct)
     {
         Response.ContentType = "text/event-stream";
         Response.Headers.CacheControl = "no-cache";
         Response.Headers.Connection = "keep-alive";
+        Response.Headers["X-Accel-Buffering"] = "no";
 
         if (string.IsNullOrWhiteSpace(request.Message))
         {
-            yield return Sse("error", Json(new { content = "消息不能为空", done = true }));
-            yield break;
+            await SendEventAsync("error", new { content = "消息不能为空", done = true }, ct);
+            return;
         }
 
         var session = await _sessions.GetSessionAsync(request.SessionId ?? "")
@@ -65,13 +66,16 @@ public class AgentController : ControllerBase
         var sessionLock = await AcquireSessionLockAsync(session.Id, ct);
         try
         {
+            var history = await _sessions.GetMessagesAsync(session.Id);
             await _sessions.AddMessageAsync(session.Id, "user", request.Message);
-            yield return Sse("session", Json(new { sessionId = session.Id }));
+            await SendEventAsync("session", new { sessionId = session.Id }, ct);
 
             // 注入本机 IP，防止 LLM 猜测错误网段（与 CLI 保持一致）
+            var contextualMessage = AgentConversationContext.Build(
+                history.Select(item => new ChatMessage(item.Role, item.Content)), request.Message);
             var message = Environment.GetEnvironmentVariable("LMIST_INJECT_NETWORK_INFO") == "true"
-                ? LocalNetworkInfo.InjectLocalNetworkInfo(request.Message)
-                : request.Message;
+                ? LocalNetworkInfo.InjectLocalNetworkInfo(contextualMessage)
+                : contextualMessage;
 
             var systemPrompt = LoadSystemPrompt();
             var auditInitiator = Request.Headers["X-LMist-Initiator"].ToString()
@@ -79,6 +83,13 @@ public class AgentController : ControllerBase
                     ? "web-agent"
                     : "api-agent";
 
+            using var runCancellation = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            var updates = Channel.CreateBounded<ReActProgress>(new BoundedChannelOptions(32)
+            {
+                SingleReader = true,
+                SingleWriter = true,
+                FullMode = BoundedChannelFullMode.Wait,
+            });
             var engine = new ReActEngine(
                 _llm,
                 _tools,
@@ -88,71 +99,58 @@ public class AgentController : ControllerBase
                 auditInitiator)
             {
                 MaxRounds = 5,
+                Progress = (update, token) => updates.Writer.WriteAsync(update, token).AsTask(),
             };
 
-            ReActResult? result = null;
-            string? runError = null;
-            var canceled = false;
+            var run = RunEngineAsync();
             try
             {
-                result = await engine.RunAsync(message, ct);
+                await foreach (var update in updates.Reader.ReadAllAsync(ct))
+                {
+                    if (update.Thought != null)
+                    {
+                        await _sessions.AddMessageAsync(session.Id, "assistant", update.Thought);
+                        await SendEventAsync("thought", new { content = update.Thought }, ct);
+                    }
+                    if (update.Observation is { } obs)
+                    {
+                        var action = new { tool = obs.ToolName, input = obs.Input, success = obs.Success };
+                        await _sessions.AddMessageAsync(session.Id, "tool", obs.Result, Json(action));
+                        await SendEventAsync("action", action, ct);
+                        await SendEventAsync("observation", new { content = obs.Result }, ct);
+                    }
+                }
+                var result = await run;
+                var finalContent = result.Success ? result.Answer : $"执行失败: {result.Error}";
+                await _sessions.AddMessageAsync(session.Id, "assistant", finalContent);
+                if (session.MessageCount == 0)
+                    await _sessions.UpdateTitleAsync(session.Id, TitleFrom(request.Message));
+                await SendEventAsync("message", new { content = finalContent, done = true }, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
-                canceled = true;
+                // Disconnected clients cannot consume an error event.
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Agent 执行失败");
-                runError = "Agent 执行失败，请检查服务日志";
-            }
-
-            if (canceled)
-            {
-                yield return Sse("error", Json(new { content = "连接已断开", done = true }));
-                yield break;
-            }
-
-            if (runError != null)
-            {
+                const string runError = "Agent 执行失败，请检查服务日志";
                 await _sessions.AddMessageAsync(session.Id, "assistant", runError);
-                yield return Sse("error", Json(new { content = runError, done = true }));
-                yield break;
+                await SendEventAsync("error", new { content = runError, done = true }, ct);
+            }
+            finally
+            {
+                runCancellation.Cancel();
+                try { await run; }
+                catch (OperationCanceledException) when (runCancellation.IsCancellationRequested) { }
+                catch (Exception ex) { _logger.LogDebug(ex, "Agent run already reported failure"); }
             }
 
-            // 回放推理过程（thought → action+observation）
-            for (int i = 0; i < engine.ThoughtLog.Count; i++)
+            async Task<ReActResult> RunEngineAsync()
             {
-                await _sessions.AddMessageAsync(session.Id, "assistant", engine.ThoughtLog[i]);
-                yield return Sse("thought", Json(new { content = engine.ThoughtLog[i] }));
-
-                foreach (var obs in engine.ObservationsForRound(i + 1))
-                {
-                    await _sessions.AddMessageAsync(
-                        session.Id,
-                        "tool",
-                        obs.Result,
-                        JsonSerializer.Serialize(new { tool = obs.ToolName, input = obs.Input, success = obs.Success }));
-                    yield return Sse("action", Json(new
-                    {
-                        tool = obs.ToolName,
-                        input = obs.Input,
-                        success = obs.Success,
-                    }));
-                    yield return Sse("observation", Json(new { content = obs.Result }));
-                }
+                try { return await engine.RunAsync(message, runCancellation.Token); }
+                finally { updates.Writer.TryComplete(); }
             }
-
-            var finalContent = result!.Success ? result.Answer : $"执行失败: {result.Error}";
-            await _sessions.AddMessageAsync(session.Id, "assistant", finalContent);
-            if (session.MessageCount == 0)
-                await _sessions.UpdateTitleAsync(session.Id, TitleFrom(request.Message));
-
-            yield return Sse("message", Json(new
-            {
-                content = finalContent,
-                done = true,
-            }));
         }
         finally
         {
@@ -219,6 +217,12 @@ public class AgentController : ControllerBase
 
     private static string Sse(string eventName, string data) =>
         $"event: {eventName}\ndata: {data}\n\n";
+
+    private async Task SendEventAsync(string eventName, object data, CancellationToken ct)
+    {
+        await Response.WriteAsync(Sse(eventName, Json(data)), ct);
+        await Response.Body.FlushAsync(ct);
+    }
 
     private static string Json(object obj) =>
         JsonSerializer.Serialize(obj);
