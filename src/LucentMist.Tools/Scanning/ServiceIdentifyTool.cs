@@ -175,7 +175,7 @@ public class ServiceIdentifyTool : INetworkTargetTool
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to read port to PID map");
+                _logger.LogDebug(ex, "Process enrichment unavailable: port to PID map");
             }
 
             _portPidCache = map;
@@ -254,7 +254,7 @@ public class ServiceIdentifyTool : INetworkTargetTool
             try { proc = Process.GetProcessById(pid); }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to get process {Pid}", pid);
+                _logger.LogDebug(ex, "Process enrichment unavailable for PID {Pid}", pid);
                 return null;
             }
             using var processHandle = proc;
@@ -264,7 +264,7 @@ public class ServiceIdentifyTool : INetworkTargetTool
             try { procPath = processHandle.MainModule?.FileName; }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to read process path for {Process}", procName);
+                LogProcessPathUnavailable(ex, procName);
             }
 
             // 查找关联的 Windows 服务
@@ -285,7 +285,10 @@ public class ServiceIdentifyTool : INetworkTargetTool
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "Failed to enumerate Windows services for {Process}", procName);
+                    _logger.LogDebug(
+                        ex,
+                        "Process enrichment unavailable: Windows services for {Process}",
+                        procName);
                 }
             }
 
@@ -311,10 +314,16 @@ public class ServiceIdentifyTool : INetworkTargetTool
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to inspect process info for port {Port}", port);
+            _logger.LogDebug(ex, "Process enrichment unavailable for port {Port}", port);
             return null;
         }
     }
+
+    internal void LogProcessPathUnavailable(Exception exception, string processName) =>
+        _logger.LogDebug(
+            exception,
+            "Process enrichment unavailable: path for {Process}",
+            processName);
 
     private async Task<string?> GrabBannerAsync(string ip, int port, int timeoutMs, CancellationToken cancellationToken)
     {
