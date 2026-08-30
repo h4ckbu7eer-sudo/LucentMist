@@ -892,6 +892,28 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public void SummarizeObservations_LocalIpUsesPrimaryWithoutListingVirtualPeers()
+    {
+        var observations = new List<ReActObservation>
+        {
+            new()
+            {
+                ToolName = "get_my_ip",
+                Input = "{}",
+                Success = true,
+                Result = "{\"primaryIp\":\"192.168.2.9\",\"primaryInterface\":\"WLAN 2\"," +
+                         "\"virtualInterfaceCount\":2,\"interfaces\":[" +
+                         "{\"name\":\"VMnet8\",\"ip\":\"192.168.12.1\",\"isVirtual\":true}]}"
+            }
+        };
+
+        var summary = ReActEngine.SummarizeObservations(observations);
+        Assert.Contains("本机主 IPv4: 192.168.2.9（接口: WLAN 2）", summary);
+        Assert.Contains("另有 2 个虚拟网卡", summary);
+        Assert.DoesNotContain("192.168.12.1", summary);
+    }
+
+    [Fact]
     public async Task RunAsync_PortScanNoOpenPorts_NoAutoIdentify()
     {
         var mockPortScan = new Mock<ITool>();

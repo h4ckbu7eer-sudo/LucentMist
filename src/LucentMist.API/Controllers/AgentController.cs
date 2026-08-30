@@ -70,7 +70,7 @@ public class AgentController : ControllerBase
 
             // 注入本机 IP，防止 LLM 猜测错误网段（与 CLI 保持一致）
             var message = Environment.GetEnvironmentVariable("LMIST_INJECT_NETWORK_INFO") == "true"
-                ? InjectLocalNetworkInfo(request.Message)
+                ? LocalNetworkInfo.InjectLocalNetworkInfo(request.Message)
                 : request.Message;
 
             var systemPrompt = LoadSystemPrompt();
@@ -185,19 +185,6 @@ public class AgentController : ControllerBase
     {
         var text = message.Trim();
         return text.Length <= 20 ? text : text[..20] + "...";
-    }
-
-    /// <summary>
-    /// 在用户消息前注入本机网卡信息，让 LLM 知道真实子网而非猜测 192.168.1.0/24
-    /// </summary>
-    private static string InjectLocalNetworkInfo(string message)
-    {
-        var entries = LocalNetworkInfo.GetEntries();
-        if (entries.Count == 0) return message;
-
-        var info = string.Join("; ", entries.Select(e =>
-            $"{e.Ip}/{e.Prefix} (接口: {e.Name}, 网关: {e.Gateway})"));
-        return $"[本机网络信息: {info}] {message}";
     }
 
     private static string LoadSystemPrompt() => SystemPrompt.Value;
