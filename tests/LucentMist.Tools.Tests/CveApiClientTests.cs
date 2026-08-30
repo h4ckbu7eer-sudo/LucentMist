@@ -8,6 +8,25 @@ namespace LucentMist.Tools.Tests;
 public class CveApiClientTests
 {
     [Fact]
+    public void ConsultedSources_WithVersionEvidence_ListsEveryQueriedSource()
+    {
+        var sources = CveApiClient.GetConsultedSources(
+            22,
+            "SSH-2.0-OpenSSH_9.2p1",
+            externalEnabled: true);
+
+        Assert.Equal(new[] { "CVETodo API", "Shodan API", "NVD" }, sources);
+    }
+
+    [Fact]
+    public void ConsultedSources_WithoutVersionEvidence_DoesNotClaimExternalCalls()
+    {
+        Assert.Empty(CveApiClient.GetConsultedSources(
+            22,
+            "SSH（版本未知）",
+            externalEnabled: true));
+    }
+    [Fact]
     public async Task TryOsvSearch_BannerOnlyEvidence_DoesNotCallOsvOrClaimVerification()
     {
         var calls = 0;

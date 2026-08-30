@@ -38,6 +38,27 @@ public class CveApiClient
     private static string ServiceKey(int port) =>
         PortHelper.GetServiceKey(port) ?? "unknown";
 
+    internal static string[] GetConsultedSources(
+        int port,
+        string? banner,
+        bool externalEnabled)
+    {
+        if (!externalEnabled ||
+            (!CveDatabase.HasVersionEvidence(port, banner) && CreateOsvCommitQuery(banner) == null))
+            return [];
+
+        var sources = new List<string> { "CVETodo API", "Shodan API", "NVD" };
+        if (CreateOsvCommitQuery(banner) != null)
+            sources.Add("OSV.dev");
+        return sources.ToArray();
+    }
+
+    internal static string[] GetConsultedSources(int port, string? banner) =>
+        GetConsultedSources(
+            port,
+            banner,
+            Environment.GetEnvironmentVariable("LMIST_CVE_EXTERNAL") == "true");
+
     /// <summary>
     /// 按端口查询所有 API（并行），合并去重。每个 API 失败重试 1 次。
     /// </summary>
