@@ -289,6 +289,7 @@ public class CliApp
         var target = "";
         var isUdp = false;
         var verbose = false;
+        var skipPing = !ShouldRunPing(args);
         var tcpPorts = "";
         var svcPorts = "";
         var udpPorts = "53,123,161,500,514,1900";
@@ -331,24 +332,27 @@ public class CliApp
 
         AnsiConsole.Write(new Rule($"[teal]扫描目标: {Escape(target)}[/]"));
 
-        // 1. Ping 扫描
-        await AnsiConsole.Status()
-            .Spinner(Spinner.Known.Dots)
-            .StartAsync("正在扫描...", async _ =>
-            {
-                var tool = new PingScanTool(lf.CreateLogger<PingScanTool>());
-                var result = await tool.ExecuteAsync(new ToolArguments { ["target"] = target, ["timeout_ms"] = "2000" });
-
-                AnsiConsole.WriteLine();
-                if (!result.Success)
+        // 1. Ping 扫描（显式 --no-ping 时直接进入端口/服务阶段）
+        if (!skipPing)
+        {
+            await AnsiConsole.Status()
+                .Spinner(Spinner.Known.Dots)
+                .StartAsync("正在扫描...", async _ =>
                 {
-                    AnsiConsole.MarkupLine($"[red]扫描失败: {Escape(result.Error!)}[/]");
-                    return;
-                }
+                    var tool = new PingScanTool(lf.CreateLogger<PingScanTool>());
+                    var result = await tool.ExecuteAsync(new ToolArguments { ["target"] = target, ["timeout_ms"] = "2000" });
 
-                RenderPingResult(result.Data);
-                AnsiConsole.MarkupLine($" [grey]耗时: {result.Duration.TotalSeconds:F1}s[/]");
-            });
+                    AnsiConsole.WriteLine();
+                    if (!result.Success)
+                    {
+                        AnsiConsole.MarkupLine($"[red]扫描失败: {Escape(result.Error!)}[/]");
+                        return;
+                    }
+
+                    RenderPingResult(result.Data);
+                    AnsiConsole.MarkupLine($" [grey]耗时: {result.Duration.TotalSeconds:F1}s[/]");
+                });
+        }
 
         // 2. TCP 端口扫描（--ports 指定时，且非 --udp）
         if (!isUdp && !string.IsNullOrEmpty(tcpPorts))
@@ -451,6 +455,9 @@ public class CliApp
             AnsiConsole.WriteLine(result.Data);
         }
     }
+
+    internal static bool ShouldRunPing(IEnumerable<string> args) =>
+        !args.Contains("--no-ping", StringComparer.OrdinalIgnoreCase);
 
     private static async Task RunServiceIdentify(string target, string ports, ILoggerFactory lf)
     {
@@ -1693,7 +1700,8 @@ public class CliApp
             assessments.ValueKind != JsonValueKind.Array ||
             assessments.GetArrayLength() == 0)
         {
-            AnsiConsole.MarkupLine("[green]✅ 已识别版本未命中已知受影响范围[/]");
+            if (!root.TryGetProperty("totalFindings", out var total) || total.GetInt32() == 0)
+                AnsiConsole.MarkupLine("[green]✅ 已识别版本未命中已知受影响范围[/]");
             return;
         }
 
@@ -2121,6 +2129,15 @@ public class CliApp
                 case "service_identify":
                     RenderServiceObs(r);
                     break;
+                case "vuln_scan":
+                    RenderVulnerabilityObs(r);
+                    break;
+                case "ssl_check":
+                    RenderSslObs(r);
+                    break;
+                case "os_fingerprint":
+                    RenderOsObs(r);
+                    break;
                 default:
                     AnsiConsole.MarkupLine($"     [grey]{Escape(json)}[/]");
                     break;
@@ -2142,7 +2159,12 @@ public class CliApp
         if (r.TryGetProperty("devices", out var devs))
         {
             foreach (var d in devs.EnumerateArray())
-                AnsiConsole.MarkupLine($"        [green]{Escape(d.GetString() ?? "-")}[/]");
+            {
+                var device = Escape(d.GetString() ?? "-");
+                AnsiConsole.Write(new Panel("[green]✅ 在线[/]")
+                    .Header($"[teal] 设备 {device} [/]")
+                    .BorderColor(Color.Green));
+            }
         }
 
         if (r.TryGetProperty("hint", out var hint) && hint.ValueKind == JsonValueKind.String)
@@ -2182,7 +2204,9 @@ public class CliApp
             .AddRow("扫描端口", $"{scanned}")
             .AddRow("开放端口", $"[green]{ports.Count}[/]")
             .BorderColor(Color.Grey);
-        AnsiConsole.Write(summary);
+        AnsiConsole.Write(new Panel(summary)
+            .Header($"[teal] 设备 {Escape(target)} [/]")
+            .BorderColor(ports.Count > 0 ? Color.Green : Color.Grey));
 
         if (ports.Count > 0)
         {
@@ -2210,6 +2234,78 @@ public class CliApp
 
         AnsiConsole.MarkupLine($"     [grey]目标  {Escape(target)}:{port}[/]");
         AnsiConsole.MarkupLine($"     [green]服务  {Escape(service)}[/]");
+    }
+
+    private static void RenderVulnerabilityObs(JsonElement r)
+    {
+        var target = r.TryGetProperty("target", out var targetNode) ? targetNode.GetString() ?? "?" : "?";
+        var overall = r.TryGetProperty("overallRisk", out var riskNode) ? riskNode.GetString() ?? "未知" : "未知";
+        var total = r.TryGetProperty("totalFindings", out var totalNode) ? totalNode.GetInt32() : 0;
+        var findings = r.TryGetProperty("findings", out var findingNode) && findingNode.ValueKind == JsonValueKind.Array
+            ? findingNode.EnumerateArray().ToList()
+            : [];
+        var sources = FormatVulnerabilitySources(findings.Select(item =>
+            item.TryGetProperty("source", out var source) ? source.GetString() : null));
+
+        var color = total > 0 ? Color.Yellow : overall == "未知" ? Color.Yellow : Color.Green;
+        var summary = new Table().HideHeaders()
+            .AddColumn("项目")
+            .AddColumn("值")
+            .AddRow("风险", Escape(overall))
+            .AddRow("CVE", total.ToString())
+            .AddRow("来源", Escape(sources));
+        AnsiConsole.Write(new Panel(summary)
+            .Header($"[teal] 🛡 漏洞评估 {Escape(target)} [/]")
+            .BorderColor(color));
+
+        if (findings.Count > 0)
+        {
+            var table = new Table().BorderColor(Color.Yellow)
+                .AddColumn("端口")
+                .AddColumn("CVE")
+                .AddColumn("风险")
+                .AddColumn("置信度");
+            foreach (var item in findings)
+            {
+                var confirmed = item.TryGetProperty("confirmed", out var confirmedNode) && confirmedNode.GetBoolean();
+                table.AddRow(
+                    item.GetProperty("port").GetInt32().ToString(),
+                    Escape(item.TryGetProperty("cve", out var cve) ? cve.GetString() ?? "—" : "—"),
+                    Escape(item.TryGetProperty("risk", out var itemRisk) ? itemRisk.GetString() ?? "未知" : "未知"),
+                    Escape(VulnerabilityConfidenceLabel(confirmed, ReadVersionStatus(item))));
+            }
+            AnsiConsole.Write(table);
+        }
+
+        RenderVulnerabilityAssessments(r);
+    }
+
+    private static void RenderSslObs(JsonElement r)
+    {
+        var target = r.GetProperty("target").GetString() ?? "?";
+        var port = r.GetProperty("port").GetInt32();
+        var expired = r.GetProperty("isExpired").GetBoolean();
+        var trusted = r.TryGetProperty("isTrusted", out var trust) && trust.GetBoolean();
+        var days = r.GetProperty("daysRemaining").GetInt32();
+        var table = new Table().HideHeaders()
+            .AddColumn("项目")
+            .AddColumn("值")
+            .AddRow("有效期", expired ? "[red]已过期[/]" : $"[green]剩余 {days} 天[/]")
+            .AddRow("信任链", trusted ? "[green]可信[/]" : "[yellow]存在信任错误[/]")
+            .AddRow("颁发者", Escape(r.GetProperty("issuer").GetString() ?? "未知"));
+        AnsiConsole.Write(new Panel(table)
+            .Header($"[teal] 🔒 TLS {Escape(target)}:{port} [/]")
+            .BorderColor(expired ? Color.Red : trusted ? Color.Green : Color.Yellow));
+    }
+
+    private static void RenderOsObs(JsonElement r)
+    {
+        var target = r.GetProperty("target").GetString() ?? "?";
+        var os = r.GetProperty("osFamily").GetString() ?? "未知";
+        var confidence = r.GetProperty("confidence").GetInt32();
+        AnsiConsole.Write(new Panel($"[white]{Escape(os)}[/]\n[grey]置信度 {confidence}%[/]")
+            .Header($"[teal] 💻 OS {Escape(target)} [/]")
+            .BorderColor(confidence >= 70 ? Color.Green : Color.Yellow));
     }
 
     private static string Escape(string text) =>
@@ -2450,7 +2546,7 @@ public class CliApp
             .AddColumn("[teal]说明[/]")
             .AddColumn("[teal]示例[/]");
 
-        table.AddRow("[yellow]scan[/]", "网络扫描", "[grey]lmist scan 192.168.1.0/24 --udp[/]");
+        table.AddRow("[yellow]scan[/]", "网络扫描（--no-ping 可跳过存活探测）", "[grey]lmist scan 192.168.1.10 --ports 1-1000 --no-ping[/]");
         table.AddRow("[yellow]ssl-check[/]", "SSL 证书校验", "[grey]lmist ssl-check baidu.com[/]");
         table.AddRow("[yellow]os-fingerprint[/]", "OS 指纹识别", "[grey]lmist os-fingerprint 192.168.1.1[/]");
         table.AddRow("[yellow]vuln-scan[/]", "漏洞扫描", "[grey]lmist vuln-scan 192.168.1.1[/]");
