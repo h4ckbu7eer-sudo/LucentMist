@@ -22,6 +22,7 @@ public class ReActEngine
 
     public int MaxRounds { get; set; } = 10;
     public int MaxAutoIdentifyPorts { get; set; } = 20;
+    public int MaxCompletionDeferrals { get; set; } = 2;
     public List<ReActObservation> Observations { get; } = [];
     public List<string> ThoughtLog { get; } = [];
 
@@ -67,6 +68,7 @@ public class ReActEngine
 
         _logger.LogInformation("ReAct 开始: Query={Query}, MaxRounds={Max}", userQuery, MaxRounds);
         var toolDefs = _toolRegistry.ExportForLLM();
+        var completionDeferrals = 0;
 
         for (var round = 1; round <= MaxRounds; round++)
         {
@@ -95,13 +97,36 @@ public class ReActEngine
             // 2. 检查是否是最终答案
             if (step.IsFinal)
             {
+                var incompleteChecks = SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations);
+                if (incompleteChecks.Count > 0)
+                {
+                    if (completionDeferrals < MaxCompletionDeferrals)
+                    {
+                        completionDeferrals++;
+                        Observations.Add(new ReActObservation
+                        {
+                            Step = round,
+                            ToolName = "analysis_completeness",
+                            Input = "{}",
+                            Result = "尚不能给出安全结论：" + string.Join("；", incompleteChecks) +
+                                     "。请继续执行缺失检查；若检查仍失败，最终结论必须明确标为未确认。",
+                            Success = false,
+                        });
+                        continue;
+                    }
+
+                    return ReActResult.Ok(
+                        SummarizeObservations(Observations),
+                        ThoughtLog,
+                        Observations);
+                }
                 return ReActResult.Ok(step.ActionInput, ThoughtLog, Observations);
             }
 
             // 检测整个会话中的重复操作，而不只是上一条。JSON 属性顺序或数字/字符串
             // 表示不同也会归一化，避免 LLM 绕一轮后再次执行相同扫描。
             var operationKey = OperationKey(step.Action, step.ActionInput);
-            if (Observations.Any(obs => OperationKey(obs.ToolName, obs.Input) == operationKey))
+            if (Observations.Any(obs => obs.Success && OperationKey(obs.ToolName, obs.Input) == operationKey))
             {
                 _logger.LogWarning("检测到重复操作: {Action}({Input})，终止循环", step.Action, step.ActionInput);
                 // 汇总所有已完成的观察结果作为最终结论
@@ -527,18 +552,26 @@ public class ReActEngine
         sb.AppendLine("分析结果如下：");
         sb.AppendLine();
 
-        var seen = new HashSet<string>();
-        foreach (var obs in observations)
+        var displayObservations = observations
+            .Select((observation, index) => new { Observation = observation, Index = index })
+            .GroupBy(item => OperationKey(item.Observation.ToolName, item.Observation.Input))
+            .Select(group => group.LastOrDefault(item => item.Observation.Success) ?? group.Last())
+            .OrderBy(item => item.Index)
+            .Select(item => item.Observation);
+        foreach (var obs in displayObservations)
         {
-            var key = $"{obs.ToolName}|{obs.Input}";
-            if (seen.Contains(key)) continue; // 跳过重复操作
-            seen.Add(key);
-
             sb.AppendLine($"  工具: {obs.ToolName}");
             sb.AppendLine($"  状态: {(obs.Success ? "成功" : "失败")}");
 
+            if (!obs.Success)
+            {
+                sb.AppendLine($"  未确认: {obs.Result}");
+                sb.AppendLine();
+                continue;
+            }
+
             // 只显示关键数据，不显示完整 JSON
-            if (obs.Success && !string.IsNullOrEmpty(obs.Result))
+            if (!string.IsNullOrEmpty(obs.Result))
             {
                 try
                 {
@@ -576,6 +609,18 @@ public class ReActEngine
                     if (root.TryGetProperty("serviceName", out var svc) &&
                         root.TryGetProperty("port", out var svcPort))
                         sb.AppendLine($"  端口 {svcPort}: {svc}");
+                    if (root.TryGetProperty("dnsSecurity", out var dns) &&
+                        dns.ValueKind == JsonValueKind.Object)
+                    {
+                        var recursion = dns.TryGetProperty("recursionAssessment", out var recursionNode)
+                            ? recursionNode.GetString() ?? "DNS 递归状态未知"
+                            : "DNS 递归状态未知";
+                        sb.AppendLine($"  DNS 判断: {recursion}");
+                    }
+                    if (obs.ToolName == "vuln_scan")
+                        SecurityAnalysisEvidence.AppendVulnerabilitySummary(sb, root);
+                    if (obs.ToolName == "ssl_check")
+                        SecurityAnalysisEvidence.AppendTlsSummary(sb, root);
                 }
                 catch
                 {
