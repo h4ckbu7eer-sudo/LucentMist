@@ -23,11 +23,11 @@ public static class CveDatabase
     {
         new("CVE-2017-0144", "EternalBlue", 445, "SMB",
             "critical", "SMBv1", "smbv1",
-            "安装补丁 KB4012212，禁用 SMBv1"),
+            "安装 MS17-010 对应系统安全更新；禁用 SMBv1；限制 TCP 445 端口访问"),
 
         new("CVE-2020-0796", "SMBGhost", 445, "SMB",
             "critical", "SMBv3.1.1", "smbv3",
-            "安装补丁 KB4551762，启用 SMB 签名"),
+            "安装 KB4551762；若暂时无法打补丁，设置 LanmanServer\\Parameters\\DisableCompression=1 禁用 SMB 压缩；限制 TCP 445 端口访问"),
 
         new("CVE-2023-38408", "OpenSSH RCE", 22, "SSH",
             "high", "OpenSSH < 9.3.2", "openssh_version",

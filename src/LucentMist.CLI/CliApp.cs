@@ -1459,7 +1459,7 @@ public class CliApp
                     var openPorts = items.Select(x => x.port).Distinct().ToList();
                     var portAdvice = new Dictionary<int, string>
                     {
-                        [445] = "安装 KB4012212/KB4551762，禁用 SMBv1，启用 SMB 签名",
+                        [445] = "安装 MS17-010/KB4551762 对应更新，禁用 SMBv1；SMBGhost 临时缓解应禁用 SMB 压缩，并限制 445 访问",
                         [3389] = "安装 KB4499181，或禁用远程桌面（除非必要）",
                         [135] = "禁用 RPC 端点映射器（如非必要），使用防火墙限制访问",
                         [22] = "升级 OpenSSH 到最新版本，禁用密码登录改用密钥",

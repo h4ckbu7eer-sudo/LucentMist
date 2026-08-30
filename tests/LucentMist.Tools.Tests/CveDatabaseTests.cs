@@ -91,6 +91,28 @@ public class CveDatabaseTests
         Assert.DoesNotContain(matches, e => e.Cve == "CVE-2020-0796");
     }
 
+    [Fact]
+    public void SmbGhost_RemediationDisablesCompressionInsteadOfSuggestingSigning()
+    {
+        var entry = Assert.Single(CveDatabase.Entries, item => item.Cve == "CVE-2020-0796");
+
+        Assert.Contains("KB4551762", entry.Fix);
+        Assert.Contains("DisableCompression=1", entry.Fix);
+        Assert.Contains("禁用 SMB 压缩", entry.Fix);
+        Assert.Contains("445", entry.Fix);
+        Assert.DoesNotContain("SMB 签名", entry.Fix);
+    }
+
+    [Fact]
+    public void EternalBlue_RemediationCoversPatchProtocolRemovalAndNetworkRestriction()
+    {
+        var entry = Assert.Single(CveDatabase.Entries, item => item.Cve == "CVE-2017-0144");
+
+        Assert.Contains("MS17-010", entry.Fix);
+        Assert.Contains("禁用 SMBv1", entry.Fix);
+        Assert.Contains("445", entry.Fix);
+    }
+
     [Theory]
     [InlineData(2375, "Docker/24.0.8", "CVE-2024-21626")]
     [InlineData(3306, "MySQL 8.0.34", "CVE-2023-5157")]
