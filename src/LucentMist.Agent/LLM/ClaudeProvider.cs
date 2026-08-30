@@ -152,7 +152,7 @@ public class ClaudeProvider : ILLMProvider
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to parse Claude response");
+            _logger.LogDebug(ex, "Failed to parse Claude response");
         }
 
         return new ReActStep

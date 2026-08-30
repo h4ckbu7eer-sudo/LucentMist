@@ -150,7 +150,7 @@ public class OpenAIProvider : ILLMProvider
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to parse OpenAI response");
+            _logger.LogDebug(ex, "Failed to parse OpenAI response");
         }
 
         return new ReActStep

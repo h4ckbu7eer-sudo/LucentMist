@@ -219,18 +219,18 @@ public class PingScanTool : INetworkTargetTool
             {
                 Volatile.Write(ref _icmpBlocked, 1);
                 RecordFallbackReason(IcmpUnavailable);
-                _logger.LogWarning("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
+                _logger.LogDebug("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
             }
             catch (UnauthorizedAccessException)
             {
                 Volatile.Write(ref _icmpBlocked, 1);
                 RecordFallbackReason(IcmpUnavailable);
-                _logger.LogWarning("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
+                _logger.LogDebug("ICMP Ping 无权限，后续回退 TCP 探测: {Target}", ip);
             }
             catch (Exception ex)
             {
                 RecordFallbackReason(IcmpUnavailable);
-                _logger.LogWarning(ex, "Ping 失败: {Target}", ip);
+                _logger.LogDebug(ex, "Ping 失败: {Target}", ip);
             }
         }
         else

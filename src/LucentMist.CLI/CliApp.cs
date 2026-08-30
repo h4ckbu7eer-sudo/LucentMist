@@ -19,17 +19,19 @@ namespace LucentMist.CLI;
 
 public class CliApp
 {
-    private static readonly ILogger Logger = LoggerFactory
-        .Create(builder => builder.AddConsole().SetMinimumLevel(LogLevel.Warning))
-        .CreateLogger(nameof(CliApp));
+    private static ILoggerFactory _sharedLoggerFactory = BuildLoggerFactory(LogLevel.Error);
+    private static LogLevel _minimumLogLevel = LogLevel.Error;
+    private static ILogger Logger => _sharedLoggerFactory.CreateLogger(nameof(CliApp));
 
     // 配置文件路径
     private static readonly string ConfigPath = FindFile("config/appsettings.json");
 
     public async Task<int> RunAsync(string[] args)
     {
-        var command = args.Length > 0 ? args[0].ToLower() : "help";
-        var commandArgs = args.Length > 0 ? args[1..] : [];
+        var invocation = ParseInvocation(args);
+        ConfigureLogging(invocation.Verbose ? LogLevel.Debug : LogLevel.Error);
+        var command = invocation.Command;
+        var commandArgs = invocation.Arguments;
         async Task<int> ExecuteAsync() => command switch
         {
             "scan" => await ScanCommand(commandArgs),
@@ -82,6 +84,43 @@ public class CliApp
                 eventId, null, target, "cli", scanType, "failed", "CLI 命令异常终止");
             throw;
         }
+    }
+
+    internal static CliInvocation ParseInvocation(string[] args)
+    {
+        static bool IsVerbose(string value) => value is "--verbose" or "-v";
+
+        var verbose = args.Any(IsVerbose);
+        var commandIndex = Array.FindIndex(args, value => !IsVerbose(value));
+        if (commandIndex < 0)
+            return new CliInvocation("help", [], verbose);
+
+        var command = args[commandIndex].ToLowerInvariant();
+        var commandArgs = args[(commandIndex + 1)..]
+            .Where(value => command == "scan" || !IsVerbose(value))
+            .ToList();
+        if (command == "scan" && verbose && !commandArgs.Any(IsVerbose))
+            commandArgs.Add("--verbose");
+
+        return new CliInvocation(command, commandArgs.ToArray(), verbose);
+    }
+
+    internal sealed record CliInvocation(string Command, string[] Arguments, bool Verbose);
+
+    private static ILoggerFactory BuildLoggerFactory(LogLevel minimumLevel) =>
+        LoggerFactory.Create(builder => builder
+            .AddConsole()
+            .SetMinimumLevel(minimumLevel));
+
+    private static ILoggerFactory CreateCliLoggerFactory() =>
+        BuildLoggerFactory(_minimumLogLevel);
+
+    private static void ConfigureLogging(LogLevel minimumLevel)
+    {
+        _minimumLogLevel = minimumLevel;
+        var replacement = BuildLoggerFactory(minimumLevel);
+        var previous = Interlocked.Exchange(ref _sharedLoggerFactory, replacement);
+        previous.Dispose();
     }
 
     private static ScanStore CreateScanStore() => new(
@@ -288,7 +327,7 @@ public class CliApp
         }
         if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
 
-        var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        using var lf = CreateCliLoggerFactory();
 
         AnsiConsole.Write(new Rule($"[teal]扫描目标: {Escape(target)}[/]"));
 
@@ -607,7 +646,7 @@ public class CliApp
         }
         if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
 
-        var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        using var lf = CreateCliLoggerFactory();
         var tool = new SslCertificateTool(lf.CreateLogger<SslCertificateTool>());
 
         AnsiConsole.Write(new Rule($"[teal]SSL 证书检查: {Escape(target)}:{port}[/]"));
@@ -897,7 +936,7 @@ public class CliApp
             _ => ReportGenerator.Format.Html
         };
 
-        var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        using var lf = CreateCliLoggerFactory();
         var sslTool = new SslCertificateTool(lf.CreateLogger<SslCertificateTool>());
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
@@ -1280,7 +1319,7 @@ public class CliApp
         AnsiConsole.Write(new Rule($"[teal]漏洞扫描: {Escape(target)}[/]"));
 
         // 第一步：端口扫描
-        var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        using var lf = CreateCliLoggerFactory();
         var openPorts = new List<(int Port, string Service)>();
 
         await AnsiConsole.Status().Spinner(Spinner.Known.Dots).StartAsync("端口扫描中...", async _ =>
@@ -1761,7 +1800,7 @@ public class CliApp
         AnsiConsole.Write(info);
         AnsiConsole.WriteLine();
 
-        var lf = LoggerFactory.Create(b => b.AddConsole().SetMinimumLevel(LogLevel.Warning));
+        using var lf = CreateCliLoggerFactory();
 
         ILLMProvider llm = provider == "claude"
             ? new ClaudeProvider(apiKey, model, lf.CreateLogger<ClaudeProvider>())
@@ -2368,6 +2407,7 @@ public class CliApp
         table.AddRow("[yellow]report[/]", "生成报告", "[grey]lmist report --format html[/]");
         table.AddRow("[yellow]agent[/]", "AI 智能体对话", "[grey]lmist agent \"分析网络\"[/]");
         table.AddRow("[yellow]audit[/]", "查看扫描审计", "[grey]lmist audit --limit 50[/]");
+        table.AddRow("[yellow]--verbose / -v[/]", "显示 Debug 及以上日志", "[grey]lmist agent -v \"分析网络\"[/]");
         table.AddRow("[yellow]backup[/]", "安全备份数据", "[grey]lmist backup --output backups/me.db[/]");
         table.AddRow("[yellow]restore[/]", "恢复扫描数据", "[grey]lmist restore backups/me.db --yes[/]");
         table.AddRow("[yellow]config[/]", "查看/切换配置", "[grey]lmist config --set Model=qwen2.5:7b[/]");
