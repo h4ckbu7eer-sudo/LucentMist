@@ -3,7 +3,7 @@
 核验日期：2026-08-30。每一项均指向代码行为或可重复验证文档，不以产品口号代替证据。
 
 - [x] **不上传扫描数据或遥测。** 默认无遥测、统计、更新检查或崩溃上报；扫描协议流量、DNS 和显式外部集成边界见 [隐私与网络出口审计](compliance-telemetry-audit.md)。
-- [x] **误扫有护栏。** 公网目标在 CLI/Web 需要确认，API 需要显式授权标志；`LMIST_ALLOWED_TARGETS` 可把所有入口限制到 IP、CIDR、域名或 `*.域名`。
+- [x] **误扫有护栏。** 公网目标在 CLI/Web 需要确认，API 需要显式授权标志；Agent 只允许 `LMIST_ALLOWED_TARGETS` 中的公网 IP、CIDR、域名或 `*.域名`，RFC1918/回环默认允许。
 - [x] **审计日志可查。** SQLite `scan_audit` 记录时间、目标、发起者（CLI/API/Web/Agent）、操作、状态和限长摘要；`lmist audit --limit 50` 可查询，原始结果与凭据不写入审计摘要。
 - [x] **数据存储状态已知。** 数据库为明文 SQLite，没有虚构加密开关；本机权限和全盘加密建议见 [数据安全与恢复](data-security-and-recovery.md)。
 - [x] **备份/恢复可用。** `lmist backup` 覆盖 WAL checkpoint、在线快照和完整性检查；`lmist restore --yes` 校验备份并保留旧库及 sidecar 的可回滚副本。
