@@ -149,9 +149,11 @@ public class ReActEngine
                 if (tool is INetworkTargetTool && !string.IsNullOrWhiteSpace(target))
                 {
                     var validation = await TargetGuard.ValidateAsync(target, ct);
-                    if (!validation.IsAllowed)
+                    if (!validation.IsAllowed || validation.RequiresPublicAuthorization)
                     {
-                        var reason = $"扫描目标被安全策略拒绝：{validation.Message}";
+                        var reason = validation.RequiresPublicAuthorization
+                            ? "公网扫描未授权：请将目标 IP、CIDR 或域名加入 LMIST_ALLOWED_TARGETS 后重试"
+                            : $"扫描目标被安全策略拒绝：{validation.Message}";
                         var blocked = new ReActObservation
                         {
                             Step = round,
@@ -166,8 +168,8 @@ public class ReActEngine
                             target,
                             step.Action,
                             "rejected",
-                            validation.IsAllowed
-                                ? "公网目标未在允许范围内"
+                            validation.RequiresPublicAuthorization
+                                ? "PUBLIC_TARGET_NOT_AUTHORIZED"
                                 : validation.Code,
                             ct);
                         continue;
