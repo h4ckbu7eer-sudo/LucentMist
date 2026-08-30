@@ -355,10 +355,23 @@ public class CliApp
         }
 
         // 2. TCP 端口扫描（--ports 指定时，且非 --udp）
+        List<int> openTcpPorts = [];
         if (!isUdp && !string.IsNullOrEmpty(tcpPorts))
         {
             AnsiConsole.WriteLine();
-            await RunTcpPortScan(target, tcpPorts, verbose, lf);
+            openTcpPorts = await RunTcpPortScan(target, tcpPorts, verbose, lf);
+        }
+
+        // DNS is not just a port label: once TCP/53 is discovered, perform the
+        // bounded version/open-recursion assessment unless the user already
+        // requested service identification for that port.
+        var requestedServicePorts = string.IsNullOrWhiteSpace(svcPorts)
+            ? new HashSet<int>()
+            : ParsePortList(svcPorts).ToHashSet();
+        if (openTcpPorts.Contains(53) && !requestedServicePorts.Contains(53))
+        {
+            AnsiConsole.WriteLine();
+            await RunServiceIdentify(target, "53", lf);
         }
 
         // 3. 服务识别（--service 指定时）
@@ -378,7 +391,7 @@ public class CliApp
         return 0;
     }
 
-    private static async Task RunTcpPortScan(string target, string ports, bool verbose, ILoggerFactory lf)
+    private static async Task<List<int>> RunTcpPortScan(string target, string ports, bool verbose, ILoggerFactory lf)
     {
         var tool = new PortScanTool(lf.CreateLogger<PortScanTool>());
         var result = await tool.ExecuteAsync(new ToolArguments
@@ -398,6 +411,18 @@ public class CliApp
                 foreach (var p in op.EnumerateArray()) openSet.Add(p.GetInt32());
 
             var wellKnown = PortHelper.TcpServices;
+
+            if (r.TryGetProperty("device", out var device) && device.ValueKind == JsonValueKind.Object)
+            {
+                var identity = new Table().BorderColor(Color.Grey)
+                    .AddColumn("IP").AddColumn("名称").AddColumn("厂商").AddColumn("型号")
+                    .AddRow(
+                        Escape(device.GetProperty("ip").GetString() ?? target),
+                        Escape(device.GetProperty("name").GetString() ?? "未广播"),
+                        Escape(device.GetProperty("vendor").GetString() ?? "未知"),
+                        Escape(device.GetProperty("model").GetString() ?? "未知"));
+                AnsiConsole.Write(identity);
+            }
 
             // 摘要
             var scanMode = verbose ? "TCP 端口扫描 (详细)" : "TCP 端口扫描";
@@ -449,10 +474,12 @@ public class CliApp
             }
 
             AnsiConsole.MarkupLine($" [grey]TCP 扫描耗时: {result.Duration.TotalSeconds:F1}s[/]");
+            return openSet.OrderBy(port => port).ToList();
         }
         catch
         {
             AnsiConsole.WriteLine(result.Data);
+            return [];
         }
     }
 
@@ -465,6 +492,7 @@ public class CliApp
         var tool = new ServiceIdentifyTool(lf.CreateLogger<ServiceIdentifyTool>());
 
         var rows = new List<(int port, string service, string banner, string? procName, int? pid, string? svcName, bool ok)>();
+        var dnsRows = new List<(string version, bool recursion, string assessment, double ratio)>();
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         foreach (var port in svcPorts)
@@ -492,6 +520,17 @@ public class CliApp
                     if (proc.TryGetProperty("processName", out var pn)) procName = pn.GetString();
                     if (proc.TryGetProperty("pid", out var pi) && pi.TryGetInt32(out var p)) pid = p;
                     if (proc.TryGetProperty("service", out var s)) svcName = s.GetString();
+                }
+
+                if (r.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object)
+                {
+                    dnsRows.Add((
+                        dns.TryGetProperty("version", out var versionNode) && versionNode.ValueKind == JsonValueKind.String
+                            ? versionNode.GetString() ?? "未公开"
+                            : "未公开",
+                        dns.GetProperty("recursionAvailable").GetBoolean(),
+                        dns.GetProperty("recursionAssessment").GetString() ?? "未知",
+                        dns.GetProperty("amplificationRatio").GetDouble()));
                 }
 
                 rows.Add((port, name, banner ?? "-", procName, pid, svcName, identified && banner != null));
@@ -527,6 +566,23 @@ public class CliApp
         }
 
         AnsiConsole.Write(table);
+        if (dnsRows.Count > 0)
+        {
+            var dnsTable = new Table().BorderColor(dnsRows.Any(row => row.recursion) ? Color.Yellow : Color.Green)
+                .AddColumn("DNS 版本")
+                .AddColumn("递归状态")
+                .AddColumn("本次响应/请求")
+                .AddColumn("安全判断");
+            foreach (var dns in dnsRows)
+            {
+                dnsTable.AddRow(
+                    Escape(dns.version),
+                    dns.recursion ? "[yellow]对当前扫描源开放[/]" : "[green]未观察到开放递归[/]",
+                    $"{dns.ratio:F2}x",
+                    Escape(dns.assessment));
+            }
+            AnsiConsole.Write(dnsTable);
+        }
         AnsiConsole.MarkupLine($" [grey]耗时: {sw.Elapsed.TotalSeconds:F1}s[/]");
     }
 
@@ -624,8 +680,10 @@ public class CliApp
             return 1;
         }
 
-        var target = args[0];
-        var port = 443;
+        var initialEndpoint = SslCertificateTool.NormalizeEndpoint(
+            new ToolArguments { ["target"] = args[0] });
+        var target = initialEndpoint.Target;
+        var port = initialEndpoint.Port;
         var timeout = 5000;
 
         for (int i = 1; i < args.Length; i++)
@@ -685,7 +743,12 @@ public class CliApp
                     var notAfter = r.GetProperty("notAfter").GetString() ?? "?";
                     var days = r.GetProperty("daysRemaining").GetInt32();
                     var isExpired = r.GetProperty("isExpired").GetBoolean();
+                    var isTrusted = r.TryGetProperty("isTrusted", out var trustedNode) && trustedNode.GetBoolean();
                     var thumbSha256 = r.GetProperty("thumbprintSha256").GetString() ?? "?";
+                    var trustErrors = r.TryGetProperty("trustErrors", out var errorsNode) &&
+                                      errorsNode.ValueKind == JsonValueKind.Array
+                        ? errorsNode.EnumerateArray().Select(item => item.GetString()).Where(item => item != null).ToArray()
+                        : [];
 
                     var table = new Table()
                         .BorderColor(Color.Grey)
@@ -696,8 +759,17 @@ public class CliApp
                         .AddRow("颁发者", Escape(issuer))
                         .AddRow("过期时间", Escape(notAfter))
                         .AddRow("剩余天数", days > 0 ? $"[green]{days} 天[/]" : $"[red]{days} 天 (已过期)[/]")
-                        .AddRow("状态", isExpired ? "[red]已过期[/]" : "[green]有效[/]")
+                        .AddRow("有效期状态", isExpired ? "[red]已过期[/]" : "[green]未过期[/]")
+                        .AddRow("信任状态", isTrusted ? "[green]可信[/]" : "[yellow]不可信或名称不匹配[/]")
+                        .AddRow("安全结论", isExpired
+                            ? "[red]不安全：证书已过期[/]"
+                            : isTrusted
+                                ? "[green]证书有效且信任校验通过[/]"
+                                : "[yellow]需处理：证书虽未过期，但信任校验未通过[/]")
                         .AddRow("SHA-256", Escape(thumbSha256[..16]) + "...");
+
+                    if (trustErrors.Length > 0)
+                        table.AddRow("信任错误", Escape(string.Join(", ", trustErrors!)));
 
                     if (r.TryGetProperty("san", out var san) && san.GetArrayLength() > 0)
                     {
@@ -957,7 +1029,7 @@ public class CliApp
             {
                 Discovery = "ICMP 存活探测；ICMP 不可用时由工具尝试常见 TCP 端口回退",
                 TcpPorts = "TCP 1-1000",
-                VulnerabilityChecks = $"默认候选检测端口 {string.Join(',', VulnerabilityScanTool.DefaultScanPorts)}；外部数据源优先，内置 Banner 规则兜底",
+                VulnerabilityChecks = $"默认有界发现 TCP 1-1000，并补充高风险端口 {string.Join(',', VulnerabilityScanTool.DefaultScanPorts.Where(port => port > 1000))}；对实际开放端口执行协议与版本匹配",
                 Limitations = "未扫描 UDP 和其余 TCP 端口；候选命中不能证明补丁状态或可利用性"
             }
         };
@@ -1328,11 +1400,12 @@ public class CliApp
         // 第一步：端口扫描
         using var lf = CreateCliLoggerFactory();
         var openPorts = new List<(int Port, string Service)>();
+        var discoveryPorts = "1-1000," + string.Join(",", VulnerabilityScanTool.DefaultScanPorts.Where(port => port > 1000));
 
         await AnsiConsole.Status().Spinner(Spinner.Known.Dots).StartAsync("端口扫描中...", async _ =>
         {
             var psTool = new PortScanTool(lf.CreateLogger<PortScanTool>());
-            var psResult = await psTool.ExecuteAsync(new ToolArguments { ["target"] = target, ["ports"] = "1-1000", ["timeout_ms"] = "2000" });
+            var psResult = await psTool.ExecuteAsync(new ToolArguments { ["target"] = target, ["ports"] = discoveryPorts, ["timeout_ms"] = "2000" });
             if (psResult.Success)
             {
                 try
@@ -1388,164 +1461,179 @@ public class CliApp
             }
             AnsiConsole.Write(pt);
         }
-        else { AnsiConsole.MarkupLine("\n[yellow]未发现开放端口（1-1000）[/]"); }
+        else { AnsiConsole.MarkupLine("\n[yellow]未发现开放端口（TCP 1-1000 及补充高风险端口）[/]"); }
 
         AnsiConsole.WriteLine();
+        ToolResult? vulnerabilityResult = null;
         await AnsiConsole.Status().Spinner(Spinner.Known.Dots).StartAsync("漏洞检测中...", async _ =>
         {
             var tool = new VulnerabilityScanTool();
-            var result = await tool.ExecuteAsync(new ToolArguments { ["target"] = target, ["timeout_ms"] = "5000" });
-
-            if (!result.Success) { AnsiConsole.MarkupLine($"[red]{Escape(result.Error!)}[/]"); return; }
-
-            try
+            var vulnerabilityArgs = new ToolArguments
             {
-                using var doc = JsonDocument.Parse(result.Data);
-                var r = doc.RootElement;
-                var critical = r.TryGetProperty("criticalCount", out var cc) ? cc.GetInt32() : 0;
-                var high = r.GetProperty("highCount").GetInt32();
-                var med = r.GetProperty("mediumCount").GetInt32();
-                var low = r.GetProperty("lowCount").GetInt32();
-                var total = r.GetProperty("totalFindings").GetInt32();
-
-                AnsiConsole.WriteLine();
-
-                if (total == 0)
-                {
-                    RenderVulnerabilityAssessments(r);
-                    return;
-                }
-
-                // 紧急摘要
-                var panel = new Panel("")
-                    .Header("[yellow] 📊 紧急摘要 [/]")
-                    .BorderColor(Color.Yellow);
-                var summaryLines = new List<string>();
-                if (critical > 0) summaryLines.Add($"[red]🔴 {critical} 个严重漏洞需要立即处理[/]");
-                if (high > 0) summaryLines.Add($"[yellow]🟡 {high} 个高危漏洞建议尽快修复[/]");
-                if (critical + high > 0) summaryLines.Add($"[grey]💡 建议优先修复 {(critical > 0 ? "严重" : "高危")}级别漏洞[/]");
-                if (summaryLines.Count == 0) summaryLines.Add("[green]无紧急漏洞[/]");
-                panel = new Panel(string.Join("\n", summaryLines))
-                    .Header("[yellow] 📊 紧急摘要 [/]")
-                    .BorderColor(Color.Yellow);
-                AnsiConsole.Write(panel);
-                AnsiConsole.WriteLine();
-
-                // 收集并分组
-                if (!r.TryGetProperty("findings", out var findings) || findings.GetArrayLength() == 0) return;
-
-                var items = findings.EnumerateArray()
-                    .Select(f => (
-                        port: f.GetProperty("port").GetInt32(),
-                        svc: f.GetProperty("service").GetString() ?? "?",
-                        cve: f.TryGetProperty("cve", out var cv) ? cv.GetString() : null,
-                        risk: f.TryGetProperty("risk", out var rk) ? rk.GetString() ?? "low" : "low",
-                        cvss: f.TryGetProperty("cvss", out var cs) && cs.TryGetDouble(out var sc) ? sc : double.NaN,
-                        source: f.TryGetProperty("source", out var sr) ? sr.GetString() ?? "—" : "—",
-                        confirmed: f.TryGetProperty("confirmed", out var cf) && cf.GetBoolean(),
-                        versionStatus: ReadVersionStatus(f),
-                        fix: f.TryGetProperty("fix", out var fx) ? fx.GetString() : null,
-                        name: f.TryGetProperty("name", out var nm) ? nm.GetString() : null
-                    ))
-                    .OrderByDescending(x => x.risk switch { "critical" => 4, "high" => 3, "medium" => 2, _ => 1 })
-                    .ThenByDescending(x => double.IsNaN(x.cvss) ? 0 : x.cvss)
-                    .ToList();
-
-                var displayItems = showAll ? items : items.Take(10).ToList();
-                var riskGroups = displayItems.GroupBy(x => x.risk).OrderByDescending(g => g.Key switch { "critical" => 4, "high" => 3, "medium" => 2, _ => 1 });
-
-                // 按风险分组显示
-                foreach (var group in riskGroups)
-                {
-                    var (emoji, color) = group.Key switch
-                    {
-                        "critical" => ("🔴", "red"),
-                        "high" => ("🟡", "yellow"),
-                        "medium" => ("🟢", "green"),
-                        _ => ("⚪", "grey")
-                    };
-                    AnsiConsole.MarkupLine($"[{color}]{emoji} {RiskLabel(group.Key)} ({group.Count()})[/]");
-
-                    foreach (var item in group)
-                    {
-                        var cvssStr = double.IsNaN(item.cvss) ? "[grey]N/A[/]" : $"[yellow]{item.cvss:F1}[/]";
-                        var cveDisplay = item.cve ?? "—";
-                        var desc = item.name ?? "";
-                        if (desc.Length > 50) desc = desc[..50] + "...";
-                        var confidence = VulnerabilityConfidenceLabel(
-                            item.confirmed,
-                            item.versionStatus);
-                        var confTag = item.confirmed
-                            ? $"[green]{confidence}[/]"
-                            : $"[yellow]{confidence}[/]";
-                        AnsiConsole.MarkupLine($"  [grey]├─[/] [teal]{Escape(cveDisplay)}[/] {cvssStr} {confTag} [grey]— {Escape(desc)}[/]");
-                    }
-                    AnsiConsole.WriteLine();
-                }
-
-                if (!showAll && items.Count > 10)
-                    AnsiConsole.MarkupLine($"[grey]... 还有 {items.Count - 10} 个漏洞。使用 --all 查看全部[/]");
-
-                RenderVulnerabilityAssessments(r);
-
-                // 修复建议（去重，过滤通用提示，按风险排序，优先内置库的具体建议）
-                var uniqueFixes = items
-                    .Where(x => x.fix != null &&
-                           !x.fix!.StartsWith("参考 NVD") &&
-                           !x.fix!.StartsWith("参考官方") &&
-                           x.fix != "参考官方公告" &&
-                           x.fix != "升级到最新版本")
-                    .GroupBy(x => x.fix!)
-                    .Select(g => g.First())
-                    .OrderByDescending(x => x.risk switch { "critical" => 4, "high" => 3, "medium" => 2, _ => 1 })
-                    .Take(5)
-                    .ToList();
-
-                // 如果全是通用提示，给端口级别的建议
-                if (uniqueFixes.Count == 0)
-                {
-                    var openPorts = items.Select(x => x.port).Distinct().ToList();
-                    var portAdvice = new Dictionary<int, string>
-                    {
-                        [445] = "安装 MS17-010/KB4551762 对应更新，禁用 SMBv1；SMBGhost 临时缓解应禁用 SMB 压缩，并限制 445 访问",
-                        [3389] = "安装 KB4499181，或禁用远程桌面（除非必要）",
-                        [135] = "禁用 RPC 端点映射器（如非必要），使用防火墙限制访问",
-                        [22] = "升级 OpenSSH 到最新版本，禁用密码登录改用密钥",
-                        [3306] = "升级 MySQL，禁用远程 root 登录",
-                        [6379] = "升级 Redis，启用 AUTH 密码认证",
-                        [80] = "升级 HTTP 服务器，启用 HTTPS 重定向",
-                    };
-                    foreach (var p in openPorts.Take(3))
-                        if (portAdvice.TryGetValue(p, out var advice))
-                            uniqueFixes.Add((p, "?", $"端口 {p}", "low", double.NaN, "内置库", false, "unknown", advice, (string?)null));
-                }
-
-                if (uniqueFixes.Count > 0)
-                {
-                    AnsiConsole.WriteLine();
-                    AnsiConsole.MarkupLine("[teal]📋 修复建议:[/]");
-                    foreach (var item in uniqueFixes)
-                        AnsiConsole.MarkupLine($"  [yellow]{Escape(item.cve switch { "?" => $"端口 {item.port}", _ => item.cve ?? "—" })}[/] [grey]({RiskLabel(item.risk)}): {Escape(item.fix!)}[/]");
-                }
-
-                // 扫描总结
-                var sourceStr = FormatVulnerabilitySources(items.Select(x => x.source));
-
-                AnsiConsole.WriteLine();
-                var sumTable = new Table().BorderColor(Color.Grey).HideHeaders()
-                    .AddColumn("K").AddColumn("V")
-                    .AddRow("[grey]目标[/]", $"[white]{Escape(target)}[/]")
-                    .AddRow("[grey]漏洞总数[/]", $"[white]{total}[/]")
-                    .AddRow("[grey]风险分布[/]", $"[red]严重 {critical}[/] | [yellow]高危 {high}[/] | [green]中危 {med}[/] | [grey]低危 {low}[/]")
-                    .AddRow("[grey]数据来源[/]", $"[teal]{Escape(sourceStr)}[/]");
-                AnsiConsole.Write(new Panel(sumTable)
-                    .Header("[teal] 📊 扫描总结 [/]")
-                    .BorderColor(Color.Teal));
-
-                AnsiConsole.MarkupLine($" [grey]耗时: {result.Duration.TotalSeconds:F1}s[/]");
-            }
-            catch { AnsiConsole.WriteLine(result.Data); }
+                ["target"] = target,
+                ["timeout_ms"] = "5000",
+            };
+            if (openPorts.Count > 0)
+                vulnerabilityArgs["open_ports"] = string.Join(",", openPorts.Select(item => item.Port));
+            else
+                vulnerabilityArgs["ports"] = discoveryPorts;
+            vulnerabilityResult = await tool.ExecuteAsync(vulnerabilityArgs);
         });
+
+        var result = vulnerabilityResult ?? ToolResult.Fail("漏洞扫描未返回结果", TimeSpan.Zero);
+        if (!result.Success)
+        {
+            AnsiConsole.MarkupLine($"[red]{Escape(result.Error!)}[/]");
+            return 1;
+        }
+
+        try
+        {
+            using var doc = JsonDocument.Parse(result.Data);
+            var r = doc.RootElement;
+            var critical = r.TryGetProperty("criticalCount", out var cc) ? cc.GetInt32() : 0;
+            var high = r.GetProperty("highCount").GetInt32();
+            var med = r.GetProperty("mediumCount").GetInt32();
+            var low = r.GetProperty("lowCount").GetInt32();
+            var total = r.GetProperty("totalFindings").GetInt32();
+
+            AnsiConsole.WriteLine();
+
+            if (total == 0)
+            {
+                RenderVulnerabilityObs(r);
+                return 0;
+            }
+
+            // 紧急摘要
+            var panel = new Panel("")
+                .Header("[yellow] 📊 紧急摘要 [/]")
+                .BorderColor(Color.Yellow);
+            var summaryLines = new List<string>();
+            if (critical > 0) summaryLines.Add($"[red]🔴 {critical} 个严重漏洞需要立即处理[/]");
+            if (high > 0) summaryLines.Add($"[yellow]🟡 {high} 个高危漏洞建议尽快修复[/]");
+            if (critical + high > 0) summaryLines.Add($"[grey]💡 建议优先修复 {(critical > 0 ? "严重" : "高危")}级别漏洞[/]");
+            if (summaryLines.Count == 0) summaryLines.Add("[green]无紧急漏洞[/]");
+            panel = new Panel(string.Join("\n", summaryLines))
+                .Header("[yellow] 📊 紧急摘要 [/]")
+                .BorderColor(Color.Yellow);
+            AnsiConsole.Write(panel);
+            AnsiConsole.WriteLine();
+
+            // 收集并分组
+            if (!r.TryGetProperty("findings", out var findings) || findings.GetArrayLength() == 0) return 0;
+
+            var items = findings.EnumerateArray()
+                .Select(f => (
+                    port: f.GetProperty("port").GetInt32(),
+                    svc: f.GetProperty("service").GetString() ?? "?",
+                    cve: f.TryGetProperty("cve", out var cv) ? cv.GetString() : null,
+                    risk: f.TryGetProperty("risk", out var rk) ? rk.GetString() ?? "low" : "low",
+                    cvss: f.TryGetProperty("cvss", out var cs) && cs.TryGetDouble(out var sc) ? sc : double.NaN,
+                    source: f.TryGetProperty("source", out var sr) ? sr.GetString() ?? "—" : "—",
+                    confirmed: f.TryGetProperty("confirmed", out var cf) && cf.GetBoolean(),
+                    versionStatus: ReadVersionStatus(f),
+                    fix: f.TryGetProperty("fix", out var fx) ? fx.GetString() : null,
+                    name: f.TryGetProperty("name", out var nm) ? nm.GetString() : null
+                ))
+                .OrderByDescending(x => x.risk switch { "critical" => 4, "high" => 3, "medium" => 2, _ => 1 })
+                .ThenByDescending(x => double.IsNaN(x.cvss) ? 0 : x.cvss)
+                .ToList();
+
+            var displayItems = showAll ? items : items.Take(10).ToList();
+            var riskGroups = displayItems.GroupBy(x => x.risk).OrderByDescending(g => g.Key switch { "critical" => 4, "high" => 3, "medium" => 2, _ => 1 });
+
+            // 按风险分组显示
+            foreach (var group in riskGroups)
+            {
+                var (emoji, color) = group.Key switch
+                {
+                    "critical" => ("🔴", "red"),
+                    "high" => ("🟡", "yellow"),
+                    "medium" => ("🟢", "green"),
+                    _ => ("⚪", "grey")
+                };
+                AnsiConsole.MarkupLine($"[{color}]{emoji} {RiskLabel(group.Key)} ({group.Count()})[/]");
+
+                foreach (var item in group)
+                {
+                    var cvssStr = double.IsNaN(item.cvss) ? "[grey]N/A[/]" : $"[yellow]{item.cvss:F1}[/]";
+                    var cveDisplay = item.cve ?? "—";
+                    var desc = item.name ?? "";
+                    if (desc.Length > 50) desc = desc[..50] + "...";
+                    var confidence = VulnerabilityConfidenceLabel(
+                        item.confirmed,
+                        item.versionStatus);
+                    var confTag = item.confirmed
+                        ? $"[green]{confidence}[/]"
+                        : $"[yellow]{confidence}[/]";
+                    AnsiConsole.MarkupLine($"  [grey]├─[/] [teal]{Escape(cveDisplay)}[/] {cvssStr} {confTag} [grey]— {Escape(desc)}[/]");
+                }
+                AnsiConsole.WriteLine();
+            }
+
+            if (!showAll && items.Count > 10)
+                AnsiConsole.MarkupLine($"[grey]... 还有 {items.Count - 10} 个漏洞。使用 --all 查看全部[/]");
+
+            RenderVulnerabilityAssessments(r);
+
+            // 修复建议（去重，过滤通用提示，按风险排序，优先内置库的具体建议）
+            var uniqueFixes = items
+                .Where(x => x.fix != null &&
+                       !x.fix!.StartsWith("参考 NVD") &&
+                       !x.fix!.StartsWith("参考官方") &&
+                       x.fix != "参考官方公告" &&
+                       x.fix != "升级到最新版本")
+                .GroupBy(x => x.fix!)
+                .Select(g => g.First())
+                .OrderByDescending(x => x.risk switch { "critical" => 4, "high" => 3, "medium" => 2, _ => 1 })
+                .Take(5)
+                .ToList();
+
+            // 如果全是通用提示，给端口级别的建议
+            if (uniqueFixes.Count == 0)
+            {
+                var advicePorts = items.Select(x => x.port).Distinct().ToList();
+                var portAdvice = new Dictionary<int, string>
+                {
+                    [445] = "安装 MS17-010/KB4551762 对应更新，禁用 SMBv1；SMBGhost 临时缓解应禁用 SMB 压缩，并限制 445 访问",
+                    [3389] = "安装 KB4499181，或禁用远程桌面（除非必要）",
+                    [135] = "禁用 RPC 端点映射器（如非必要），使用防火墙限制访问",
+                    [22] = "升级 OpenSSH 到最新版本，禁用密码登录改用密钥",
+                    [3306] = "升级 MySQL，禁用远程 root 登录",
+                    [6379] = "升级 Redis，启用 AUTH 密码认证",
+                    [80] = "升级 HTTP 服务器，启用 HTTPS 重定向",
+                };
+                foreach (var p in advicePorts.Take(3))
+                    if (portAdvice.TryGetValue(p, out var advice))
+                        uniqueFixes.Add((p, "?", $"端口 {p}", "low", double.NaN, "内置库", false, "unknown", advice, (string?)null));
+            }
+
+            if (uniqueFixes.Count > 0)
+            {
+                AnsiConsole.WriteLine();
+                AnsiConsole.MarkupLine("[teal]📋 修复建议:[/]");
+                foreach (var item in uniqueFixes)
+                    AnsiConsole.MarkupLine($"  [yellow]{Escape(item.cve switch { "?" => $"端口 {item.port}", _ => item.cve ?? "—" })}[/] [grey]({RiskLabel(item.risk)}): {Escape(item.fix!)}[/]");
+            }
+
+            // 扫描总结
+            var sourceStr = FormatVulnerabilitySources(items.Select(x => x.source));
+
+            AnsiConsole.WriteLine();
+            var sumTable = new Table().BorderColor(Color.Grey).HideHeaders()
+                .AddColumn("K").AddColumn("V")
+                .AddRow("[grey]目标[/]", $"[white]{Escape(target)}[/]")
+                .AddRow("[grey]漏洞总数[/]", $"[white]{total}[/]")
+                .AddRow("[grey]风险分布[/]", $"[red]严重 {critical}[/] | [yellow]高危 {high}[/] | [green]中危 {med}[/] | [grey]低危 {low}[/]")
+                .AddRow("[grey]数据来源[/]", $"[teal]{Escape(sourceStr)}[/]");
+            AnsiConsole.Write(new Panel(sumTable)
+                .Header("[teal] 📊 扫描总结 [/]")
+                .BorderColor(Color.Teal));
+
+            AnsiConsole.MarkupLine($" [grey]耗时: {result.Duration.TotalSeconds:F1}s[/]");
+        }
+        catch { AnsiConsole.WriteLine(result.Data); }
         return 0;
     }
 
@@ -2102,6 +2190,23 @@ public class CliApp
                 }
             }
 
+            if (r.TryGetProperty("deviceDetails", out var details) && details.ValueKind == JsonValueKind.Array)
+            {
+                var deviceTable = new Table().BorderColor(Color.Grey)
+                    .AddColumn("IP").AddColumn("名称").AddColumn("MAC")
+                    .AddColumn("厂商").AddColumn("型号");
+                foreach (var d in details.EnumerateArray())
+                {
+                    deviceTable.AddRow(
+                        Escape(d.GetProperty("ip").GetString() ?? "未知"),
+                        Escape(d.GetProperty("name").GetString() ?? "未广播"),
+                        Escape(d.TryGetProperty("mac", out var mac) ? mac.GetString() ?? "未知" : "未知"),
+                        Escape(d.GetProperty("vendor").GetString() ?? "未知"),
+                        Escape(d.GetProperty("model").GetString() ?? "未知"));
+                }
+                AnsiConsole.Write(deviceTable);
+            }
+
             if (r.TryGetProperty("hint", out var hint) && hint.ValueKind == JsonValueKind.String)
                 AnsiConsole.MarkupLine($"  [yellow]{Escape(hint.GetString() ?? "")}[/]");
         }
@@ -2156,7 +2261,24 @@ public class CliApp
         var total = r.GetProperty("total").GetInt32();
         AnsiConsole.MarkupLine($"      [grey]扫描 {total} 个 IP[/]  [green]发现 {alive} 台在线[/]");
 
-        if (r.TryGetProperty("devices", out var devs))
+        if (r.TryGetProperty("deviceDetails", out var details) && details.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var detail in details.EnumerateArray())
+            {
+                var ip = detail.GetProperty("ip").GetString() ?? "-";
+                var table = new Table().HideHeaders()
+                    .AddColumn("项目").AddColumn("值")
+                    .AddRow("状态", "[green]✅ 在线[/]")
+                    .AddRow("名称", Escape(detail.GetProperty("name").GetString() ?? "未广播"))
+                    .AddRow("MAC", Escape(detail.TryGetProperty("mac", out var mac) ? mac.GetString() ?? "未知" : "未知"))
+                    .AddRow("厂商", Escape(detail.GetProperty("vendor").GetString() ?? "未知"))
+                    .AddRow("型号", Escape(detail.GetProperty("model").GetString() ?? "未知"));
+                AnsiConsole.Write(new Panel(table)
+                    .Header($"[teal] 设备 {Escape(ip)} [/]")
+                    .BorderColor(Color.Green));
+            }
+        }
+        else if (r.TryGetProperty("devices", out var devs))
         {
             foreach (var d in devs.EnumerateArray())
             {
@@ -2208,6 +2330,15 @@ public class CliApp
             .Header($"[teal] 设备 {Escape(target)} [/]")
             .BorderColor(ports.Count > 0 ? Color.Green : Color.Grey));
 
+        if (r.TryGetProperty("device", out var device) && device.ValueKind == JsonValueKind.Object)
+        {
+            var identity = new Table().HideHeaders().AddColumn("项目").AddColumn("值")
+                .AddRow("名称", Escape(device.GetProperty("name").GetString() ?? "未广播"))
+                .AddRow("厂商", Escape(device.GetProperty("vendor").GetString() ?? "未知"))
+                .AddRow("型号", Escape(device.GetProperty("model").GetString() ?? "未知"));
+            AnsiConsole.Write(identity);
+        }
+
         if (ports.Count > 0)
         {
             var portTable = new Table()
@@ -2234,6 +2365,21 @@ public class CliApp
 
         AnsiConsole.MarkupLine($"     [grey]目标  {Escape(target)}:{port}[/]");
         AnsiConsole.MarkupLine($"     [green]服务  {Escape(service)}[/]");
+        if (r.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object)
+        {
+            var version = dns.TryGetProperty("version", out var versionNode) && versionNode.ValueKind == JsonValueKind.String
+                ? versionNode.GetString() ?? "未公开"
+                : "未公开";
+            var recursion = dns.GetProperty("recursionAvailable").GetBoolean();
+            var ratio = dns.GetProperty("amplificationRatio").GetDouble();
+            var table = new Table().BorderColor(recursion ? Color.Yellow : Color.Green)
+                .AddColumn("DNS 检查").AddColumn("结果")
+                .AddRow("版本", Escape(version))
+                .AddRow("递归", recursion ? "[yellow]对当前扫描源开放[/]" : "[green]未观察到开放递归[/]")
+                .AddRow("本次响应/请求", $"{ratio:F2}x")
+                .AddRow("风险判断", Escape(dns.GetProperty("recursionAssessment").GetString() ?? "未知"));
+            AnsiConsole.Write(table);
+        }
     }
 
     private static void RenderVulnerabilityObs(JsonElement r)
@@ -2244,13 +2390,16 @@ public class CliApp
         var findings = r.TryGetProperty("findings", out var findingNode) && findingNode.ValueKind == JsonValueKind.Array
             ? findingNode.EnumerateArray().ToList()
             : [];
-        var sources = FormatVulnerabilitySources(findings.Select(item =>
-            item.TryGetProperty("source", out var source) ? source.GetString() : null));
+        var sources = r.TryGetProperty("sourcesConsulted", out var sourceNode) && sourceNode.ValueKind == JsonValueKind.Array
+            ? FormatVulnerabilitySources(sourceNode.EnumerateArray().Select(item => item.GetString()))
+            : FormatVulnerabilitySources(findings.Select(item =>
+                item.TryGetProperty("source", out var source) ? source.GetString() : null));
 
         var color = total > 0 ? Color.Yellow : overall == "未知" ? Color.Yellow : Color.Green;
         var summary = new Table().HideHeaders()
             .AddColumn("项目")
             .AddColumn("值")
+            .AddRow("结论", total > 0 ? $"发现 {total} 个版本匹配项" : "未发现漏洞")
             .AddRow("风险", Escape(overall))
             .AddRow("CVE", total.ToString())
             .AddRow("来源", Escape(sources));
@@ -2263,21 +2412,54 @@ public class CliApp
             var table = new Table().BorderColor(Color.Yellow)
                 .AddColumn("端口")
                 .AddColumn("CVE")
+                .AddColumn("名称")
+                .AddColumn("CVSS")
                 .AddColumn("风险")
-                .AddColumn("置信度");
+                .AddColumn("置信度")
+                .AddColumn("修复建议");
             foreach (var item in findings)
             {
                 var confirmed = item.TryGetProperty("confirmed", out var confirmedNode) && confirmedNode.GetBoolean();
                 table.AddRow(
                     item.GetProperty("port").GetInt32().ToString(),
                     Escape(item.TryGetProperty("cve", out var cve) ? cve.GetString() ?? "—" : "—"),
+                    Escape(item.TryGetProperty("name", out var name) ? name.GetString() ?? "—" : "—"),
+                    item.TryGetProperty("cvss", out var cvss) && cvss.TryGetDouble(out var score) ? score.ToString("F1") : "—",
                     Escape(item.TryGetProperty("risk", out var itemRisk) ? itemRisk.GetString() ?? "未知" : "未知"),
-                    Escape(VulnerabilityConfidenceLabel(confirmed, ReadVersionStatus(item))));
+                    Escape(VulnerabilityConfidenceLabel(confirmed, ReadVersionStatus(item))),
+                    Escape(item.TryGetProperty("fix", out var fix) ? fix.GetString() ?? "请参考厂商公告" : "请参考厂商公告"));
             }
             AnsiConsole.Write(table);
         }
+        else
+        {
+            var reason = r.TryGetProperty("noMatchReason", out var reasonNode)
+                ? reasonNode.GetString()
+                : "当前检查范围内没有匹配项。";
+            AnsiConsole.MarkupLine($"[green]✅ 未发现漏洞[/] [grey]{Escape(reason ?? "当前检查范围内没有匹配项。")}[/]");
 
-        RenderVulnerabilityAssessments(r);
+            if (r.TryGetProperty("checkedServices", out var checkedNode) &&
+                checkedNode.ValueKind == JsonValueKind.Array && checkedNode.GetArrayLength() > 0)
+            {
+                var checkedTable = new Table().BorderColor(Color.Grey)
+                    .AddColumn("端口")
+                    .AddColumn("服务")
+                    .AddColumn("Banner")
+                    .AddColumn("判断依据");
+                foreach (var item in checkedNode.EnumerateArray())
+                {
+                    checkedTable.AddRow(
+                        item.GetProperty("port").GetInt32().ToString(),
+                        Escape(item.GetProperty("service").GetString() ?? "未知"),
+                        Escape(item.GetProperty("banner").GetString() ?? "未识别"),
+                        Escape(item.GetProperty("reason").GetString() ?? "无版本证据"));
+                }
+                AnsiConsole.Write(checkedTable);
+            }
+        }
+
+        if (findings.Count > 0)
+            RenderVulnerabilityAssessments(r);
     }
 
     private static void RenderSslObs(JsonElement r)
@@ -2293,6 +2475,16 @@ public class CliApp
             .AddRow("有效期", expired ? "[red]已过期[/]" : $"[green]剩余 {days} 天[/]")
             .AddRow("信任链", trusted ? "[green]可信[/]" : "[yellow]存在信任错误[/]")
             .AddRow("颁发者", Escape(r.GetProperty("issuer").GetString() ?? "未知"));
+        if (r.TryGetProperty("trustErrors", out var errors) &&
+            errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0)
+        {
+            table.AddRow("错误", Escape(string.Join(", ", errors.EnumerateArray().Select(item => item.GetString()))));
+        }
+        table.AddRow("结论", expired
+            ? "[red]不安全：证书已过期[/]"
+            : trusted
+                ? "[green]证书有效且信任校验通过[/]"
+                : "[yellow]证书未过期，但信任校验未通过[/]");
         AnsiConsole.Write(new Panel(table)
             .Header($"[teal] 🔒 TLS {Escape(target)}:{port} [/]")
             .BorderColor(expired ? Color.Red : trusted ? Color.Green : Color.Yellow));

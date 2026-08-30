@@ -15,4 +15,8 @@
     <PackageReference Include="Microsoft.Extensions.Http" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="LucentMist.Agent.Tests" />
+  </ItemGroup>
+
 </Project>
