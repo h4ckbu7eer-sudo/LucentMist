@@ -128,6 +128,19 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public void Factory_DeepSeek_CreatesOpenAICompatibleProvider()
+    {
+        var provider = LLMProviderFactory.Create(
+            "deepseek",
+            "deepseek-chat",
+            "https://api.deepseek.com/v1",
+            "test-key");
+
+        Assert.IsType<OpenAIProvider>(provider);
+        Assert.Equal("deepseek-chat", LLMProviderDefaults.ModelFor("deepseek"));
+    }
+
+    [Fact]
     public void Factory_Unknown_Throws()
     {
         Assert.Throws<ArgumentException>(() =>
