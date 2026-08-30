@@ -50,6 +50,12 @@ public class CveApiClient
         if (Environment.GetEnvironmentVariable("LMIST_CVE_EXTERNAL") != "true")
             return [];
 
+        // Keyword-only searches do not prove that the observed target version is
+        // affected. Avoid the external calls entirely when no version or explicit
+        // commit evidence is available.
+        if (!CveDatabase.HasVersionEvidence(port, version) && CreateOsvCommitQuery(version) == null)
+            return [];
+
         var cacheKey = $"{service}|{version}|{port}";
         if (Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
             return hit.Items.ToList();
@@ -124,7 +130,7 @@ public class CveApiClient
         IEnumerable<CveDetail> externalResults)
     {
         if (string.IsNullOrWhiteSpace(banner))
-            return externalResults.ToList();
+            return [];
 
         var matchedIds = CveDatabase.Match(port, banner)
             .Select(entry => entry.Cve)
@@ -133,11 +139,14 @@ public class CveApiClient
         return externalResults
             .Where(detail =>
             {
+                if (detail.VersionStatus.Equals("verified", StringComparison.OrdinalIgnoreCase))
+                    return true;
+
                 var known = CveDatabase.FindByCve(detail.Cve);
                 if (known == null || known.Port != port || !known.CanMatchBanner)
-                    return true;
+                    return false;
                 if (!BannerCanDecideKnownRule(known, banner))
-                    return true;
+                    return false;
                 return matchedIds.Contains(detail.Cve);
             })
             .ToList();

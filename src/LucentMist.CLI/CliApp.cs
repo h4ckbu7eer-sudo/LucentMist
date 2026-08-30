@@ -1405,7 +1405,7 @@ public class CliApp
 
                 if (total == 0)
                 {
-                    AnsiConsole.MarkupLine("[green]✅ 未发现漏洞风险[/]");
+                    RenderVulnerabilityAssessments(r);
                     return;
                 }
 
@@ -1478,6 +1478,8 @@ public class CliApp
 
                 if (!showAll && items.Count > 10)
                     AnsiConsole.MarkupLine($"[grey]... 还有 {items.Count - 10} 个漏洞。使用 --all 查看全部[/]");
+
+                RenderVulnerabilityAssessments(r);
 
                 // 修复建议（去重，过滤通用提示，按风险排序，优先内置库的具体建议）
                 var uniqueFixes = items
@@ -1683,6 +1685,37 @@ public class CliApp
         return actualSources.Count > 0
             ? string.Join(" + ", actualSources)
             : "未知（无来源字段）";
+    }
+
+    private static void RenderVulnerabilityAssessments(JsonElement root)
+    {
+        if (!root.TryGetProperty("assessments", out var assessments) ||
+            assessments.ValueKind != JsonValueKind.Array ||
+            assessments.GetArrayLength() == 0)
+        {
+            AnsiConsole.MarkupLine("[green]✅ 已识别版本未命中已知受影响范围[/]");
+            return;
+        }
+
+        var table = new Table()
+            .BorderColor(Color.Grey)
+            .AddColumn("端口")
+            .AddColumn("服务")
+            .AddColumn("版本/Banner")
+            .AddColumn("判断");
+        foreach (var item in assessments.EnumerateArray())
+        {
+            var status = item.GetProperty("status").GetString();
+            var message = item.GetProperty("message").GetString() ?? "";
+            table.AddRow(
+                item.GetProperty("port").GetInt32().ToString(),
+                Escape(item.GetProperty("service").GetString() ?? "?"),
+                Escape(item.GetProperty("banner").GetString() ?? "未识别"),
+                status == "unknown"
+                    ? $"[yellow]{Escape(message)}[/]"
+                    : $"[green]{Escape(message)}[/]");
+        }
+        AnsiConsole.Write(table);
     }
 
     private static string ReadVersionStatus(JsonElement finding)
