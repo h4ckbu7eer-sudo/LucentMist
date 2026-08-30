@@ -125,16 +125,11 @@ public class ReActEngine
             }
 
             // 4. 解析参数并调用工具
-            ToolArguments toolArgs;
-            try
-            {
-                toolArgs = JsonSerializer.Deserialize<ToolArguments>(step.ActionInput)
-                           ?? new ToolArguments();
-            }
-            catch
-            {
-                toolArgs = new ToolArguments { ["query"] = step.ActionInput };
-            }
+            var toolArgs = ToolArguments.ParseFlexible(step.ActionInput);
+            if (tool is INetworkTargetTool)
+                PromoteNetworkTargetAlias(toolArgs);
+            if (step.Action == "vuln_scan")
+                ReuseDiscoveredOpenPorts(toolArgs);
 
             try
             {
@@ -186,7 +181,7 @@ public class ReActEngine
                         "Agent 工具调用已授权",
                         ct);
                 }
-                var toolResult = await tool.ExecuteAsync(toolArgs, ct);
+                var toolResult = await ExecuteWithArgumentRepairAsync(tool, toolArgs, ct);
                 if (tool is INetworkTargetTool)
                 {
                     await RecordAuditAsync(
@@ -212,7 +207,7 @@ public class ReActEngine
                 // 自动服务识别：port_scan 成功后，对每个开放端口调用 service_identify
                 if (step.Action == "port_scan" && toolResult.Success)
                 {
-                    await AutoIdentifyServices(toolResult.Data, toolArgs, round, ct);
+                    await AutoAnalyzeOpenPorts(toolResult.Data, round, ct);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
@@ -240,18 +235,106 @@ public class ReActEngine
             ThoughtLog, Observations);
     }
 
+    internal static void PromoteNetworkTargetAlias(ToolArguments args)
+    {
+        if (!string.IsNullOrWhiteSpace(args.GetOrDefault("target"))) return;
+        foreach (var alias in new[] { "host", "hostname", "ip", "address", "url", "query" })
+        {
+            var value = args.GetOrDefault(alias);
+            if (string.IsNullOrWhiteSpace(value)) continue;
+            if (Uri.TryCreate(value, UriKind.Absolute, out var uri) && !string.IsNullOrWhiteSpace(uri.Host))
+                value = uri.Host;
+            args["target"] = value.Trim();
+            return;
+        }
+    }
+
+    private async Task<ToolResult> ExecuteWithArgumentRepairAsync(
+        ITool tool,
+        ToolArguments initialArgs,
+        CancellationToken ct)
+    {
+        var args = initialArgs;
+        var result = await tool.ExecuteAsync(args, ct);
+        for (var retry = 0; retry < 2 && !result.Success; retry++)
+        {
+            if (!TryRepairArguments(tool, args, result.Error, out var repaired))
+                break;
+
+            _logger.LogDebug(
+                "工具参数修正后重试: Tool={Tool}, Attempt={Attempt}, Error={Error}",
+                tool.Name,
+                retry + 1,
+                result.Error);
+            args = repaired;
+            result = await tool.ExecuteAsync(args, ct);
+        }
+        return result;
+    }
+
+    internal static bool TryRepairArguments(
+        ITool tool,
+        ToolArguments current,
+        string? error,
+        out ToolArguments repaired)
+    {
+        repaired = new ToolArguments();
+        foreach (var pair in current) repaired[pair.Key] = pair.Value;
+
+        var changed = false;
+        foreach (var parameter in tool.Parameters)
+        {
+            if (repaired.ContainsKey(parameter.Name)) continue;
+            var aliases = parameter.Name switch
+            {
+                "target" => new[] { "host", "hostname", "ip", "address", "url", "query" },
+                "port" => new[] { "ssl_port", "https_port", "service_port" },
+                "timeout_ms" => new[] { "timeout", "timeoutMs" },
+                _ => Array.Empty<string>(),
+            };
+            string? alias = null;
+            foreach (var candidate in aliases)
+            {
+                if (repaired.TryGetValue(candidate, out var value) && !string.IsNullOrWhiteSpace(value))
+                {
+                    alias = candidate;
+                    break;
+                }
+            }
+            if (alias == null) continue;
+            repaired[parameter.Name] = repaired[alias];
+            changed = true;
+        }
+
+        if (repaired.TryGetValue("port", out var portText))
+        {
+            var digits = new string(portText.Trim().TakeWhile(char.IsDigit).ToArray());
+            if (digits.Length > 0 && digits != portText)
+            {
+                repaired["port"] = digits;
+                changed = true;
+            }
+        }
+
+        // Retry only parameter-shaped failures and only when the argument set
+        // actually changed. Network/TLS failures must not be repeated blindly.
+        var parameterFailure = string.IsNullOrWhiteSpace(error) ||
+            error.Contains("参数", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("目标", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("端口", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("required", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("invalid", StringComparison.OrdinalIgnoreCase);
+        return changed && parameterFailure;
+    }
+
     /// <summary>
     /// 自动服务识别：port_scan 成功后，对每个开放端口调用 service_identify
     /// </summary>
-    private async Task AutoIdentifyServices(
+    private async Task AutoAnalyzeOpenPorts(
         string portScanResultJson,
-        ToolArguments portScanArgs,
         int round,
         CancellationToken ct)
     {
-        var svcTool = _toolRegistry.Get("service_identify");
-        if (svcTool == null) return;
-
         // 解析 port_scan 结果，提取 target 和 openPorts
         string target;
         List<int> openPorts;
@@ -276,68 +359,144 @@ public class ReActEngine
             target, string.Join(",", openPorts));
 
         var limit = Math.Max(0, MaxAutoIdentifyPorts);
-        if (limit == 0) return;
-        if (openPorts.Count > limit)
+        var svcTool = _toolRegistry.Get("service_identify");
+        if (svcTool != null && openPorts.Count > limit)
             _logger.LogWarning("自动服务识别超出上限 {Limit}，仅处理前 {Count} 个端口", limit, limit);
 
         var selectedPorts = openPorts.Take(limit).ToArray();
         var serviceObservations = new ReActObservation?[selectedPorts.Length];
-        await Parallel.ForEachAsync(
-            Enumerable.Range(0, selectedPorts.Length),
-            new ParallelOptions
-            {
-                MaxDegreeOfParallelism = Math.Min(4, selectedPorts.Length),
-                CancellationToken = ct,
-            },
-            async (index, token) =>
-            {
-                var port = selectedPorts[index];
-                try
+        if (svcTool != null && selectedPorts.Length > 0)
+        {
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, selectedPorts.Length),
+                new ParallelOptions
                 {
-                    var svcArgs = new ToolArguments
+                    MaxDegreeOfParallelism = Math.Min(4, selectedPorts.Length),
+                    CancellationToken = ct,
+                },
+                async (index, token) =>
+                {
+                    var port = selectedPorts[index];
+                    try
                     {
-                        ["target"] = target,
-                        ["port"] = port.ToString()
-                    };
-                    var auditEventId = Guid.NewGuid().ToString("N");
-                    await RecordAuditAsync(
-                        auditEventId,
-                        target,
-                        "service_identify",
-                        "queued",
-                        "Agent 自动服务识别已授权",
-                        token);
-                    var svcResult = await svcTool.ExecuteAsync(svcArgs, token);
-                    await RecordAuditAsync(
-                        auditEventId,
-                        target,
-                        "service_identify",
-                        svcResult.Success ? "completed" : "failed",
-                        svcResult.Success ? "Agent 自动服务识别完成" : "Agent 自动服务识别失败",
-                        token);
+                        var svcArgs = new ToolArguments
+                        {
+                            ["target"] = target,
+                            ["port"] = port.ToString()
+                        };
+                        var auditEventId = Guid.NewGuid().ToString("N");
+                        await RecordAuditAsync(
+                            auditEventId,
+                            target,
+                            "service_identify",
+                            "queued",
+                            "Agent 自动服务识别已授权",
+                            token);
+                        var svcResult = await svcTool.ExecuteAsync(svcArgs, token);
+                        await RecordAuditAsync(
+                            auditEventId,
+                            target,
+                            "service_identify",
+                            svcResult.Success ? "completed" : "failed",
+                            svcResult.Success ? "Agent 自动服务识别完成" : "Agent 自动服务识别失败",
+                            token);
 
-                    serviceObservations[index] = new ReActObservation
+                        serviceObservations[index] = new ReActObservation
+                        {
+                            Step = round,
+                            ToolName = "service_identify",
+                            Input = JsonSerializer.Serialize(svcArgs),
+                            Result = svcResult.Success
+                                ? svcResult.Data
+                                : svcResult.Error ?? svcResult.Data,
+                            Success = svcResult.Success
+                        };
+                    }
+                    catch (OperationCanceledException) when (token.IsCancellationRequested)
                     {
-                        Step = round,
-                        ToolName = "service_identify",
-                        Input = JsonSerializer.Serialize(svcArgs),
-                        Result = svcResult.Success
-                            ? svcResult.Data
-                            : svcResult.Error ?? svcResult.Data,
-                        Success = svcResult.Success
-                    };
-                }
-                catch (OperationCanceledException) when (token.IsCancellationRequested)
-                {
-                    throw;
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "自动服务识别失败: {Target}:{Port}", target, port);
-                }
-            });
+                        throw;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "自动服务识别失败: {Target}:{Port}", target, port);
+                    }
+                });
+        }
 
         Observations.AddRange(serviceObservations.OfType<ReActObservation>());
+
+        if (openPorts.Contains(443))
+            await AutoCheckTlsAsync(target, round, ct);
+    }
+
+    private void ReuseDiscoveredOpenPorts(ToolArguments args)
+    {
+        if (!string.IsNullOrWhiteSpace(args.GetOrDefault("open_ports")) ||
+            !string.IsNullOrWhiteSpace(args.GetOrDefault("ports")))
+            return;
+
+        var target = args.GetOrDefault("target");
+        foreach (var observation in Observations.AsEnumerable().Reverse())
+        {
+            if (!observation.Success || observation.ToolName != "port_scan") continue;
+            try
+            {
+                using var document = JsonDocument.Parse(observation.Result);
+                var root = document.RootElement;
+                if (!root.TryGetProperty("target", out var resultTarget) ||
+                    !string.Equals(resultTarget.GetString(), target, StringComparison.OrdinalIgnoreCase) ||
+                    !root.TryGetProperty("openPorts", out var ports) ||
+                    ports.ValueKind != JsonValueKind.Array ||
+                    ports.GetArrayLength() == 0)
+                    continue;
+
+                args["open_ports"] = string.Join(",", ports.EnumerateArray()
+                    .Select(port => port.GetInt32())
+                    .Distinct()
+                    .Order());
+                return;
+            }
+            catch (JsonException)
+            {
+                // Ignore malformed historical observations and keep looking.
+            }
+        }
+    }
+
+    private async Task AutoCheckTlsAsync(string target, int round, CancellationToken ct)
+    {
+        var sslTool = _toolRegistry.Get("ssl_check");
+        if (sslTool == null) return;
+
+        var sslArgs = new ToolArguments
+        {
+            ["target"] = target,
+            ["port"] = "443",
+        };
+        var auditEventId = Guid.NewGuid().ToString("N");
+        await RecordAuditAsync(
+            auditEventId,
+            target,
+            "ssl_check",
+            "queued",
+            "Agent 对已发现的 HTTPS 端口自动检查 TLS 证书",
+            ct);
+        var result = await ExecuteWithArgumentRepairAsync(sslTool, sslArgs, ct);
+        await RecordAuditAsync(
+            auditEventId,
+            target,
+            "ssl_check",
+            result.Success ? "completed" : "failed",
+            result.Success ? "Agent TLS 证书检查完成" : "Agent TLS 证书检查失败",
+            ct);
+        Observations.Add(new ReActObservation
+        {
+            Step = round,
+            ToolName = "ssl_check",
+            Input = JsonSerializer.Serialize(sslArgs),
+            Result = result.Success ? result.Data : result.Error ?? result.Data,
+            Success = result.Success,
+        });
     }
 
     private Task RecordAuditAsync(
@@ -360,7 +519,7 @@ public class ReActEngine
     /// <summary>
     /// 汇总所有观察结果，生成可读的结论
     /// </summary>
-    private static string SummarizeObservations(List<ReActObservation> observations)
+    internal static string SummarizeObservations(List<ReActObservation> observations)
     {
         if (observations.Count == 0) return "未执行任何操作。";
 
@@ -394,6 +553,24 @@ public class ReActEngine
                     }
                     if (root.TryGetProperty("alive", out var alive))
                         sb.AppendLine($"  在线设备: {alive}");
+                    if (root.TryGetProperty("deviceDetails", out var details) &&
+                        details.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var device in details.EnumerateArray())
+                        {
+                            var ip = device.GetProperty("ip").GetString() ?? "未知";
+                            var name = device.GetProperty("name").GetString() ?? "未广播";
+                            var vendor = device.GetProperty("vendor").GetString() ?? "未知";
+                            var model = device.GetProperty("model").GetString() ?? "未知";
+                            sb.AppendLine($"  - {ip} | 名称: {name} | 厂商: {vendor} | 型号: {model}");
+                        }
+                    }
+                    else if (root.TryGetProperty("devices", out var devices) &&
+                             devices.ValueKind == JsonValueKind.Array)
+                    {
+                        foreach (var device in devices.EnumerateArray())
+                            sb.AppendLine($"  - {device.GetString() ?? "未知"}");
+                    }
                     if (root.TryGetProperty("total", out var total))
                         sb.AppendLine($"  扫描范围: {total} 个 IP");
                     if (root.TryGetProperty("serviceName", out var svc) &&

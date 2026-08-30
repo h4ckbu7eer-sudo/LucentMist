@@ -580,6 +580,136 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public async Task RunAsync_Port443_TriggersAutomaticTlsAssessment()
+    {
+        var portScan = new Mock<ITool>();
+        portScan.SetupGet(tool => tool.Name).Returns("port_scan");
+        portScan.SetupGet(tool => tool.Description).Returns("scan");
+        portScan.SetupGet(tool => tool.Parameters).Returns([]);
+        portScan.Setup(tool => tool.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok(
+                "{\"target\":\"192.168.1.1\",\"openPorts\":[443]}",
+                TimeSpan.Zero));
+
+        var service = new Mock<ITool>();
+        service.SetupGet(tool => tool.Name).Returns("service_identify");
+        service.SetupGet(tool => tool.Description).Returns("identify");
+        service.SetupGet(tool => tool.Parameters).Returns([]);
+        service.Setup(tool => tool.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok("{\"target\":\"192.168.1.1\",\"port\":443}", TimeSpan.Zero));
+
+        var ssl = new Mock<ITool>();
+        ssl.SetupGet(tool => tool.Name).Returns("ssl_check");
+        ssl.SetupGet(tool => tool.Description).Returns("tls");
+        ssl.SetupGet(tool => tool.Parameters).Returns([]);
+        ssl.Setup(tool => tool.ExecuteAsync(
+                It.Is<ToolArguments>(args => args["target"] == "192.168.1.1" && args["port"] == "443"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok("{\"target\":\"192.168.1.1\",\"port\":443,\"isExpired\":false}", TimeSpan.Zero));
+
+        var registry = new ToolRegistry().Register(portScan.Object).Register(service.Object).Register(ssl.Object);
+        var llm = CreateMockLLM(
+            new ReActStep { Action = "port_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
+            new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(llm.Object, registry, "prompt", NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.Contains(result.Observations, item => item.ToolName == "ssl_check" && item.Success);
+        ssl.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RunAsync_PortScan_PassesEveryActualOpenPortToVulnerabilityScan()
+    {
+        var portScan = new Mock<ITool>();
+        portScan.SetupGet(tool => tool.Name).Returns("port_scan");
+        portScan.SetupGet(tool => tool.Description).Returns("scan");
+        portScan.SetupGet(tool => tool.Parameters).Returns([]);
+        portScan.Setup(tool => tool.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok(
+                "{\"target\":\"192.168.1.1\",\"openPorts\":[53,80,443]}",
+                TimeSpan.Zero));
+
+        var vulnerabilities = new Mock<ITool>();
+        vulnerabilities.SetupGet(tool => tool.Name).Returns("vuln_scan");
+        vulnerabilities.SetupGet(tool => tool.Description).Returns("vulnerabilities");
+        vulnerabilities.SetupGet(tool => tool.Parameters).Returns([]);
+        vulnerabilities.Setup(tool => tool.ExecuteAsync(
+                It.Is<ToolArguments>(args =>
+                    args["target"] == "192.168.1.1" &&
+                    args["open_ports"] == "53,80,443"),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok(
+                "{\"target\":\"192.168.1.1\",\"checkedServices\":[{\"port\":53},{\"port\":80},{\"port\":443}]}",
+                TimeSpan.Zero));
+
+        var registry = new ToolRegistry().Register(portScan.Object).Register(vulnerabilities.Object);
+        var llm = CreateMockLLM(
+            new ReActStep { Action = "port_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
+            new ReActStep { Action = "vuln_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
+            new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(llm.Object, registry, "prompt", NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.Contains(result.Observations, item => item.ToolName == "vuln_scan" && item.Success);
+        vulnerabilities.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RunAsync_ArgumentFailure_RepairsAliasesAndRetriesOnce()
+    {
+        var tool = new AliasRepairTool();
+        var registry = new ToolRegistry().Register(tool);
+        var llm = CreateMockLLM(
+            new ReActStep { Action = tool.Name, ActionInput = "{\"host\":\"127.0.0.1\",\"ssl_port\":443}" },
+            new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(llm.Object, registry, "prompt", NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.True(result.Success);
+        Assert.Equal(2, tool.CallCount);
+        Assert.Contains(result.Observations, item => item.ToolName == tool.Name && item.Success);
+    }
+
+    [Fact]
+    public void PromoteNetworkTargetAlias_ExtractsHostBeforePolicyValidation()
+    {
+        var args = new ToolArguments { ["url"] = "https://router.example:8443/status" };
+
+        ReActEngine.PromoteNetworkTargetAlias(args);
+
+        Assert.Equal("router.example", args["target"]);
+    }
+
+    [Fact]
+    public void SummarizeObservations_ListsEveryDeviceWithoutEllipsis()
+    {
+        var observations = new List<ReActObservation>
+        {
+            new()
+            {
+                ToolName = "ping_scan",
+                Input = "{\"target\":\"192.168.1.0/24\"}",
+                Success = true,
+                Result = "{\"alive\":3,\"total\":254,\"deviceDetails\":[" +
+                         "{\"ip\":\"192.168.1.1\",\"name\":\"router.local\",\"vendor\":\"Vendor A\",\"model\":\"未知\"}," +
+                         "{\"ip\":\"192.168.1.2\",\"name\":\"nas.local\",\"vendor\":\"Vendor B\",\"model\":\"未知\"}," +
+                         "{\"ip\":\"192.168.1.3\",\"name\":\"tv.local\",\"vendor\":\"Vendor C\",\"model\":\"未知\"}]}"
+            }
+        };
+
+        var summary = ReActEngine.SummarizeObservations(observations);
+
+        Assert.Contains("192.168.1.1", summary);
+        Assert.Contains("192.168.1.2", summary);
+        Assert.Contains("192.168.1.3", summary);
+        Assert.DoesNotContain("...", summary);
+    }
+
+    [Fact]
     public async Task RunAsync_PortScanNoOpenPorts_NoAutoIdentify()
     {
         var mockPortScan = new Mock<ITool>();
@@ -701,6 +831,26 @@ public class ReActEngineTests
             ToolArguments args,
             CancellationToken cancellationToken = default) =>
             Task.FromResult(ToolResult.Ok("sensitive-result", TimeSpan.Zero));
+    }
+
+    private sealed class AliasRepairTool : ITool
+    {
+        public int CallCount { get; private set; }
+        public string Name => "alias_repair";
+        public string Description => "test";
+        public ToolParameter[] Parameters =>
+        [
+            new() { Name = "target", Type = "string", Required = true },
+            new() { Name = "port", Type = "integer", Required = true },
+        ];
+
+        public Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
+        {
+            CallCount++;
+            return Task.FromResult(args.ContainsKey("target") && args.ContainsKey("port")
+                ? ToolResult.Ok("{}", TimeSpan.Zero)
+                : ToolResult.Fail("目标和端口参数必填", TimeSpan.Zero));
+        }
     }
 
     private sealed class CapturingAuditSink : INetworkAuditSink
