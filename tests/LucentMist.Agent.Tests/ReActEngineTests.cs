@@ -427,6 +427,28 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public async Task RunAsync_PublicTarget_IsAllowedWithoutAgentConfirmation()
+    {
+        var llm = CreateMockLLM(
+            new ReActStep
+            {
+                Action = "safe_network_tool",
+                ActionInput = "{\"target\":\"8.8.8.8\"}",
+            },
+            new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(
+            llm.Object,
+            new ToolRegistry().Register(new SuccessfulNetworkTool()),
+            "prompt",
+            NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.True(result.Success);
+        Assert.True(Assert.Single(result.Observations).Success);
+    }
+
+    [Fact]
     public async Task RunAsync_NonNetworkTargetParameter_IsNotDnsValidated()
     {
         var tool = new Mock<ITool>();
