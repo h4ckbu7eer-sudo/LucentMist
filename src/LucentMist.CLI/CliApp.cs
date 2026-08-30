@@ -1719,7 +1719,7 @@ public class CliApp
                 item.GetProperty("port").GetInt32().ToString(),
                 Escape(item.GetProperty("service").GetString() ?? "?"),
                 Escape(item.GetProperty("banner").GetString() ?? "未识别"),
-                status == "unknown"
+                status is "unknown" or "candidate_unverified"
                     ? $"[yellow]{Escape(message)}[/]"
                     : $"[green]{Escape(message)}[/]");
         }

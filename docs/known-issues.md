@@ -19,6 +19,9 @@ Current status as of the verified 0.9.5 release.
 ## Product Limitations
 
 - Built-in CVE database is small and heuristic. It is not equivalent to Nmap/Nessus fingerprinting.
+- SMB 3.1.1 dialect negotiation alone cannot reveal the Windows build or installed patch level.
+  LucentMist therefore shows SMBGhost as an unverified protocol assessment and does not add
+  `CVE-2020-0796` to findings or risk counts without stronger version/patch evidence.
 - Service version detection depends on banner format; many real-world banners will not produce exact versions.
 - UDP `closed` is an inference from an unreachable/refused socket error or a connection
   reset. Some firewalls synthesize reset-style errors, so a reset can be reported as

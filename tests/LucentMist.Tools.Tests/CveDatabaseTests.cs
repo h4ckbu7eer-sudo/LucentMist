@@ -100,6 +100,7 @@ public class CveDatabaseTests
         var matches = CveDatabase.Match(445, "SMBv3.1.1");
 
         Assert.DoesNotContain(matches, e => e.Cve == "CVE-2017-0144");
+        Assert.DoesNotContain(matches, e => e.Cve == "CVE-2020-0796");
     }
 
     [Fact]
