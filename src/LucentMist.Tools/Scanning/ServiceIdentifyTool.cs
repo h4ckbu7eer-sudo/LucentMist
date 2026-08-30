@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using LucentMist.Core.Networking;
 using LucentMist.Tools.Common;
+using LucentMist.Tools.Discovery;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Scanning;
@@ -18,6 +19,7 @@ namespace LucentMist.Tools.Scanning;
 public class ServiceIdentifyTool : INetworkTargetTool
 {
     private readonly ILogger<ServiceIdentifyTool> _logger;
+    private readonly Func<string, int, CancellationToken, Task<DnsSecurityResult>> _dnsProbeAsync;
     private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
 
     public string Name => "service_identify";
@@ -36,8 +38,16 @@ public class ServiceIdentifyTool : INetworkTargetTool
     private static readonly object PortPidLock = new();
 
     public ServiceIdentifyTool(ILogger<ServiceIdentifyTool> logger)
+        : this(logger, DnsSecurityProbe.ProbeAsync)
+    {
+    }
+
+    internal ServiceIdentifyTool(
+        ILogger<ServiceIdentifyTool> logger,
+        Func<string, int, CancellationToken, Task<DnsSecurityResult>> dnsProbeAsync)
     {
         _logger = logger;
+        _dnsProbeAsync = dnsProbeAsync;
     }
 
     public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
@@ -62,10 +72,21 @@ public class ServiceIdentifyTool : INetworkTargetTool
             _logger.LogInformation("ServiceIdentify: {Target}:{Port}", target, port);
 
             var serviceName = PortHelper.GetServiceKey(port) ?? "unknown";
-            string? banner = null;
+            string? banner;
+            DnsSecurityResult? dnsSecurity = null;
 
-            // 尝试抓取 Banner（HTTP / SSH / 通用）
-            banner = await GrabBannerAsync(target, port, timeout, cancellationToken);
+            if (port == 53)
+            {
+                dnsSecurity = await _dnsProbeAsync(target, timeout, cancellationToken);
+                banner = dnsSecurity.Version == null
+                    ? "DNS（版本未公开）"
+                    : $"DNS {dnsSecurity.Version}";
+            }
+            else
+            {
+                // 尝试抓取 Banner（HTTP / SSH / 通用）
+                banner = await GrabBannerAsync(target, port, timeout, cancellationToken);
+            }
 
             // HTTP 回退：如果是 80/443/8080，尝试 HTTP GET
             if (banner == null && port is 80 or 443 or 8080 or 8443)
@@ -105,7 +126,8 @@ public class ServiceIdentifyTool : INetworkTargetTool
                 identified = banner != null,
                 process = procInfo,
                 processInfoAvailable,
-                processInfoError
+                processInfoError,
+                dnsSecurity
             };
 
             _logger.LogInformation("ServiceIdentify 完成: {Target}:{Port} → {Service}",
