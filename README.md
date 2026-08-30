@@ -4,9 +4,11 @@
 >
 > 当前稳定发布版：`v0.9.5`
 
+> 隐私提示（当前 main）：漏洞扫描默认联网查询免费 CVETodo / Shodan CVEDB / NVD，仅发送服务关键词或产品 CPE，不发送目标 IP、原始 banner、凭据或报告。需要离线扫描请设 `LMIST_CVE_EXTERNAL=false`。云端候选不代表确认漏洞；Shodan CVEDB 免费许可仅限非商业使用。
+
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/local-tests-393%2F393%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/local-tests-485%2F485%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -119,7 +121,7 @@ curl -X POST http://localhost:5050/api/v1/scan \
 - 公网扫描在 CLI/Web 会要求授权确认；无交互自动化需在确认有权扫描后传 `--authorized`。
 - 设置 `LMIST_ALLOWED_TARGETS=203.0.113.0/24,host.example,*.lab.example` 后，范围外公网目标会被所有入口拒绝；RFC1918 和回环目标仍默认允许。
 - 扫描数据是明文 SQLite；建议使用全盘加密并限制 `data/`、报告和备份的文件权限。
-- 默认不上传扫描结果或遥测；云端 LLM、外部 CVE、DNS 与 Sirius 的精确边界见
+- 不上传完整扫描报告或遥测；漏洞扫描默认发送最小化查询元数据，离线请设 `LMIST_CVE_EXTERNAL=false`。云端 LLM、外部 CVE、DNS 与 Sirius 的精确边界见
   [隐私与网络出口审计](docs/compliance-telemetry-audit.md)。
 - 完整自用核验见 [自用资格清单](docs/self-use-checklist.md)，备份恢复见
   [数据安全与恢复](docs/data-security-and-recovery.md)。

@@ -112,6 +112,10 @@ public static class CveDatabase
 
     static CveDatabase()
     {
+        _entries.Add(new("CVE-2022-24735", "Redis Lua ACL isolation", 6379, "Redis", "low", "Redis < 6.2.7", "redis_version",
+            "升级 Redis 6.2.7/7.0.0+；不用 Lua 时通过 ACL 限制 SCRIPT LOAD/EVAL",
+            AffectedRanges: [new("6.0.0", "6.2.7")], Conditions: "ACL 多用户及 Lua 执行条件；不是无认证 RCE",
+            Reference: "https://github.com/redis/redis/security/advisories/GHSA-647m-2wmq-qmvq"));
         LoadExternalEntries();
     }
 

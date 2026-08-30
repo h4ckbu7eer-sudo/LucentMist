@@ -40,10 +40,13 @@ Redis、文件日志、扫描默认参数等旧配置键已被移除，不再作
 
 ## 外部 CVE API
 
-`CveApiClient` 默认不调用外部 CVE API。需要联网查询时显式设置：
+`CveApiClient` 默认查询 CVETodo、Shodan CVEDB、NVD；无需 API key。Shodan 的免费许可仅限非商业使用。
+只发送标准服务关键词或识别出的产品/CPE，不发送目标 IP、原始 banner 或报告；服务提供方仍会看到出口 IP。
+仅有明确 Git commit 才查询 OSV。离线使用请显式设置：
 
 ```bash
-export LMIST_CVE_EXTERNAL=true
+export LMIST_CVE_EXTERNAL=false
 ```
 
-未开启时只使用内置 CVE 特征库，避免把扫描目标发送到第三方服务。
+单源 8 秒总预算、最多 6 个并发请求；NVD 请求至少间隔 6.1 秒，超额跳过并显示限流。
+失败不抑制其他源和内置规则，结果显示每源状态。云端关键词/CPE 候选不代表已确认漏洞或已验证目标版本。

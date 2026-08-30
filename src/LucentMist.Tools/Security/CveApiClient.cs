@@ -2,118 +2,144 @@ using System.Collections.Concurrent;
 using System.Net.Http.Json;
 using System.Text.Json;
 using LucentMist.Tools.Common;
+using LucentMist.Tools.Vulnerability;
 
 namespace LucentMist.Tools.Security;
 
-/// <summary>
-/// 多源 CVE API 客户端 — 并行查询，按 CVE ID 去重合并
-/// </summary>
+/// <summary>Free-source metadata lookup; a keyword/CPE hit is never an exploit confirmation.</summary>
 public class CveApiClient
 {
-    private static readonly HttpClient _http = new(new SocketsHttpHandler
+    private static readonly HttpClient Http = new(new SocketsHttpHandler
     {
         PooledConnectionLifetime = TimeSpan.FromMinutes(5),
         AutomaticDecompression = System.Net.DecompressionMethods.All,
+        AllowAutoRedirect = false,
     })
+    { Timeout = TimeSpan.FromSeconds(8), MaxResponseContentBufferSize = 2 * 1024 * 1024 };
+    private static readonly ConcurrentDictionary<string, (DateTime ExpiresAt, QueryReport Report)> Cache = new();
+    private static readonly SemaphoreSlim Requests = new(6);
+    private static readonly object NvdLock = new();
+    private static DateTime NextNvdRequest;
+
+    public record CveDetail(string Cve, string Description, double CvssScore, string Source, string Fix,
+        string VersionStatus = "unverified", string? VerificationDetail = null, string EvidenceScope = "product");
+    public record SourceStatus(string Source, string Status, string Detail, bool Cached = false);
+    public record QueryReport(List<CveDetail> Items, SourceStatus[] Sources)
     {
-        Timeout = TimeSpan.FromSeconds(5),
+        public bool FellBackToBuiltIn => Sources.Length > 0 && Sources.All(s => s.Status != "ok");
+        public bool IsPartial => Sources.Any(s => s.Status != "ok");
+    }
+    internal sealed record OsvCommitQuery(string Commit, string Evidence);
+
+    internal static bool IsExternalEnabled(string? setting) => string.IsNullOrWhiteSpace(setting)
+        || setting.Equals("true", StringComparison.OrdinalIgnoreCase);
+
+    private static string ServiceKey(int port) => port switch
+    {
+        80 or 443 or 8000 or 8080 or 8443 or 8888 => "http server",
+        53 => "dns",
+        445 or 139 => "smb",
+        22 => "ssh",
+        3389 => "rdp",
+        _ => PortHelper.GetServiceKey(port) ?? "unknown",
     };
 
-    private static readonly ConcurrentDictionary<string, (DateTime ExpiresAt, List<CveDetail> Items)> Cache = new();
-    private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(10);
-
-    public record CveDetail(
-        string Cve,
-        string Description,
-        double CvssScore,
-        string Source,
-        string Fix,
-        string VersionStatus = "unverified",
-        string? VerificationDetail = null);
-
-    internal sealed record OsvCommitQuery(
-        string Commit,
-        string Evidence);
-
-    private static string ServiceKey(int port) =>
-        PortHelper.GetServiceKey(port) ?? "unknown";
-
-    internal static string[] GetConsultedSources(
-        int port,
-        string? banner,
-        bool externalEnabled)
+    internal static string[] GetConsultedSources(int port, string? banner, bool externalEnabled)
     {
-        if (!externalEnabled ||
-            (!CveDatabase.HasVersionEvidence(port, banner) && CreateOsvCommitQuery(banner) == null))
-            return [];
-
-        var sources = new List<string> { "CVETodo API", "Shodan API", "NVD" };
-        if (CreateOsvCommitQuery(banner) != null)
-            sources.Add("OSV.dev");
-        return sources.ToArray();
+        if (!externalEnabled || (ServiceKey(port) == "unknown" && ServiceFingerprint.FromBanner(banner) == null)) return [];
+        return CreateOsvCommitQuery(banner) == null
+            ? ["CVETodo API", "Shodan API", "NVD"]
+            : ["CVETodo API", "Shodan API", "NVD", "OSV.dev"];
     }
-
     internal static string[] GetConsultedSources(int port, string? banner) =>
-        GetConsultedSources(
-            port,
-            banner,
-            Environment.GetEnvironmentVariable("LMIST_CVE_EXTERNAL") == "true");
+        GetConsultedSources(port, banner, IsExternalEnabled(Environment.GetEnvironmentVariable("LMIST_CVE_EXTERNAL")));
 
-    /// <summary>
-    /// 按端口查询所有 API（并行），合并去重。每个 API 失败重试 1 次。
-    /// </summary>
-    public static async Task<List<CveDetail>> QueryAsync(
-        string service,
-        string? version,
-        int port,
-        CancellationToken ct = default)
+    public static async Task<List<CveDetail>> QueryAsync(string service, string? version, int port, CancellationToken ct = default) =>
+        (await QueryWithStatusAsync(service, version, port, ct)).Items;
+
+    public static Task<QueryReport> QueryWithStatusAsync(string service, string? banner, int port, CancellationToken ct = default) =>
+        QueryWithStatusAsync(banner, port, Http,
+            IsExternalEnabled(Environment.GetEnvironmentVariable("LMIST_CVE_EXTERNAL")), ct, useCache: true, throttleNvd: true);
+
+    // Never use the caller's target/service string or raw banner in a URL/cache key.
+    internal static async Task<QueryReport> QueryWithStatusAsync(string? banner, int port, HttpClient http,
+        bool externalEnabled, CancellationToken ct, bool useCache = false, bool throttleNvd = false, TimeSpan? sourceTimeout = null)
     {
-        if (Environment.GetEnvironmentVariable("LMIST_CVE_EXTERNAL") != "true")
-            return [];
+        ct.ThrowIfCancellationRequested();
+        var sources = GetConsultedSources(port, banner, externalEnabled);
+        if (sources.Length == 0) return new([], []);
+        var fingerprint = ServiceFingerprint.FromBanner(banner);
+        var keyword = fingerprint?.ProductKey ?? ServiceKey(port);
+        var commit = CreateOsvCommitQuery(banner);
+        var cpe = fingerprint?.Version == null ? null : fingerprint.Cpe;
+        var cacheKey = $"{port}|{keyword}|{cpe}|{commit?.Commit}";
+        if (useCache && Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
+            return hit.Report with { Items = hit.Report.Items.ToList(), Sources = hit.Report.Sources.Select(s => s with { Cached = true }).ToArray() };
 
-        // Keyword-only searches do not prove that the observed target version is
-        // affected. Avoid the external calls entirely when no version or explicit
-        // commit evidence is available.
-        if (!CveDatabase.HasVersionEvidence(port, version) && CreateOsvCommitQuery(version) == null)
-            return [];
-
-        var cacheKey = $"{service}|{version}|{port}";
-        if (Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
-            return hit.Items.ToList();
-
-        var svcKey = ServiceKey(port);
-        var results = new List<CveDetail>();
-
-        // 并行调用外部源（每个带重试）。OSV 只有在输入包含明确的
-        // commit SHA 时才发请求；普通服务 banner 不具备有效坐标。
-        var tasks = new Task<List<CveDetail>?>[]
+        var responses = await Task.WhenAll(sources.Select((source, index) => Fetch(source, index)));
+        var items = responses.SelectMany(r => r.Items).GroupBy(d => d.Cve, StringComparer.OrdinalIgnoreCase).Select(MergeSourceDetails);
+        var report = new QueryReport(FilterExternalResultsByBanner(port, banner, items), responses.Select(r => r.Status).ToArray());
+        if (useCache)
         {
-            WithRetry(TryCveTodo, svcKey, "CVETodo", ct),
-            WithRetry(TryShodanServiceSearch, svcKey, "Shodan", ct),
-            WithRetry(TryNvdSearch, svcKey, "NVD", ct),
-            WithRetry((_, token) => TryOsvSearch(version, token), "", "OSV", ct),
-        };
+            Cache[cacheKey] = (DateTime.UtcNow.AddSeconds(report.IsPartial ? 30 : 600), report);
+            foreach (var key in Cache.OrderBy(kv => kv.Value.ExpiresAt).Take(Math.Max(0, Cache.Count - 256)).Select(kv => kv.Key))
+                Cache.TryRemove(key, out _);
+        }
+        return report;
 
-        var sourceResults = await Task.WhenAll(tasks);
-
-        // Prefer a version-aware source when several sources return the same CVE.
-        // Otherwise an earlier keyword-only hit could silently discard OSV's
-        // stronger version evidence.
-        results = sourceResults
-            .Where(list => list != null)
-            .SelectMany(list => list!)
-            .GroupBy(detail => detail.Cve, StringComparer.OrdinalIgnoreCase)
-            .Select(MergeSourceDetails)
-            .ToList();
-
-        // Keyword APIs do not prove that the observed version is affected. Exclude
-        // only mismatches that the local banner rules can prove. Version-aware OSV
-        // results retain their stronger evidence through the finding layer.
-        results = FilterExternalResultsByBanner(port, version, results);
-
-        Cache[cacheKey] = (DateTime.UtcNow.Add(CacheTtl), results);
-        PruneCache();
-        return results;
+        async Task<(List<CveDetail> Items, SourceStatus Status)> Fetch(string source, int index)
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(sourceTimeout ?? TimeSpan.FromSeconds(8));
+            var entered = false;
+            try
+            {
+                await Requests.WaitAsync(timeout.Token);
+                entered = true;
+                if (index == 2 && throttleNvd)
+                {
+                    lock (NvdLock)
+                    {
+                        // Avoid unbounded waits/retries on the public NVD API.
+                        if (DateTime.UtcNow < NextNvdRequest)
+                            return ([], new(source, "rate_limited", "NVD 本地节流：至少间隔 6.1 秒；本次跳过，不代表无漏洞"));
+                        NextNvdRequest = DateTime.UtcNow.AddSeconds(6.1);
+                    }
+                }
+                var results = index switch
+                {
+                    0 => await TryCveTodo(keyword, http, timeout.Token),
+                    1 => await TryShodanServiceSearch(keyword, cpe, http, timeout.Token),
+                    2 => await TryNvdSearch(keyword, cpe, http, timeout.Token),
+                    _ => await TryOsvSearch(banner, http, timeout.Token),
+                };
+                if (results == null) return ([], new(source, "invalid_response", "响应格式不符合接口契约；未取得有效查询结果"));
+                results = results.Select(d => d with
+                {
+                    EvidenceScope = index == 3 ? "commit" : fingerprint == null ? "service_keyword" : "product",
+                    VerificationDetail = d.VerificationDetail ?? (fingerprint == null
+                        ? "仅协议关键词相关；未识别目标产品或版本，可能完全无关，不计入目标漏洞风险"
+                        : "产品关键词/CPE 检索命中；未验证目标版本、配置和发行版补丁；未执行 PoC"),
+                }).ToList();
+                return (results, new(source, "ok", $"返回 {results.Count} 条（单源截取前 10/OSV 20 条，非完整清单）；" +
+                    (index == 3 ? "Git commit 命中，未执行 PoC"
+                    : cpe != null && index > 0 ? "按 CPE 检索；配置/发行版补丁未核实，仍为版本未验证候选"
+                    : $"按{(fingerprint == null ? "协议服务" : "产品")}关键词检索；版本未验证，可能与目标无关")));
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException) { return ([], new(source, "timeout", "外部源超时；继续其他源与内置匹配")); }
+            catch (HttpRequestException ex)
+            {
+                return ([], new(source, ex.StatusCode == System.Net.HttpStatusCode.TooManyRequests ? "rate_limited" : "http_error",
+                    ex.StatusCode.HasValue ? $"HTTP {(int)ex.StatusCode.Value}；未取得有效查询结果" : "外部源网络连接失败"));
+            }
+            catch (Exception ex) when (ex is JsonException or InvalidOperationException or KeyNotFoundException or FormatException)
+            {
+                // No raw payload, request URL or exception message may leak to output.
+                return ([], new(source, "invalid_response", "响应格式不符合接口契约；未取得有效查询结果"));
+            }
+            finally { if (entered) Requests.Release(); }
+        }
     }
 
     internal static CveDetail MergeSourceDetails(IEnumerable<CveDetail> source)
@@ -145,102 +171,31 @@ public class CveApiClient
         };
     }
 
-    internal static List<CveDetail> FilterExternalResultsByBanner(
-        int port,
-        string? banner,
-        IEnumerable<CveDetail> externalResults)
+    internal static List<CveDetail> FilterExternalResultsByBanner(int port, string? banner, IEnumerable<CveDetail> results)
     {
-        if (string.IsNullOrWhiteSpace(banner))
-            return [];
-
-        var matchedIds = CveDatabase.Match(port, banner)
-            .Select(entry => entry.Cve)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        return externalResults
-            .Where(detail =>
-            {
-                if (detail.VersionStatus.Equals("verified", StringComparison.OrdinalIgnoreCase))
-                    return true;
-
-                var known = CveDatabase.FindByCve(detail.Cve);
-                if (known == null || known.Port != port || !known.CanMatchBanner)
-                    return false;
-                if (!BannerCanDecideKnownRule(known, banner))
-                    return false;
-                return matchedIds.Contains(detail.Cve);
-            })
-            .ToList();
-    }
-
-    private static bool BannerCanDecideKnownRule(
-        CveDatabase.CveEntry entry,
-        string banner)
-    {
-        if (entry.MatchBanner.Contains('<'))
+        var matched = CveDatabase.Match(port, banner).Select(e => e.Cve).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var fingerprint = ServiceFingerprint.FromBanner(banner);
+        return results.Where(detail =>
         {
-            var product = entry.MatchBanner.Split('<', 2)[0].Trim();
-            return banner.Contains(product, StringComparison.OrdinalIgnoreCase)
-                && CveDatabase.ExtractVersion(banner) != null;
-        }
-
-        // A negotiated SMB dialect can rule between the built-in SMBv1/SMBv3
-        // candidates. Other negative substring matches are not strong enough to
-        // discard an external result.
-        return entry.MatchBanner.StartsWith("SMBv", StringComparison.OrdinalIgnoreCase)
-            && banner.Contains("SMBv", StringComparison.OrdinalIgnoreCase);
-    }
-
-    private static void PruneCache()
-    {
-        if (Cache.Count <= 256) return;
-
-        var expired = Cache
-            .Where(kv => kv.Value.ExpiresAt <= DateTime.UtcNow)
-            .Select(kv => kv.Key)
-            .ToArray();
-        foreach (var key in expired)
-            Cache.TryRemove(key, out _);
-
-        var excess = Cache.Count - 256;
-        if (excess <= 0) return;
-        foreach (var key in Cache
-                     .OrderBy(kv => kv.Value.ExpiresAt)
-                     .Take(excess)
-                     .Select(kv => kv.Key))
-        {
-            Cache.TryRemove(key, out _);
-        }
-    }
-
-    private static async Task<List<CveDetail>?> WithRetry(
-        Func<string, CancellationToken, Task<List<CveDetail>?>> fn,
-        string argument,
-        string source,
-        CancellationToken ct)
-    {
-        try { return await fn(argument, ct); }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception ex) { LogSourceFailure(source, ex); await Task.Delay(500, ct); }
-        try { return await fn(argument, ct); }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
-        catch (Exception ex) { LogSourceFailure(source, ex); return null; }
-    }
-
-    private static void LogSourceFailure(string source, Exception ex)
-    {
-        if (Environment.GetEnvironmentVariable("LMIST_CVE_DEBUG") != "true") return;
-        Console.Error.WriteLine($"[CVE:{source}] {ex.GetType().Name}: {ex.Message}");
+            if (detail.VersionStatus == "verified") return true;
+            var known = CveDatabase.Lookup(port).FirstOrDefault(e => e.Cve.Equals(detail.Cve, StringComparison.OrdinalIgnoreCase));
+            if (known == null || string.IsNullOrWhiteSpace(banner)) return true;
+            if (known.MatchBanner.StartsWith("SMBv", StringComparison.OrdinalIgnoreCase) && banner.Contains("SMBv", StringComparison.OrdinalIgnoreCase))
+                return banner.Contains(known.MatchBanner, StringComparison.OrdinalIgnoreCase);
+            if (!known.CanMatchBanner || !known.MatchBanner.Contains('<') || fingerprint?.Version == null) return true;
+            var product = known.MatchBanner.Split('<')[0].Trim();
+            return !product.Equals(fingerprint.ProductKey, StringComparison.OrdinalIgnoreCase) || matched.Contains(detail.Cve);
+        }).ToList();
     }
 
     // ========== CVETodo (服务名搜索) ==========
-    private static async Task<List<CveDetail>?> TryCveTodo(string svcKey, CancellationToken ct)
+    private static async Task<List<CveDetail>?> TryCveTodo(string svcKey, HttpClient http, CancellationToken ct)
     {
         try
         {
-            var url = $"https://cvetodo.com/api/v1/cves/search?q={svcKey}";
-            using var response = await _http.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode) return null;
+            var url = $"https://cvetodo.com/api/v1/cves/search?q={Uri.EscapeDataString(svcKey)}&limit=10";
+            using var response = await http.GetAsync(url, ct);
+            response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
@@ -249,13 +204,14 @@ public class CveApiClient
             var results = new List<CveDetail>();
             foreach (var item in data.EnumerateArray().Take(10))
             {
-                var cveId = item.TryGetProperty("cve_id", out var c) ? c.GetString() ?? "" : "";
+                var cveId = item.TryGetProperty("id", out var id) ? id.GetString() ?? "" : item.TryGetProperty("cve_id", out var c) ? c.GetString() ?? "" : "";
                 if (string.IsNullOrEmpty(cveId)) continue;
                 var desc = item.TryGetProperty("summary", out var s) ? s.GetString() :
                            item.TryGetProperty("description", out var d) ? d.GetString() : null;
                 var cvss = 0.0;
-                if (item.TryGetProperty("cvss_v3", out var cv3) && cv3.TryGetDouble(out var v3)) cvss = v3;
-                else if (item.TryGetProperty("cvss", out var cv) && cv.TryGetDouble(out var v)) cvss = v;
+                if (item.TryGetProperty("base_score", out var bs) && double.TryParse(bs.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)) cvss = parsed;
+                else if (item.TryGetProperty("cvss_v3", out var cv3) && cv3.ValueKind == JsonValueKind.Number && cv3.TryGetDouble(out var v3)) cvss = v3;
+                else if (item.TryGetProperty("cvss", out var cv) && cv.ValueKind == JsonValueKind.Number && cv.TryGetDouble(out var v)) cvss = v;
                 results.Add(new CveDetail(cveId, desc ?? "无描述", cvss, "CVETodo API", "参考官方公告"));
             }
             return results;
@@ -267,13 +223,13 @@ public class CveApiClient
     }
 
     // ========== Shodan CVEDB (服务名搜索) ==========
-    private static async Task<List<CveDetail>?> TryShodanServiceSearch(string svcKey, CancellationToken ct)
+    private static async Task<List<CveDetail>?> TryShodanServiceSearch(string svcKey, string? cpe, HttpClient http, CancellationToken ct)
     {
         try
         {
-            var url = $"https://cvedb.shodan.io/cves?query={svcKey}";
-            using var response = await _http.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode) return null;
+            var url = cpe == null ? $"https://cvedb.shodan.io/cves?product={Uri.EscapeDataString(svcKey)}&limit=10" : $"https://cvedb.shodan.io/cves?cpe23={Uri.EscapeDataString(cpe)}&limit=10";
+            using var response = await http.GetAsync(url, ct);
+            response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
@@ -285,7 +241,7 @@ public class CveApiClient
             if (items.ValueKind != JsonValueKind.Array) return null;
 
             var results = new List<CveDetail>();
-            foreach (var item in items.EnumerateArray().Take(15))
+            foreach (var item in items.EnumerateArray().Take(10))
             {
                 var cveId = item.TryGetProperty("cve", out var cid) ? cid.GetString() :
                             item.TryGetProperty("cve_id", out var ci) ? ci.GetString() :
@@ -294,8 +250,9 @@ public class CveApiClient
                 var desc = item.TryGetProperty("summary", out var s) ? s.GetString() :
                            item.TryGetProperty("description", out var d) ? d.GetString() : null;
                 var cvss = 0.0;
-                if (item.TryGetProperty("cvss_v3", out var cv3) && cv3.TryGetDouble(out var v3)) cvss = v3;
-                else if (item.TryGetProperty("cvss", out var cv) && cv.TryGetDouble(out var v)) cvss = v;
+                if (item.TryGetProperty("base_score", out var bs) && double.TryParse(bs.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)) cvss = parsed;
+                else if (item.TryGetProperty("cvss_v3", out var cv3) && cv3.ValueKind == JsonValueKind.Number && cv3.TryGetDouble(out var v3)) cvss = v3;
+                else if (item.TryGetProperty("cvss", out var cv) && cv.ValueKind == JsonValueKind.Number && cv.TryGetDouble(out var v)) cvss = v;
                 results.Add(new CveDetail(cveId, desc ?? "无描述", cvss, "Shodan API", "参考官方公告"));
             }
             return results;
@@ -307,13 +264,13 @@ public class CveApiClient
     }
 
     // ========== NVD (NIST) ==========
-    private static async Task<List<CveDetail>?> TryNvdSearch(string service, CancellationToken ct)
+    private static async Task<List<CveDetail>?> TryNvdSearch(string service, string? cpe, HttpClient http, CancellationToken ct)
     {
         try
         {
-            var url = $"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={Uri.EscapeDataString(service)}&resultsPerPage=5";
-            using var response = await _http.GetAsync(url, ct);
-            if (!response.IsSuccessStatusCode) return null;
+            var url = cpe == null ? $"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={Uri.EscapeDataString(service)}&resultsPerPage=10" : $"https://services.nvd.nist.gov/rest/json/cves/2.0?cpeName={Uri.EscapeDataString(cpe)}&resultsPerPage=10";
+            using var response = await http.GetAsync(url, ct);
+            response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
@@ -364,11 +321,6 @@ public class CveApiClient
     }
 
     // ========== OSV.dev ==========
-    private static async Task<List<CveDetail>?> TryOsvSearch(
-        string? evidence,
-        CancellationToken ct) =>
-        await TryOsvSearch(evidence, _http, ct);
-
     internal static async Task<List<CveDetail>?> TryOsvSearch(
         string? evidence,
         HttpClient http,
@@ -383,11 +335,11 @@ public class CveApiClient
                 "https://api.osv.dev/v1/query",
                 body,
                 ct);
-            if (!response.IsSuccessStatusCode) return null;
+            response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(ct);
             using var doc = JsonDocument.Parse(json);
-            if (!doc.RootElement.TryGetProperty("vulns", out var vulns)) return null;
+            if (!doc.RootElement.TryGetProperty("vulns", out var vulns)) return [];
 
             var results = new List<CveDetail>();
             foreach (var vuln in vulns.EnumerateArray().Take(20))
