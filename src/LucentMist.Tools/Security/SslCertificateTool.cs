@@ -19,8 +19,8 @@ public class SslCertificateTool : INetworkTargetTool
     public string Name => "ssl_check";
     public string Description => "获取目标 SSL/TLS 证书信息，检查有效期、SAN、证书链";
     public ToolParameter[] Parameters => [
-        new() { Name = "target", Type = "string", Description = "目标域名或IP", Required = true },
-        new() { Name = "port", Type = "int", Description = "端口", Required = false, Default = "443" },
+        new() { Name = "target", Type = "string", Description = "目标域名或 IP；只传主机名，不要把端口拼进该字段", Required = true },
+        new() { Name = "port", Type = "integer", Description = "TLS 端口号（JSON 数字或数字字符串均可）", Required = false, Default = "443" },
         new() { Name = "timeout_ms", Type = "int", Description = "超时(毫秒)", Required = false, Default = "5000" }
     ];
 
@@ -29,9 +29,10 @@ public class SslCertificateTool : INetworkTargetTool
     public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
     {
         var sw = Stopwatch.StartNew();
-        var target = args.GetOrDefault("target");
+        var endpoint = NormalizeEndpoint(args);
+        var target = endpoint.Target;
         var requestedTarget = target;
-        var port = args.GetInt("port", 443);
+        var port = endpoint.Port;
         var timeout = args.GetInt("timeout_ms", 5000);
 
         if (string.IsNullOrWhiteSpace(target))
@@ -115,6 +116,52 @@ public class SslCertificateTool : INetworkTargetTool
             return ToolResult.Fail(ex.Message, sw.Elapsed);
         }
     }
+
+    public static SslEndpoint NormalizeEndpoint(ToolArguments args)
+    {
+        var target = FirstValue(args, "target", "host", "hostname", "ip", "address", "url", "query");
+        var portText = FirstValue(args, "port", "ssl_port", "https_port");
+        var portWasProvided = !string.IsNullOrWhiteSpace(portText);
+        var port = int.TryParse(OnlyLeadingDigits(portText), out var parsedPort) ? parsedPort : 443;
+
+        if (Uri.TryCreate(target, UriKind.Absolute, out var uri) &&
+            uri.Scheme is "https" or "tls" or "ssl")
+        {
+            target = uri.Host;
+            if (!portWasProvided && !uri.IsDefaultPort) port = uri.Port;
+        }
+        else if (!portWasProvided && !string.IsNullOrWhiteSpace(target) &&
+                 target.Count(ch => ch == ':') == 1)
+        {
+            var colon = target.LastIndexOf(':');
+            if (colon > 0 && int.TryParse(target[(colon + 1)..], out var endpointPort))
+            {
+                target = target[..colon];
+                port = endpointPort;
+            }
+        }
+
+        return new SslEndpoint(target.Trim(), port);
+    }
+
+    private static string FirstValue(ToolArguments args, params string[] names)
+    {
+        foreach (var name in names)
+        {
+            var value = args.GetOrDefault(name);
+            if (!string.IsNullOrWhiteSpace(value)) return value.Trim();
+        }
+        return string.Empty;
+    }
+
+    private static string OnlyLeadingDigits(string value)
+    {
+        if (string.IsNullOrWhiteSpace(value)) return value;
+        var digits = new string(value.Trim().TakeWhile(char.IsDigit).ToArray());
+        return digits.Length > 0 ? digits : value;
+    }
+
+    public readonly record struct SslEndpoint(string Target, int Port);
 
     internal static CertificateExpiration EvaluateExpiration(
         DateTime certificateNotAfter,

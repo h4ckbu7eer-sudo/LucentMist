@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace LucentMist.Tools;
 
 /// <summary>
@@ -22,6 +24,8 @@ public record ToolResult
 /// </summary>
 public class ToolArguments : Dictionary<string, string>
 {
+    public ToolArguments() : base(StringComparer.OrdinalIgnoreCase) { }
+
     public string GetOrDefault(string key, string defaultValue = "") =>
         TryGetValue(key, out var value) ? value : defaultValue;
 
@@ -35,6 +39,50 @@ public class ToolArguments : Dictionary<string, string>
                    .Where(p => p > 0)
                    .ToArray()
             : [];
+
+    /// <summary>
+    /// Parse LLM tool arguments without requiring every JSON value to be a
+    /// string. Numbers, booleans and primitive arrays are normalized to the
+    /// string contract used by tools.
+    /// </summary>
+    public static ToolArguments ParseFlexible(string? input)
+    {
+        var result = new ToolArguments();
+        if (string.IsNullOrWhiteSpace(input)) return result;
+
+        try
+        {
+            using var document = JsonDocument.Parse(input);
+            var root = document.RootElement;
+            if (root.ValueKind == JsonValueKind.String)
+                return ParseFlexible(root.GetString());
+            if (root.ValueKind != JsonValueKind.Object)
+            {
+                result["query"] = ElementText(root);
+                return result;
+            }
+
+            foreach (var property in root.EnumerateObject())
+                result[property.Name] = ElementText(property.Value);
+            return result;
+        }
+        catch (JsonException)
+        {
+            result["query"] = input.Trim();
+            return result;
+        }
+    }
+
+    private static string ElementText(JsonElement value) => value.ValueKind switch
+    {
+        JsonValueKind.String => value.GetString() ?? string.Empty,
+        JsonValueKind.Number => value.GetRawText(),
+        JsonValueKind.True => "true",
+        JsonValueKind.False => "false",
+        JsonValueKind.Null or JsonValueKind.Undefined => string.Empty,
+        JsonValueKind.Array => string.Join(",", value.EnumerateArray().Select(ElementText)),
+        _ => value.GetRawText(),
+    };
 }
 
 /// <summary>
