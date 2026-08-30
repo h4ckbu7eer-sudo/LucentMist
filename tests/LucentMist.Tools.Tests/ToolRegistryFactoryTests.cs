@@ -17,7 +17,7 @@ public class ToolRegistryFactoryTests
 
         Assert.Equal(
             [
-                "os_fingerprint", "ping_scan", "port_scan", "service_identify",
+                "get_my_ip", "os_fingerprint", "ping_scan", "port_scan", "service_identify",
                 "sirius_scan", "ssl_check", "udp_scan", "vuln_scan"
             ],
             names);

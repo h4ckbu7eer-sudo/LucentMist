@@ -1829,7 +1829,7 @@ public class CliApp
             .AddRow("[grey]Provider[/]", $"[blue]{provider}[/]")
             .AddRow("[grey]模型[/]", $"[green]{model}[/]")
             .AddRow("[grey]地址[/]", $"[white]{providerName}[/]")
-            .AddRow("[grey]工具[/]", "[blue]ping_scan[/] / [blue]port_scan[/] / [blue]service_identify[/] / [blue]os_fingerprint[/] / [blue]ssl_check[/] / [blue]udp_scan[/] / [blue]vuln_scan[/] / [blue]sirius_scan[/]");
+            .AddRow("[grey]工具[/]", "[blue]get_my_ip[/] / [blue]ping_scan[/] / [blue]port_scan[/] / [blue]service_identify[/] / [blue]os_fingerprint[/] / [blue]ssl_check[/] / [blue]udp_scan[/] / [blue]vuln_scan[/] / [blue]sirius_scan[/]");
         AnsiConsole.Write(info);
         AnsiConsole.WriteLine();
 
@@ -2109,6 +2109,9 @@ public class CliApp
 
             switch (toolName)
             {
+                case "get_my_ip":
+                    RenderLocalIpObs(r);
+                    break;
                 case "ping_scan":
                     RenderPingObs(r);
                     break;
@@ -2144,6 +2147,22 @@ public class CliApp
 
         if (r.TryGetProperty("hint", out var hint) && hint.ValueKind == JsonValueKind.String)
             AnsiConsole.MarkupLine($"        [yellow]{Escape(hint.GetString() ?? "")}[/]");
+    }
+
+    private static void RenderLocalIpObs(JsonElement r)
+    {
+        var ip = r.GetProperty("primaryIp").GetString() ?? "?";
+        var subnet = r.GetProperty("suggestedSubnet").GetString() ?? "?";
+        var table = new Table()
+            .BorderColor(Color.Teal)
+            .AddColumn("项目")
+            .AddColumn("值")
+            .AddRow("本机 IPv4", $"[green]{Escape(ip)}[/]")
+            .AddRow("建议扫描子网", $"[yellow]{Escape(subnet)}[/]");
+
+        AnsiConsole.Write(new Panel(table)
+            .Header("[teal] 🖥 本机网络 [/]")
+            .BorderColor(Color.Teal));
     }
 
     private static void RenderPortObs(JsonElement r)
@@ -2404,7 +2423,7 @@ public class CliApp
         table.AddRow("[grey]测试[/]", "[green]由 CI 验证[/]");
         table.AddRow("[grey]LLM[/]", $"[blue]{provider}[/] [green]{model}[/]");
         table.AddRow("[grey]地址[/]", $"[white]{endpoint}[/]");
-        table.AddRow("[grey]工具[/]", "[blue]ping_scan[/] / [blue]port_scan[/] / [blue]service_identify[/] / [blue]os_fingerprint[/] / [blue]ssl_check[/] / [blue]udp_scan[/] / [blue]vuln_scan[/] / [blue]sirius_scan[/]");
+        table.AddRow("[grey]工具[/]", "[blue]get_my_ip[/] / [blue]ping_scan[/] / [blue]port_scan[/] / [blue]service_identify[/] / [blue]os_fingerprint[/] / [blue]ssl_check[/] / [blue]udp_scan[/] / [blue]vuln_scan[/] / [blue]sirius_scan[/]");
 
         AnsiConsole.Write(new Panel(table)
             .Header("[teal] LucentMist [/]")

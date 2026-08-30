@@ -10,6 +10,7 @@ public static class ToolRegistryFactory
     public static ToolRegistry CreateDefault(ILoggerFactory loggerFactory)
     {
         var registry = new ToolRegistry();
+        registry.Register(new GetMyIpTool());
         registry.Register(new PingScanTool(loggerFactory.CreateLogger<PingScanTool>()));
         registry.Register(new PortScanTool(loggerFactory.CreateLogger<PortScanTool>()));
         registry.Register(new ServiceIdentifyTool(loggerFactory.CreateLogger<ServiceIdentifyTool>()));
