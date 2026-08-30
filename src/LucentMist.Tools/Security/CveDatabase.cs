@@ -103,6 +103,28 @@ public static class CveDatabase
         }).ToArray();
     }
 
+    internal static bool HasVersionEvidence(int port, string? banner)
+    {
+        if (string.IsNullOrWhiteSpace(banner)) return false;
+
+        if (port == 445)
+        {
+            return System.Text.RegularExpressions.Regex.IsMatch(
+                banner,
+                @"\bSMBv(?:1|2\.0\.2|2\.1|3\.0|3\.0\.2|3\.1\.1)\b",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        }
+
+        return Lookup(port)
+            .Where(entry => entry.CanMatchBanner && entry.MatchBanner.Contains('<'))
+            .Any(entry =>
+            {
+                var product = entry.MatchBanner.Split('<', 2)[0].Trim();
+                return banner.Contains(product, StringComparison.OrdinalIgnoreCase)
+                    && ExtractVersion(banner) != null;
+            });
+    }
+
     internal static string? ExtractVersion(string banner)
     {
         // Preserve the product's version spelling. In particular, OpenSSH's "p"
@@ -111,9 +133,11 @@ public static class CveDatabase
         // Extract version like: "OpenSSH_8.9p1" → "8.9p1"
         // "nginx/1.24.0" → "1.24.0"
         // "SMBv1" → "1.0.0"
-        if (banner.Contains("SMBv1", StringComparison.OrdinalIgnoreCase)) return "1.0.0";
-        if (banner.Contains("SMBv2", StringComparison.OrdinalIgnoreCase)) return "2.0.0";
-        if (banner.Contains("SMBv3", StringComparison.OrdinalIgnoreCase)) return "3.0.0";
+        var smb = System.Text.RegularExpressions.Regex.Match(
+            banner,
+            @"\bSMBv(?<version>\d+(?:\.\d+)*)\b",
+            System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (smb.Success) return smb.Groups["version"].Value;
 
         // "SSH-2.0-OpenSSH_8.9p1" 必须取产品版本 8.9.1，而不是协议版本 2.0
         if (banner.Contains("OpenSSH_", StringComparison.OrdinalIgnoreCase))

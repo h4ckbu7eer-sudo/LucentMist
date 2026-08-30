@@ -76,6 +76,25 @@ public class CveDatabaseTests
     }
 
     [Fact]
+    public void ExtractVersion_PreservesExactSmbDialect()
+    {
+        Assert.Equal("3.1.1", CveDatabase.ExtractVersion("SMBv3.1.1"));
+    }
+
+    [Theory]
+    [InlineData(445, "SMBv3.1.1", true)]
+    [InlineData(445, null, false)]
+    [InlineData(22, "SSH-2.0-OpenSSH_9.8p1", true)]
+    [InlineData(22, "SSH service", false)]
+    public void HasVersionEvidence_RequiresARecognizedServiceVersion(
+        int port,
+        string? banner,
+        bool expected)
+    {
+        Assert.Equal(expected, CveDatabase.HasVersionEvidence(port, banner));
+    }
+
+    [Fact]
     public void Match_SmbV3_IsNotEternalBlue()
     {
         var matches = CveDatabase.Match(445, "SMBv3.1.1");
