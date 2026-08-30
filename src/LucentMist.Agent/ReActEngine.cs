@@ -97,8 +97,9 @@ public class ReActEngine
             // 2. 检查是否是最终答案
             if (step.IsFinal)
             {
-                var incompleteChecks = SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations);
-                if (incompleteChecks.Count > 0)
+                var incompleteChecks = SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations)
+                    .Concat(SecurityAnalysisEvidence.FindConclusionConflicts(step.ActionInput, Observations)).ToArray();
+                if (incompleteChecks.Length > 0)
                 {
                     if (completionDeferrals < MaxCompletionDeferrals)
                     {
@@ -120,7 +121,7 @@ public class ReActEngine
                         ThoughtLog,
                         Observations);
                 }
-                return ReActResult.Ok(step.ActionInput, ThoughtLog, Observations);
+                return ReActResult.Ok(SecurityAnalysisEvidence.WithVerifiedFacts(userQuery, step.ActionInput, Observations), ThoughtLog, Observations);
             }
 
             // 检测整个会话中的重复操作，而不只是上一条。JSON 属性顺序或数字/字符串
@@ -221,7 +222,7 @@ public class ReActEngine
                 {
                     Step = round,
                     ToolName = step.Action,
-                    Input = step.ActionInput,
+                    Input = JsonSerializer.Serialize(toolArgs),
                     Result = toolResult.Success
                         ? toolResult.Data
                         : toolResult.Error ?? toolResult.Data,

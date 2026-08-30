@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using LucentMist.Agent.LLM;
 
 namespace LucentMist.Agent;
@@ -106,6 +107,73 @@ internal static class SecurityAnalysisEvidence
         sb.AppendLine($"  TLS 结论: {(trusted && !expired ? "证书有效且信任校验通过" : "证书检查已完成，但存在信任或有效期风险")}");
         if (root.TryGetProperty("securityConclusion", out var conclusionNode))
             sb.AppendLine($"  判断依据: {conclusionNode.GetString()}");
+        if (root.TryGetProperty("trustErrors", out var errors) && errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0)
+        {
+            sb.AppendLine($"  HTTPS 信任风险: {string.Join(", ", errors.EnumerateArray().Select(item => item.GetString()))}");
+            sb.AppendLine("  不能可靠确认 HTTPS 服务身份，可能增加中间人风险；不等于已遭攻击。请核对证书名称和完整信任链，不要直接忽略警告。");
+        }
+    }
+
+    internal static IReadOnlyList<string> FindConclusionConflicts(string answer, IReadOnlyCollection<ReActObservation> observations)
+    {
+        var conflicts = new List<string>();
+        foreach (var observation in observations.Where(item => item.Success && item.ToolName is "ssl_check" or "service_identify"))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(observation.Result);
+                var root = doc.RootElement;
+                if (observation.ToolName == "ssl_check" && root.TryGetProperty("trustErrors", out var errors) &&
+                    errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0 &&
+                    (!answer.Contains("信任", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(answer,
+                        @"(?:证书|TLS|HTTPS)[^。\n]{0,150}(?:属正常|无风险|无需关注)", RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))))
+                    conflicts.Add("HTTPS 信任校验有错误：必须说明身份校验/中间人风险，不得因自签常见就称为正常或无风险");
+                if (root.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object &&
+                    dns.TryGetProperty("recursionAvailable", out var recursion) && recursion.ValueKind == JsonValueKind.True &&
+                    Regex.IsMatch(answer, @"未(?:对[^。\n]{0,20})?开放递归|未(?:对[^。\n]{0,20})?开启递归|递归[^。\n]{0,20}(?:未开放|未开启)",
+                        RegexOptions.None, TimeSpan.FromMilliseconds(100)))
+                    conflicts.Add("DNS 工具已观察到对当前扫描源开放递归，不能总结为未开放；公网可达性尚未检查");
+            }
+            catch (JsonException) { }
+        }
+        return conflicts.Distinct().ToArray();
+    }
+
+    internal static string WithVerifiedFacts(string query, string answer, IReadOnlyCollection<ReActObservation> observations)
+    {
+        if (!RequiresSecurityConclusion(query)) return answer;
+        var facts = new StringBuilder();
+        foreach (var observation in observations.Where(item => item.Success))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(observation.Result);
+                var root = doc.RootElement;
+                var target = root.TryGetProperty("target", out var node) ? node.GetString() : null;
+                if (observation.ToolName == "ssl_check")
+                {
+                    facts.AppendLine($"{target} HTTPS 核验：");
+                    AppendTlsSummary(facts, root);
+                }
+                if (observation.ToolName == "service_identify" && root.TryGetProperty("dnsSecurity", out var dns) &&
+                    dns.ValueKind == JsonValueKind.Object && dns.TryGetProperty("recursionAssessment", out var assessment))
+                    facts.AppendLine($"{target} DNS 核验：{assessment.GetString()}（仅当前扫描视角，未验证公网可达性）");
+                if (observation.ToolName == "vuln_scan")
+                {
+                    facts.AppendLine($"{target} 漏洞核验：");
+                    AppendVulnerabilitySummary(facts, root);
+                    if (root.TryGetProperty("cloudCandidateGroups", out var groups))
+                    {
+                        foreach (var group in groups.EnumerateArray())
+                            facts.AppendLine($"  端口 {group.GetProperty("port")} 优先核实（非目标漏洞）：" +
+                                string.Join(", ", group.GetProperty("leads").EnumerateArray().Select(lead => lead.GetProperty("cve").GetString())));
+                        if (root.TryGetProperty("cloudNextStep", out var next)) facts.AppendLine($"  下一步：{next.GetString()}");
+                    }
+                }
+            }
+            catch (JsonException) { }
+        }
+        return facts.Length == 0 ? answer : answer + "\n\n【工具核验事实（非模型推断）】\n" + facts.ToString().TrimEnd();
     }
 
     private static bool RequiresSecurityConclusion(string query) =>
