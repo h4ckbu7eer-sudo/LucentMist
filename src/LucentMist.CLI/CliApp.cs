@@ -177,6 +177,21 @@ public class CliApp
         endpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? endpoint;
         apiKey = Environment.GetEnvironmentVariable("LMIST_LLM_APIKEY") ?? apiKey;
 
+        // deepseek 走 OpenAI 兼容端点；未显式配置 endpoint 时用官方默认
+        if (string.Equals(provider, "deepseek", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(endpoint, "http://localhost:11434", StringComparison.OrdinalIgnoreCase))
+        {
+            endpoint = "https://api.deepseek.com/v1";
+        }
+
+        // deepseek 下若模型仍是 Ollama 默认（未显式指定），自动用 deepseek-chat
+        if (string.Equals(provider, "deepseek", StringComparison.OrdinalIgnoreCase) &&
+            string.Equals(model, "qwen2.5:7b", StringComparison.OrdinalIgnoreCase) &&
+            string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("LMIST_LLM_MODEL")))
+        {
+            model = LLMProviderDefaults.OpenAIModel;
+        }
+
         if (!hasConfiguredModel)
             model = LLMProviderDefaults.ModelFor(provider);
 
@@ -1711,7 +1726,11 @@ public class CliApp
             .Header("[teal] LucentMist Agent [/]")
             .BorderColor(Color.Teal));
 
-        var providerName = provider == "claude" ? "Claude API" : $"Ollama @ {endpoint}";
+        var providerName = provider == "claude"
+            ? "Claude API"
+            : provider == "deepseek"
+                ? $"DeepSeek API @ {endpoint}"
+                : $"Ollama @ {endpoint}";
         var info = new Table()
             .AddColumn(new TableColumn("项目").RightAligned())
             .AddColumn("值")
@@ -1728,7 +1747,9 @@ public class CliApp
 
         ILLMProvider llm = provider == "claude"
             ? new ClaudeProvider(apiKey, model, lf.CreateLogger<ClaudeProvider>())
-            : new OllamaProvider(endpoint, model, lf.CreateLogger<OllamaProvider>());
+            : provider == "deepseek"
+                ? new OpenAIProvider(apiKey, model, endpoint, lf.CreateLogger<OpenAIProvider>())
+                : new OllamaProvider(endpoint, model, lf.CreateLogger<OllamaProvider>());
 
         var toolRegistry = ToolRegistryFactory.CreateDefault(lf);
 
@@ -2066,13 +2087,13 @@ public class CliApp
             .AddColumn("当前值")
             .AddColumn("可选项");
 
-        table.AddRow("[grey]Provider[/]", $"[blue]{provider}[/]", "[grey]ollama | claude[/]");
-        table.AddRow("[grey]Model[/]", $"[green]{model}[/]", "[grey]qwen2.5:7b | llama3.1:8b | mistral:7b[/]");
+        table.AddRow("[grey]Provider[/]", $"[blue]{provider}[/]", "[grey]ollama | claude | deepseek[/]");
+        table.AddRow("[grey]Model[/]", $"[green]{model}[/]", "[grey]qwen2.5:7b | llama3.1:8b | deepseek-chat[/]");
 
         if (provider == "ollama")
             table.AddRow("[grey]Endpoint[/]", $"[white]{endpoint}[/]", "[grey]http://localhost:11434[/]");
         else
-            table.AddRow("[grey]API Key[/]", apiKey.Length > 5 ? "[green]已配置[/]" : "[yellow]未配置[/]", "[grey]sk-ant-api03-...[/]");
+            table.AddRow("[grey]API Key[/]", apiKey.Length > 5 ? "[green]已配置[/]" : "[yellow]未配置[/]", "[grey]sk-ant-... / sk-...[/]");
 
         AnsiConsole.Write(new Panel(table)
             .Header("[teal] LLM 配置 [/]")
@@ -2082,6 +2103,7 @@ public class CliApp
         AnsiConsole.MarkupLine("[grey]切换示例:[/]");
         AnsiConsole.MarkupLine("  [yellow]lmist config --set Model=qwen2.5:7b[/]");
         AnsiConsole.MarkupLine("  [yellow]lmist config --set Provider=claude[/]");
+        AnsiConsole.MarkupLine("  [yellow]lmist config --set Provider=deepseek[/]");
 
         return await Task.FromResult(0);
     }

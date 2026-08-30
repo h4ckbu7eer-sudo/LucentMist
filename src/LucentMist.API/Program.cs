@@ -9,7 +9,8 @@ var llmProvider = (Environment.GetEnvironmentVariable("LMIST_LLM_PROVIDER") ?? "
     .Trim().ToLowerInvariant();
 var llmModel = Environment.GetEnvironmentVariable("LMIST_LLM_MODEL")
     ?? LLMProviderDefaults.ModelFor(llmProvider);
-var llmEndpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT") ?? "http://localhost:11434";
+var llmEndpoint = Environment.GetEnvironmentVariable("LMIST_LLM_ENDPOINT")
+    ?? (llmProvider == "deepseek" ? "https://api.deepseek.com/v1" : "http://localhost:11434");
 var appVersion = LucentMist.Core.AppVersion.Current;
 var maintenanceOwner = Environment.GetEnvironmentVariable("LMIST_DB_MAINTENANCE_OWNER") ?? "both";
 
@@ -54,6 +55,11 @@ builder.Services.AddHttpClient("Claude", client =>
     client.BaseAddress = new Uri("https://api.anthropic.com/v1/");
     client.Timeout = TimeSpan.FromSeconds(60);
 });
+builder.Services.AddHttpClient("OpenAI", client =>
+{
+    client.BaseAddress = new Uri(llmEndpoint.TrimEnd('/') + "/");
+    client.Timeout = TimeSpan.FromSeconds(60);
+});
 builder.Services.AddSingleton<LucentMist.Agent.LLM.ILLMProvider>(sp =>
 {
     var lf = sp.GetRequiredService<ILoggerFactory>();
@@ -64,6 +70,12 @@ builder.Services.AddSingleton<LucentMist.Agent.LLM.ILLMProvider>(sp =>
             llmModel,
             lf.CreateLogger<LucentMist.Agent.LLM.ClaudeProvider>(),
             sp.GetRequiredService<IHttpClientFactory>().CreateClient("Claude")),
+        "deepseek" => new LucentMist.Agent.LLM.OpenAIProvider(
+            Environment.GetEnvironmentVariable("LMIST_LLM_APIKEY") ?? "",
+            llmModel,
+            llmEndpoint,
+            lf.CreateLogger<LucentMist.Agent.LLM.OpenAIProvider>(),
+            sp.GetRequiredService<IHttpClientFactory>().CreateClient("OpenAI")),
         _ => new LucentMist.Agent.LLM.OllamaProvider(
             llmEndpoint,
             llmModel,

@@ -1,7 +1,7 @@
 namespace LucentMist.Agent.LLM;
 
 /// <summary>
-/// LLM Provider 接口 — 支持 Ollama / Claude 可切换
+/// LLM Provider 接口 — 支持 Ollama / Claude / OpenAI 兼容端点（含 DeepSeek）
 /// </summary>
 public interface ILLMProvider
 {
@@ -25,11 +25,14 @@ public static class LLMProviderDefaults
 {
     public const string OllamaModel = "qwen2.5:7b";
     public const string ClaudeModel = "claude-sonnet-4-6";
+    public const string OpenAIModel = "deepseek-chat";
 
     public static string ModelFor(string? provider) =>
         string.Equals(provider, "claude", StringComparison.OrdinalIgnoreCase)
             ? ClaudeModel
-            : OllamaModel;
+            : string.Equals(provider, "deepseek", StringComparison.OrdinalIgnoreCase)
+                ? OpenAIModel
+                : OllamaModel;
 }
 
 /// <summary>
@@ -71,6 +74,7 @@ public static class LLMProviderFactory
         {
             "ollama" => new OllamaProvider(endpoint, model),
             "claude" => new ClaudeProvider(apiKey, model),
+            "deepseek" => new OpenAIProvider(apiKey, model, endpoint),
             _ => throw new ArgumentException($"不支持的 LLM Provider: {provider}")
         };
     }
