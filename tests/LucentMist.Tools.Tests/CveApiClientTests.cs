@@ -19,9 +19,9 @@ public class CveApiClientTests
     }
 
     [Fact]
-    public void ConsultedSources_WithoutVersionEvidence_DoesNotClaimExternalCalls()
+    public void ConsultedSources_WithoutVersionEvidence_QueriesKeywordSourcesButNotOsv()
     {
-        Assert.Empty(CveApiClient.GetConsultedSources(
+        Assert.Equal(new[] { "CVETodo API", "Shodan API", "NVD" }, CveApiClient.GetConsultedSources(
             22,
             "SSH（版本未知）",
             externalEnabled: true));

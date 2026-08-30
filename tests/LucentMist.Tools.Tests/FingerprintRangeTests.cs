@@ -13,6 +13,8 @@ public class FingerprintRangeTests
     [InlineData("HTTP/1.1 200 Server: Apache/2.4.49", "http_server", "2.4.49")]
     [InlineData("SSH-2.0-OpenSSH_9.8p1 Ubuntu", "openssh", "9.8p1")]
     [InlineData("OpenSSH_for_Windows_9.5.0.0", "openssh", "9.5.0.0")]
+    [InlineData("Apache Tomcat/9.0.1", "tomcat", "9.0.1")]
+    [InlineData("nginx/1.24.0-rc1", "nginx", null)]
     public void Fingerprint_RequiresProductEvidence(string banner, string? product, string? version)
     {
         var fingerprint = ServiceFingerprint.FromBanner(banner);
@@ -31,6 +33,14 @@ public class FingerprintRangeTests
     [InlineData("ngin")]
     public void ProtocolOrFuzzyName_DoesNotInventVendor(string service) =>
         Assert.Null(new CpeMatcher().Match(service, "1.2.3"));
+
+    [Fact]
+    public void OpenSshCpe_PatchIsUpdateComponent_NotVersionSuffix()
+    {
+        var fingerprint = ServiceFingerprint.FromBanner("SSH-2.0-OpenSSH_9.3p2")!;
+        Assert.Equal("9.3p2", fingerprint.Version);
+        Assert.Equal("cpe:2.3:a:openbsd:openssh:9.3:p2:*:*:*:*:*:*", fingerprint.Cpe);
+    }
 
     [Theory]
     [InlineData("8.4p1", false)]

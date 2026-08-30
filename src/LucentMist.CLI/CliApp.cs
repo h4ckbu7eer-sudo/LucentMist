@@ -1313,6 +1313,7 @@ public class CliApp
                     findings.AddRange(items.EnumerateArray()
                         .Select(item => ReportGenerator.ParseVulnerabilityFinding(resultTarget, item)));
                 }
+                ApplyVulnerabilityCoverage(report, resultTarget, root);
                 successfulTargets++;
             }
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
@@ -1330,6 +1331,19 @@ public class CliApp
     // ========================================
     // OS-FINGERPRINT
     // ========================================
+    internal static void ApplyVulnerabilityCoverage(ReportGenerator.ScanReport report, string target, JsonElement root)
+    {
+        if (root.TryGetProperty("externalPartial", out var partial) && partial.GetBoolean())
+            report.Warnings.Add($"{target}: 部分云源失败/限流，漏洞匹配覆盖不完整");
+        if (root.TryGetProperty("overallRisk", out var risk) && risk.GetString() == "未知")
+            report.Warnings.Add($"{target}: 部分服务版本未知，无法确认漏洞状态");
+        if (root.TryGetProperty("cloudCandidateCount", out var count) && count.GetInt32() > 0)
+            report.Notes.Add($"{target}: 云端返回 {count.GetInt32()} 条协议关键词线索；产品/版本未验证，可能无关，不计为目标漏洞");
+        if (root.TryGetProperty("exposureChecks", out var exposure))
+            foreach (var item in exposure.EnumerateArray())
+                report.Notes.Add($"{target}:{item.GetProperty("port")} {item.GetProperty("message").GetString()}");
+    }
+
     private static async Task<int> OsFingerprintCommand(string[] args)
     {
         if (args.Length == 0)
@@ -1446,7 +1460,7 @@ public class CliApp
                 var isNmap = banner?.Source == "nmap";
                 var isOsInherit = banner?.Source == "os-inherit";
                 var verKnown = ver != "未识别" && !string.IsNullOrEmpty(ver);
-                var cpe = cpeMatcher.Match(svc, verKnown ? ver : null, osGuess);
+                var cpe = cpeMatcher.Match(banner?.Service ?? svc, banner?.Raw ?? (verKnown ? ver : null), osGuess);
                 var status = verKnown
                     ? (isNmap ? "[green]✅ nmap 识别[/]" : isOsInherit ? "[green]✅ OS 继承[/]" : "[green]✅ 已识别[/]")
                     : cpe != null ? "[yellow]⚠️ 服务级匹配[/]"
@@ -1618,7 +1632,9 @@ public class CliApp
             }
 
             // 扫描总结
-            var sourceStr = FormatVulnerabilitySources(items.Select(x => x.source));
+            var sourceStr = r.TryGetProperty("sourcesConsulted", out var queriedSources)
+                ? FormatVulnerabilitySources(queriedSources.EnumerateArray().Select(s => s.GetString()))
+                : FormatVulnerabilitySources(items.Select(x => x.source));
 
             AnsiConsole.WriteLine();
             var sumTable = new Table().BorderColor(Color.Grey).HideHeaders()
@@ -1630,6 +1646,8 @@ public class CliApp
             AnsiConsole.Write(new Panel(sumTable)
                 .Header("[teal] 📊 扫描总结 [/]")
                 .BorderColor(Color.Teal));
+
+            RenderCloudSourceStatus(r);
 
             AnsiConsole.MarkupLine($" [grey]耗时: {result.Duration.TotalSeconds:F1}s[/]");
         }
@@ -2408,13 +2426,14 @@ public class CliApp
         var summary = new Table().HideHeaders()
             .AddColumn("项目")
             .AddColumn("值")
-            .AddRow("结论", total > 0 ? $"发现 {total} 个版本匹配项" : "未发现漏洞")
+            .AddRow("结论", total > 0 ? $"发现 {total} 个候选项（含版本未验证项）" : "未发现漏洞匹配项")
             .AddRow("风险", Escape(overall))
             .AddRow("CVE", total.ToString())
             .AddRow("来源", Escape(sources));
         AnsiConsole.Write(new Panel(summary)
             .Header($"[teal] 🛡 漏洞评估 {Escape(target)} [/]")
             .BorderColor(color));
+        RenderCloudSourceStatus(r);
 
         if (findings.Count > 0)
         {
@@ -2445,7 +2464,7 @@ public class CliApp
             var reason = r.TryGetProperty("noMatchReason", out var reasonNode)
                 ? reasonNode.GetString()
                 : "当前检查范围内没有匹配项。";
-            AnsiConsole.MarkupLine($"[green]✅ 未发现漏洞[/] [grey]{Escape(reason ?? "当前检查范围内没有匹配项。")}[/]");
+            AnsiConsole.MarkupLine($"[yellow]未发现漏洞匹配项；不代表已确认安全。[/] [grey]{Escape(reason ?? "当前检查范围内没有匹配项。")}[/]");
 
             if (r.TryGetProperty("checkedServices", out var checkedNode) &&
                 checkedNode.ValueKind == JsonValueKind.Array && checkedNode.GetArrayLength() > 0)
@@ -2469,6 +2488,35 @@ public class CliApp
 
         if (findings.Count > 0)
             RenderVulnerabilityAssessments(r);
+    }
+
+    private static void RenderCloudSourceStatus(JsonElement r)
+    {
+        if (r.TryGetProperty("exposureChecks", out var exposure))
+            foreach (var item in exposure.EnumerateArray())
+                AnsiConsole.MarkupLine($"[yellow]端口 {item.GetProperty("port")}: {Escape(item.GetProperty("message").GetString() ?? "")}[/]");
+        if (r.TryGetProperty("cloudNotice", out var notice))
+            AnsiConsole.MarkupLine($"[yellow]{Escape(notice.GetString() ?? "")}[/]");
+        if (r.TryGetProperty("cloudCandidates", out var candidates) && candidates.GetArrayLength() > 0)
+        {
+            AnsiConsole.MarkupLine($"[yellow]待核实云端线索 {candidates.GetArrayLength()} 条：仅协议关键词相关，目标产品/版本未验证，可能无关；不计入漏洞风险。[/]");
+            AnsiConsole.Write(BuildCloudCandidateTable(candidates));
+        }
+        if (!r.TryGetProperty("sourceChecks", out var checks) || checks.ValueKind != JsonValueKind.Array) return;
+        var table = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("云源").AddColumn("状态").AddColumn("查询范围/降级原因");
+        foreach (var check in checks.EnumerateArray())
+            table.AddRow(check.GetProperty("port").ToString(), Escape(check.GetProperty("source").GetString() ?? ""),
+                Escape(check.GetProperty("status").GetString() ?? ""), Escape(check.GetProperty("detail").GetString() ?? ""));
+        if (checks.GetArrayLength() > 0) AnsiConsole.Write(table);
+    }
+
+    internal static Table BuildCloudCandidateTable(JsonElement candidates)
+    {
+        var table = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("CVE 参考").AddColumn("公告 CVSS").AddColumn("来源").AddColumn("版本");
+        foreach (var item in candidates.EnumerateArray())
+            table.AddRow(item.GetProperty("port").ToString(), Escape(item.GetProperty("cve").GetString() ?? ""),
+                item.GetProperty("cvss").ToString(), Escape(item.GetProperty("source").GetString() ?? ""), "版本未验证");
+        return table;
     }
 
     private static void RenderSslObs(JsonElement r)
