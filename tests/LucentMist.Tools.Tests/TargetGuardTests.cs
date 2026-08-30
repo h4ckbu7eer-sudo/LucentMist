@@ -57,7 +57,7 @@ public class TargetGuardTests
     }
 
     [Theory]
-    [InlineData("10.2.3.4", "10.0.0.0/8")]
+    [InlineData("8.8.8.8", "8.8.8.8")]
     [InlineData("203.0.113.10", "203.0.113.0/24")]
     [InlineData("203.0.113.0/25", "203.0.113.0/24")]
     public async Task ValidateAsync_AllowsTargetsInsideConfiguredScope(
@@ -72,7 +72,7 @@ public class TargetGuardTests
     }
 
     [Theory]
-    [InlineData("10.2.3.4", "192.168.0.0/16", "TARGET_OUTSIDE_ALLOWED_SCOPE")]
+    [InlineData("203.0.113.10", "198.51.100.0/24", "TARGET_OUTSIDE_ALLOWED_SCOPE")]
     [InlineData("203.0.113.0/24", "203.0.113.0/25", "TARGET_OUTSIDE_ALLOWED_SCOPE")]
     [InlineData("10.2.3.4", "not a target", "INVALID_ALLOWED_TARGETS")]
     public async Task ValidateAsync_RejectsTargetsOutsideConfiguredScope(
@@ -84,5 +84,18 @@ public class TargetGuardTests
 
         Assert.False(result.IsAllowed);
         Assert.Equal(expectedCode, result.Code);
+    }
+
+    [Theory]
+    [InlineData("10.2.3.4")]
+    [InlineData("172.16.10.4")]
+    [InlineData("192.168.99.9")]
+    [InlineData("127.0.0.1")]
+    public async Task ValidateAsync_PrivateTargetsRemainAllowedWithPublicAllowList(string target)
+    {
+        var result = await TargetGuard.ValidateAsync(target, "203.0.113.0/24");
+
+        Assert.True(result.IsAllowed);
+        Assert.False(result.RequiresPublicAuthorization);
     }
 }

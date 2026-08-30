@@ -427,7 +427,7 @@ public class ReActEngineTests
     }
 
     [Fact]
-    public async Task RunAsync_PublicTarget_IsAllowedWithoutAgentConfirmation()
+    public async Task RunAsync_PublicTargetWithoutAllowList_IsRejected()
     {
         var llm = CreateMockLLM(
             new ReActStep
@@ -445,7 +445,40 @@ public class ReActEngineTests
         var result = await engine.RunAsync("test");
 
         Assert.True(result.Success);
-        Assert.True(Assert.Single(result.Observations).Success);
+        var observation = Assert.Single(result.Observations);
+        Assert.False(observation.Success);
+        Assert.Contains("LMIST_ALLOWED_TARGETS", observation.Result);
+    }
+
+    [Fact]
+    public async Task RunAsync_PublicTargetInAllowList_IsExecuted()
+    {
+        var previous = Environment.GetEnvironmentVariable("LMIST_ALLOWED_TARGETS");
+        Environment.SetEnvironmentVariable("LMIST_ALLOWED_TARGETS", "8.8.8.8");
+        try
+        {
+            var llm = CreateMockLLM(
+                new ReActStep
+                {
+                    Action = "safe_network_tool",
+                    ActionInput = "{\"target\":\"8.8.8.8\"}",
+                },
+                new ReActStep { Action = "final_answer", ActionInput = "done" });
+            var engine = new ReActEngine(
+                llm.Object,
+                new ToolRegistry().Register(new SuccessfulNetworkTool()),
+                "prompt",
+                NullLogger<ReActEngine>.Instance);
+
+            var result = await engine.RunAsync("test");
+
+            Assert.True(result.Success);
+            Assert.True(Assert.Single(result.Observations).Success);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LMIST_ALLOWED_TARGETS", previous);
+        }
     }
 
     [Fact]

@@ -143,10 +143,9 @@ public static class TargetGuard
         string? allowedTargets)
     {
         var requiresAuthorization = IsPublicTarget(target, result);
-        if (string.IsNullOrWhiteSpace(allowedTargets))
-            return result with { RequiresPublicAuthorization = requiresAuthorization };
-
-        if (!TryParseAllowedTargets(allowedTargets, out var rules))
+        List<AllowedTargetRule>? rules = null;
+        if (!string.IsNullOrWhiteSpace(allowedTargets) &&
+            !TryParseAllowedTargets(allowedTargets, out rules))
         {
             return TargetValidationResult.Reject(
                 "INVALID_ALLOWED_TARGETS",
@@ -155,7 +154,21 @@ public static class TargetGuard
                 result.ResolvedAddresses);
         }
 
-        if (!IsCoveredByRules(target, result, rules))
+        // RFC1918 and loopback targets are the normal self-use scope. The explicit
+        // allow-list gates public targets without making local networks unusable.
+        if (!requiresAuthorization)
+        {
+            return result with
+            {
+                RequiresPublicAuthorization = false,
+                IsExplicitlyAllowed = false,
+            };
+        }
+
+        if (string.IsNullOrWhiteSpace(allowedTargets))
+            return result with { RequiresPublicAuthorization = requiresAuthorization };
+
+        if (!IsCoveredByRules(target, result, rules!))
         {
             return TargetValidationResult.Reject(
                 "TARGET_OUTSIDE_ALLOWED_SCOPE",

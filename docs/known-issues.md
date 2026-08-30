@@ -72,10 +72,10 @@ Current status as of the verified 0.9.5 release.
 ## Agent
 
 - Agent analysis is experimental.
-- Agent network tools no longer display a separate public-target authorization prompt.
-  The user is responsible for having permission to scan every requested target. Metadata,
-  reserved-address and `LMIST_ALLOWED_TARGETS` policy checks still apply; configure an
-  allow-list when a hard technical scope boundary is required.
+- Agent network tools do not use an interactive authorization prompt. Public IPs, CIDRs and
+  domains must be explicitly included in `LMIST_ALLOWED_TARGETS`; otherwise the tool call is
+  rejected before network access. RFC1918 and loopback targets remain allowed by default.
+  The user remains responsible for having legal authorization for every configured target.
 - Default local model qwen2.5:7b scored 0/10 in real LLM evaluation.
 - Claude validation is pending.
 - Contract violations now produce a visible degradation warning.
