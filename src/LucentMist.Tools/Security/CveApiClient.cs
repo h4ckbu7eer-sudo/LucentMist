@@ -22,7 +22,7 @@ public class CveApiClient
     private static DateTime NextNvdRequest;
 
     public record CveDetail(string Cve, string Description, double CvssScore, string Source, string Fix,
-        string VersionStatus = "unverified", string? VerificationDetail = null, string EvidenceScope = "product");
+        string VersionStatus = "unverified", string? VerificationDetail = null, string EvidenceScope = "product", int ReferenceCount = 0);
     public record SourceStatus(string Source, string Status, string Detail, bool Cached = false);
     public record QueryReport(List<CveDetail> Items, SourceStatus[] Sources)
     {
@@ -167,7 +167,8 @@ public class CveApiClient
             Description = strongestMetadata.Description,
             CvssScore = strongestMetadata.CvssScore,
             Source = sources,
-            Fix = strongestMetadata.Fix
+            Fix = strongestMetadata.Fix,
+            ReferenceCount = details.Max(item => item.ReferenceCount),
         };
     }
 
@@ -310,7 +311,9 @@ public class CveApiClient
                     }
                 }
 
-                results.Add(new CveDetail(cveId, desc, cvss, "NVD", $"参考 NVD: https://nvd.nist.gov/vuln/detail/{cveId}"));
+                var referenceCount = cveNode.TryGetProperty("references", out var references) && references.ValueKind == JsonValueKind.Array
+                    ? references.GetArrayLength() : 0;
+                results.Add(new CveDetail(cveId, desc, cvss, "NVD", $"参考 NVD: https://nvd.nist.gov/vuln/detail/{cveId}", ReferenceCount: referenceCount));
             }
             return results;
         }

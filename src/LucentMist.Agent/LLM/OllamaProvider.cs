@@ -139,7 +139,7 @@ public class OllamaProvider : ILLMProvider
             foreach (var obs in observations)
             {
                 sb.AppendLine($"步骤 {obs.Step}: {obs.ToolName}({obs.Input})");
-                sb.AppendLine($"结果: {(obs.Success ? "成功" : "失败")} — {obs.Result}");
+                sb.AppendLine($"结果: {(obs.Success ? "成功" : "失败")} — {AgentObservationFormatter.ForModel(obs)}");
             }
         }
 
