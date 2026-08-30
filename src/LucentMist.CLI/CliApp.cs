@@ -1883,13 +1883,7 @@ public class CliApp
         // 默认不泄露本机拓扑；仅显式开启时注入。
         if (Environment.GetEnvironmentVariable("LMIST_INJECT_NETWORK_INFO") == "true")
         {
-            var entries = LocalNetworkInfo.GetEntries();
-            if (entries.Count > 0)
-            {
-                var ipInfo = string.Join("; ", entries.Select(e =>
-                    $"{e.Ip}/{e.Prefix} (接口: {e.Name}, 网关: {e.Gateway})"));
-                message = $"[本机网络信息: {ipInfo}] {message}";
-            }
+            message = LocalNetworkInfo.InjectLocalNetworkInfo(message);
         }
 
         var promptPath = FindFile("config/prompts/system_prompt.txt");
@@ -2293,20 +2287,35 @@ public class CliApp
             AnsiConsole.MarkupLine($"        [yellow]{Escape(hint.GetString() ?? "")}[/]");
     }
 
-    private static void RenderLocalIpObs(JsonElement r)
+    private static void RenderLocalIpObs(JsonElement r) => AnsiConsole.Write(BuildLocalIpPanel(r));
+
+    internal static Panel BuildLocalIpPanel(JsonElement r)
     {
-        var ip = r.GetProperty("primaryIp").GetString() ?? "?";
-        var subnet = r.GetProperty("suggestedSubnet").GetString() ?? "?";
+        var ip = r.GetProperty("primaryIp").GetString();
+        var subnet = r.GetProperty("suggestedSubnet").GetString();
         var table = new Table()
             .BorderColor(Color.Teal)
             .AddColumn("项目")
             .AddColumn("值")
-            .AddRow("本机 IPv4", $"[green]{Escape(ip)}[/]")
-            .AddRow("建议扫描子网", $"[yellow]{Escape(subnet)}[/]");
+            .AddRow("主 IPv4", ip == null ? "[yellow]未检测到物理主接口[/]" : $"[bold green]{Escape(ip)}[/]")
+            .AddRow("主接口", Escape(r.TryGetProperty("primaryInterface", out var primaryName) ? primaryName.GetString() ?? "无" : "未注明"))
+            .AddRow("建议扫描子网", subnet == null ? "[grey]请明确选择目标[/]" : $"[yellow]{Escape(subnet)}[/]");
 
-        AnsiConsole.Write(new Panel(table)
+        if (r.TryGetProperty("interfaces", out var interfaces))
+        {
+            foreach (var entry in interfaces.EnumerateArray())
+            {
+                if (entry.TryGetProperty("isPrimary", out var selected) && selected.GetBoolean()) continue;
+                var isVirtual = entry.TryGetProperty("isVirtual", out var virtualNode) && virtualNode.GetBoolean();
+                var label = isVirtual ? "虚拟（非主接口）" : "其他接口（非主接口）";
+                table.AddRow($"[grey]{label}[/]",
+                    $"[grey]{Escape(entry.GetProperty("name").GetString() ?? "未知")}: {Escape(entry.GetProperty("ip").GetString() ?? "未知")}[/]");
+            }
+        }
+
+        return new Panel(table)
             .Header("[teal] 🖥 本机网络 [/]")
-            .BorderColor(Color.Teal));
+            .BorderColor(Color.Teal);
     }
 
     private static void RenderPortObs(JsonElement r)

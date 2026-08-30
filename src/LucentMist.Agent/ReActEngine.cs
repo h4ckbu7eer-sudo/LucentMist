@@ -577,6 +577,17 @@ public class ReActEngine
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(obs.Result);
                     var root = doc.RootElement;
+                    if (obs.ToolName == "get_my_ip" && root.TryGetProperty("primaryIp", out var primaryIp))
+                    {
+                        var ip = primaryIp.GetString();
+                        var name = root.TryGetProperty("primaryInterface", out var primaryName)
+                            ? primaryName.GetString() : null;
+                        sb.AppendLine(ip == null
+                            ? "  未检测到可用物理主接口，不自动选择虚拟网卡作为主网络。"
+                            : $"  本机主 IPv4: {ip}（接口: {name ?? "未注明"}）");
+                        if (root.TryGetProperty("virtualInterfaceCount", out var count))
+                            sb.AppendLine($"  另有 {count.GetInt32()} 个虚拟网卡（非主接口）。");
+                    }
                     if (root.TryGetProperty("openPorts", out var ports))
                     {
                         var portList = ports.EnumerateArray().Select(p => p.GetInt32()).ToList();
