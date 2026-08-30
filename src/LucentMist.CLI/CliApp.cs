@@ -1903,7 +1903,7 @@ public class CliApp
         Func<string, string?, CancellationToken, Task<AgentReplTurnResult>> runTurn,
         CancellationToken ct = default)
     {
-        await output.WriteLineAsync("LucentMist Agent 交互模式。输入 exit 或 quit 退出。");
+        await output.WriteLineAsync("LucentMist Agent 交互模式。输入 /exit、exit 或 quit 退出。");
         string? sessionId = null;
         while (true)
         {
@@ -1911,7 +1911,7 @@ public class CliApp
             await output.WriteAsync("agent> ");
             await output.FlushAsync(ct);
             var line = await input.ReadLineAsync(ct);
-            if (line == null || line.Trim() is "exit" or "quit")
+            if (line == null || line.Trim() is "/exit" or "/quit" or "exit" or "quit")
                 return 0;
             if (string.IsNullOrWhiteSpace(line))
                 continue;
