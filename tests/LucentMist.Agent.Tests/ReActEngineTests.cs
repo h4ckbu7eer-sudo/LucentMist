@@ -658,6 +658,188 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public async Task RunAsync_FailedTlsCheck_CannotBeFinalizedAsSafe()
+    {
+        var portScan = new Mock<ITool>();
+        portScan.SetupGet(tool => tool.Name).Returns("port_scan");
+        portScan.SetupGet(tool => tool.Description).Returns("scan");
+        portScan.SetupGet(tool => tool.Parameters).Returns([]);
+        portScan.Setup(tool => tool.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok(
+                "{\"target\":\"192.168.1.1\",\"openPorts\":[443]}",
+                TimeSpan.Zero));
+
+        var ssl = new Mock<ITool>();
+        ssl.SetupGet(tool => tool.Name).Returns("ssl_check");
+        ssl.SetupGet(tool => tool.Description).Returns("tls");
+        ssl.SetupGet(tool => tool.Parameters).Returns([]);
+        ssl.Setup(tool => tool.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Fail("TLS 握手失败", TimeSpan.Zero));
+
+        var vulnerabilities = new Mock<ITool>();
+        vulnerabilities.SetupGet(tool => tool.Name).Returns("vuln_scan");
+        vulnerabilities.SetupGet(tool => tool.Description).Returns("vulnerabilities");
+        vulnerabilities.SetupGet(tool => tool.Parameters).Returns([]);
+        vulnerabilities.Setup(tool => tool.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok(
+                "{\"target\":\"192.168.1.1\",\"openPorts\":[443],\"totalFindings\":0," +
+                "\"sourcesConsulted\":[\"内置库\"],\"noMatchReason\":\"HTTPS 版本未知\"," +
+                "\"checkedServices\":[{\"port\":443,\"reason\":\"版本未知，无法确认漏洞\"}]}",
+                TimeSpan.Zero));
+
+        var registry = new ToolRegistry()
+            .Register(portScan.Object)
+            .Register(ssl.Object)
+            .Register(vulnerabilities.Object);
+        var llm = CreateMockLLM(
+            new ReActStep { Action = "port_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
+            new ReActStep { Action = "vuln_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
+            new ReActStep { Action = "final_answer", ActionInput = "已确认安全" },
+            new ReActStep { Action = "final_answer", ActionInput = "已确认安全" },
+            new ReActStep { Action = "final_answer", ActionInput = "已确认安全" });
+        var engine = new ReActEngine(llm.Object, registry, "prompt", NullLogger<ReActEngine>.Instance)
+        {
+            MaxRounds = 5,
+        };
+
+        var result = await engine.RunAsync("分析 192.168.1.1 的安全风险");
+
+        Assert.True(result.Success);
+        Assert.Contains("TLS 握手失败", result.Answer);
+        Assert.Contains("未确认", result.Answer);
+        Assert.NotEqual("已确认安全", result.Answer);
+        Assert.Equal(2, result.Observations.Count(item => item.ToolName == "analysis_completeness"));
+    }
+
+    [Fact]
+    public void SummarizeObservations_VulnerabilityResultShowsSourcesAndReasons()
+    {
+        var observations = new List<ReActObservation>
+        {
+            new()
+            {
+                ToolName = "vuln_scan",
+                Input = "{\"target\":\"192.168.1.1\"}",
+                Success = true,
+                Result = "{\"target\":\"192.168.1.1\",\"totalFindings\":0," +
+                         "\"sourcesConsulted\":[\"内置库\",\"NVD\"]," +
+                         "\"noMatchReason\":\"服务版本未知，无法确认漏洞状态\"," +
+                         "\"checkedServices\":[{\"port\":443,\"reason\":\"版本未知，无法确认漏洞\"}]}"
+            }
+        };
+
+        var summary = ReActEngine.SummarizeObservations(observations);
+
+        Assert.Contains("数据来源: 内置库 + NVD", summary);
+        Assert.Contains("判断依据: 服务版本未知，无法确认漏洞状态", summary);
+        Assert.Contains("端口 443 判断: 版本未知，无法确认漏洞", summary);
+        Assert.DoesNotContain("来源: 未知", summary);
+    }
+
+    [Fact]
+    public void SummarizeObservations_RetrySuccessSupersedesEarlierFailure()
+    {
+        const string input = "{\"target\":\"192.168.1.1\",\"port\":443}";
+        var observations = new List<ReActObservation>
+        {
+            new()
+            {
+                ToolName = "ssl_check",
+                Input = input,
+                Result = "必须指定目标",
+                Success = false,
+            },
+            new()
+            {
+                ToolName = "ssl_check",
+                Input = input,
+                Result = "{\"target\":\"192.168.1.1\",\"port\":443,\"isTrusted\":true,\"isExpired\":false}",
+                Success = true,
+            },
+        };
+
+        var summary = ReActEngine.SummarizeObservations(observations);
+
+        Assert.Contains("证书有效且信任校验通过", summary);
+        Assert.DoesNotContain("必须指定目标", summary);
+    }
+
+    [Fact]
+    public void SummarizeObservations_VulnerabilityFindingIncludesCveCvssSourceAndFix()
+    {
+        var observations = new List<ReActObservation>
+        {
+            new()
+            {
+                ToolName = "vuln_scan",
+                Input = "{\"target\":\"192.168.1.10\"}",
+                Success = true,
+                Result = "{\"target\":\"192.168.1.10\",\"totalFindings\":1," +
+                         "\"sourcesConsulted\":[\"内置库\",\"NVD\"]," +
+                         "\"findings\":[{\"cve\":\"CVE-2023-38408\",\"name\":\"OpenSSH RCE\"," +
+                         "\"cvss\":7.5,\"source\":\"内置库\",\"fix\":\"升级到 9.3p2 或更高版本\"}]}"
+            }
+        };
+
+        var summary = ReActEngine.SummarizeObservations(observations);
+
+        Assert.Contains("CVE-2023-38408 OpenSSH RCE", summary);
+        Assert.Contains("CVSS 7.5", summary);
+        Assert.Contains("来源 内置库", summary);
+        Assert.Contains("升级到 9.3p2", summary);
+    }
+
+    [Fact]
+    public void SecurityCompleteness_RequiresDnsAssessmentForOpenPort53()
+    {
+        var observations = new List<ReActObservation>
+        {
+            new()
+            {
+                ToolName = "port_scan",
+                Input = "{\"target\":\"192.168.1.1\"}",
+                Success = true,
+                Result = "{\"target\":\"192.168.1.1\",\"openPorts\":[53,80,443]}"
+            },
+            new()
+            {
+                ToolName = "vuln_scan",
+                Input = "{\"target\":\"192.168.1.1\"}",
+                Success = true,
+                Result = "{\"target\":\"192.168.1.1\",\"openPorts\":[53,80,443]," +
+                         "\"checkedServices\":[{\"port\":53},{\"port\":80},{\"port\":443}]}"
+            },
+            new()
+            {
+                ToolName = "ssl_check",
+                Input = "{\"target\":\"192.168.1.1\",\"port\":443}",
+                Success = true,
+                Result = "{\"target\":\"192.168.1.1\",\"port\":443,\"isTrusted\":true,\"isExpired\":false}"
+            },
+        };
+
+        var incomplete = SecurityAnalysisEvidence.FindIncompleteChecks(
+            "分析 192.168.1.1 的安全风险",
+            observations);
+
+        Assert.Single(incomplete);
+        Assert.Contains("DNS 版本/递归检查", incomplete[0]);
+
+        observations.Add(new ReActObservation
+        {
+            ToolName = "service_identify",
+            Input = "{\"target\":\"192.168.1.1\",\"port\":53}",
+            Success = true,
+            Result = "{\"target\":\"192.168.1.1\",\"port\":53," +
+                     "\"dnsSecurity\":{\"recursionAvailable\":false}}"
+        });
+
+        Assert.Empty(SecurityAnalysisEvidence.FindIncompleteChecks(
+            "分析 192.168.1.1 的安全风险",
+            observations));
+    }
+
+    [Fact]
     public async Task RunAsync_ArgumentFailure_RepairsAliasesAndRetriesOnce()
     {
         var tool = new AliasRepairTool();
