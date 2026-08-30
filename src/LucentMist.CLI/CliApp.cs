@@ -1648,16 +1648,17 @@ public class CliApp
 
     // AGENT — 使用配置文件中的模型
     // ========================================
-    private async Task<int> AgentCommand(string[] args)
+    private async Task<int> AgentCommand(
+        string[] args,
+        Action<string>? sessionStarted = null,
+        bool renderResumeHistory = true,
+        CancellationToken ct = default)
     {
-        if (args.Length == 0)
-        {
-            AnsiConsole.MarkupLine("[red]请输入问题[/]");
-            return 1;
-        }
-
         var store = new AgentSessionStore(
             Environment.GetEnvironmentVariable("LMIST_DB") ?? Path.Combine("data", "lucentmist.db"));
+
+        if (args.Length == 0)
+            return await RunInteractiveAgentAsync(store);
 
         if (args.Length == 1 && args[0] == "--list")
             return await ListAgentSessionsAsync(store);
@@ -1683,7 +1684,8 @@ public class CliApp
             }
 
             var history = await store.GetMessagesAsync(resumeSessionId);
-            RenderSessionHistory(resume, history);
+            if (renderResumeHistory)
+                RenderSessionHistory(resume, history);
 
             if (args.Length < 3)
             {
@@ -1718,6 +1720,7 @@ public class CliApp
             ? await store.GetSessionAsync(resumeSessionId)
             : await store.CreateSessionAsync("Agent 会话", model);
         session ??= await store.CreateSessionAsync("Agent 会话", model);
+        sessionStarted?.Invoke(session.Id);
         await store.AddMessageAsync(session.Id, "user", userMessage);
 
         // 头部面板
@@ -1770,7 +1773,7 @@ public class CliApp
                 .SpinnerStyle(Style.Parse("teal"))
                 .StartAsync("AI 分析中...", async _ =>
                 {
-                    result = await engine.RunAsync(message);
+                    result = await engine.RunAsync(message, ct);
                 });
 
             if (result == null) return 1;
@@ -1810,6 +1813,10 @@ public class CliApp
                 .BorderColor(Color.Green);
             AnsiConsole.Write(panel);
         }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (TaskCanceledException)
         {
             await store.AddMessageAsync(session.Id, "assistant", "超时: LLM 响应超时");
@@ -1833,6 +1840,74 @@ public class CliApp
 
         return 0;
     }
+
+    private async Task<int> RunInteractiveAgentAsync(AgentSessionStore store)
+    {
+        using var cts = new CancellationTokenSource();
+        ConsoleCancelEventHandler cancelHandler = (_, eventArgs) =>
+        {
+            eventArgs.Cancel = true;
+            cts.Cancel();
+        };
+        Console.CancelKeyPress += cancelHandler;
+        try
+        {
+            return await RunAgentReplLoopAsync(
+                Console.In,
+                Console.Out,
+                async (input, sessionId, token) =>
+                {
+                    string? resultingSessionId = sessionId;
+                    var turnArgs = sessionId == null
+                        ? new[] { input }
+                        : new[] { "--resume", sessionId, input };
+                    var exitCode = await AgentCommand(
+                        turnArgs,
+                        id => resultingSessionId = id,
+                        renderResumeHistory: false,
+                        token);
+                    return new AgentReplTurnResult(exitCode, resultingSessionId);
+                },
+                cts.Token);
+        }
+        catch (OperationCanceledException) when (cts.IsCancellationRequested)
+        {
+            Console.WriteLine();
+            AnsiConsole.MarkupLine("[grey]Agent 交互已退出[/]");
+            return 0;
+        }
+        finally
+        {
+            Console.CancelKeyPress -= cancelHandler;
+        }
+    }
+
+    internal static async Task<int> RunAgentReplLoopAsync(
+        TextReader input,
+        TextWriter output,
+        Func<string, string?, CancellationToken, Task<AgentReplTurnResult>> runTurn,
+        CancellationToken ct = default)
+    {
+        await output.WriteLineAsync("LucentMist Agent 交互模式。输入 exit 或 quit 退出。");
+        string? sessionId = null;
+        while (true)
+        {
+            ct.ThrowIfCancellationRequested();
+            await output.WriteAsync("agent> ");
+            await output.FlushAsync(ct);
+            var line = await input.ReadLineAsync(ct);
+            if (line == null || line.Trim() is "exit" or "quit")
+                return 0;
+            if (string.IsNullOrWhiteSpace(line))
+                continue;
+
+            var turn = await runTurn(line.Trim(), sessionId, ct);
+            if (!string.IsNullOrWhiteSpace(turn.SessionId))
+                sessionId = turn.SessionId;
+        }
+    }
+
+    internal sealed record AgentReplTurnResult(int ExitCode, string? SessionId);
 
     private static async Task<int> ListAgentSessionsAsync(AgentSessionStore store)
     {
