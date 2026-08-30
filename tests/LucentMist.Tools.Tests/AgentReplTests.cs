@@ -59,6 +59,28 @@ public sealed class AgentReplTests
         Assert.Equal(0, calls);
     }
 
+    [Theory]
+    [InlineData("/exit")]
+    [InlineData("/quit")]
+    public async Task Repl_SlashExitCommandsExitWithoutCallingAgent(string command)
+    {
+        using var input = new StringReader($"{command}\n");
+        using var output = new StringWriter();
+        var calls = 0;
+
+        var exitCode = await CliApp.RunAgentReplLoopAsync(
+            input,
+            output,
+            (_, _, _) =>
+            {
+                calls++;
+                return Task.FromResult(new CliApp.AgentReplTurnResult(0, "unused"));
+            });
+
+        Assert.Equal(0, exitCode);
+        Assert.Equal(0, calls);
+    }
+
     private static int CountOccurrences(string value, string search) =>
         (value.Length - value.Replace(search, "", StringComparison.Ordinal).Length) / search.Length;
 }
