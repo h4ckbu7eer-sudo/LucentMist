@@ -2499,8 +2499,14 @@ public class CliApp
             AnsiConsole.MarkupLine($"[yellow]{Escape(notice.GetString() ?? "")}[/]");
         if (r.TryGetProperty("cloudCandidates", out var candidates) && candidates.GetArrayLength() > 0)
         {
-            AnsiConsole.MarkupLine($"[yellow]待核实云端线索 {candidates.GetArrayLength()} 条：仅协议关键词相关，目标产品/版本未验证，可能无关；不计入漏洞风险。[/]");
-            AnsiConsole.Write(BuildCloudCandidateTable(candidates));
+            AnsiConsole.MarkupLine($"[yellow]云端检索 {candidates.GetArrayLength()} 条待核实线索；以下按端口展示最可能相关的前 {CloudLeadRanking.PerPortLimit} 条。相关性不是漏洞确认，目标版本未验证；不计入漏洞风险。[/]");
+            foreach (var group in CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())))
+            {
+                AnsiConsole.Write(new Panel(BuildCloudCandidateTable(group.GetProperty("leads")))
+                    .Header($"端口 {group.GetProperty("port")} · {group.GetProperty("totalCount")} 条 / 收起 {group.GetProperty("omittedCount")} 条")
+                    .BorderColor(Color.Yellow));
+            }
+            AnsiConsole.MarkupLine($"[yellow]下一步：{Escape(CloudLeadRanking.NextStep)}[/]");
         }
         if (!r.TryGetProperty("sourceChecks", out var checks) || checks.ValueKind != JsonValueKind.Array) return;
         var table = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("云源").AddColumn("状态").AddColumn("查询范围/降级原因");
@@ -2512,10 +2518,11 @@ public class CliApp
 
     internal static Table BuildCloudCandidateTable(JsonElement candidates)
     {
-        var table = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("CVE 参考").AddColumn("公告 CVSS").AddColumn("来源").AddColumn("版本");
+        var table = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("CVE 参考").AddColumn("公告 CVSS").AddColumn("来源").AddColumn("版本").AddColumn("排序依据");
         foreach (var item in candidates.EnumerateArray())
             table.AddRow(item.GetProperty("port").ToString(), Escape(item.GetProperty("cve").GetString() ?? ""),
-                item.GetProperty("cvss").ToString(), Escape(item.GetProperty("source").GetString() ?? ""), "版本未验证");
+                item.GetProperty("cvss").ToString(), Escape(item.GetProperty("source").GetString() ?? ""), "版本未验证",
+                Escape(item.TryGetProperty("relevanceReason", out var reason) ? reason.GetString() ?? "" : "仅搜索命中"));
         return table;
     }
 
