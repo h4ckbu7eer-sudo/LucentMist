@@ -1481,8 +1481,7 @@ public class CliApp
                 }
 
                 // 扫描总结
-                var sources = items.Select(x => x.source).Where(s => s != "内置库").Distinct().ToList();
-                var sourceStr = sources.Count > 0 ? string.Join(" + ", sources) : "内置库";
+                var sourceStr = FormatVulnerabilitySources(items.Select(x => x.source));
 
                 AnsiConsole.WriteLine();
                 var sumTable = new Table().BorderColor(Color.Grey).HideHeaders()
@@ -1629,6 +1628,22 @@ public class CliApp
             "unverified" => "⚠候选（版本未验证）",
             _ => "⚠候选（版本未知）"
         };
+    }
+
+    internal static string FormatVulnerabilitySources(IEnumerable<string?> sources)
+    {
+        var actualSources = sources
+            .Where(source => !string.IsNullOrWhiteSpace(source))
+            .SelectMany(source => source!.Split(
+                '+',
+                StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            .Where(source => source is not ("—" or "未知"))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        return actualSources.Count > 0
+            ? string.Join(" + ", actualSources)
+            : "未知（无来源字段）";
     }
 
     private static string ReadVersionStatus(JsonElement finding)
