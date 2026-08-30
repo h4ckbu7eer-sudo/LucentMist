@@ -149,11 +149,9 @@ public class ReActEngine
                 if (tool is INetworkTargetTool && !string.IsNullOrWhiteSpace(target))
                 {
                     var validation = await TargetGuard.ValidateAsync(target, ct);
-                    if (!validation.IsAllowed || validation.RequiresPublicAuthorization)
+                    if (!validation.IsAllowed)
                     {
-                        var reason = validation.IsAllowed
-                            ? "Agent 不会自行确认公网扫描授权；请将目标加入 LMIST_ALLOWED_TARGETS 后重试"
-                            : $"扫描目标被安全策略拒绝：{validation.Message}";
+                        var reason = $"扫描目标被安全策略拒绝：{validation.Message}";
                         var blocked = new ReActObservation
                         {
                             Step = round,
