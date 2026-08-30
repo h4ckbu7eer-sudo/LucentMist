@@ -117,7 +117,7 @@ public class OsFingerprintTool : INetworkTargetTool
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Ping with TTL options failed for {Ip}; retrying without options", ip);
+            _logger.LogDebug(ex, "Ping with TTL options failed for {Ip}; retrying without options", ip);
             // Try without TTL options
             try
             {
@@ -128,7 +128,7 @@ public class OsFingerprintTool : INetworkTargetTool
             }
             catch (Exception fallbackEx)
             {
-                _logger.LogWarning(fallbackEx, "Ping failed for {Ip}", ip);
+                _logger.LogDebug(fallbackEx, "Ping failed for {Ip}", ip);
                 return (false, 0, 0);
             }
         }
@@ -150,7 +150,7 @@ public class OsFingerprintTool : INetworkTargetTool
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Known port probe failed for {Ip}:{Port}", ip, port);
+                _logger.LogDebug(ex, "Known port probe failed for {Ip}:{Port}", ip, port);
             }
         }
         return hints;
