@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Text.Json;
 using LucentMist.Core.Networking;
 using LucentMist.Tools.Common;
+using LucentMist.Tools.Discovery;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Scanning;
@@ -49,6 +50,7 @@ public class PortScanTool : INetworkTargetTool
             if (!PortHelper.TryParsePorts(portsStr, out var ports))
                 return ToolResult.Fail("端口必须是 1-65535 的数字、逗号列表或正向范围", sw.Elapsed);
             _logger.LogInformation("PortScan 开始: Target={Target}, Ports={Count}", target, ports.Count);
+            var deviceTask = DeviceDiscovery.EnrichAsync(target, cancellationToken);
 
             var openPorts = new List<int>();
             await Parallel.ForEachAsync(
@@ -66,12 +68,14 @@ public class PortScanTool : INetworkTargetTool
                     }
                 });
             openPorts.Sort();
+            var device = await deviceTask;
 
             var result = new
             {
                 target,
                 totalScanned = ports.Count,
                 openPorts,
+                device,
                 scanDuration = sw.Elapsed.ToString()
             };
 

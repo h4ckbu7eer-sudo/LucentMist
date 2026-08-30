@@ -3,7 +3,9 @@ using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using LucentMist.Core.Networking;
+using LucentMist.Tools.Discovery;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Scanning;
@@ -16,6 +18,9 @@ public class PingScanTool : INetworkTargetTool
     private readonly ILogger<PingScanTool> _logger;
     private readonly Func<string, int, CancellationToken, Task<IPStatus>> _icmpProbeAsync;
     private readonly Func<string, int, CancellationToken, Task<bool>> _tcpProbeAsync;
+    private readonly Func<IReadOnlyCollection<string>, CancellationToken, Task<IReadOnlyDictionary<string, string>>> _neighborLookupAsync;
+    private readonly Func<string, CancellationToken, Task<string?>> _mdnsLookupAsync;
+    private readonly OuiDatabase _ouiDatabase;
     private const int IcmpNoResponse = 1;
     private const int IcmpRejected = 2;
     private const int IcmpUnavailable = 4;
@@ -32,7 +37,7 @@ public class PingScanTool : INetworkTargetTool
     ];
 
     public PingScanTool(ILogger<PingScanTool> logger)
-        : this(logger, SendIcmpAsync, TcpProbeAsync)
+        : this(logger, SendIcmpAsync, TcpProbeAsync, NeighborTable.ReadAsync, MdnsProbe.ResolveNameAsync, new OuiDatabase())
     {
     }
 
@@ -40,10 +45,26 @@ public class PingScanTool : INetworkTargetTool
         ILogger<PingScanTool> logger,
         Func<string, int, CancellationToken, Task<IPStatus>> icmpProbeAsync,
         Func<string, int, CancellationToken, Task<bool>> tcpProbeAsync)
+        : this(logger, icmpProbeAsync, tcpProbeAsync,
+            (_, _) => Task.FromResult<IReadOnlyDictionary<string, string>>(new Dictionary<string, string>()),
+            (_, _) => Task.FromResult<string?>(null), new OuiDatabase())
+    {
+    }
+
+    internal PingScanTool(
+        ILogger<PingScanTool> logger,
+        Func<string, int, CancellationToken, Task<IPStatus>> icmpProbeAsync,
+        Func<string, int, CancellationToken, Task<bool>> tcpProbeAsync,
+        Func<IReadOnlyCollection<string>, CancellationToken, Task<IReadOnlyDictionary<string, string>>> neighborLookupAsync,
+        Func<string, CancellationToken, Task<string?>> mdnsLookupAsync,
+        OuiDatabase ouiDatabase)
     {
         _logger = logger;
         _icmpProbeAsync = icmpProbeAsync;
         _tcpProbeAsync = tcpProbeAsync;
+        _neighborLookupAsync = neighborLookupAsync;
+        _mdnsLookupAsync = mdnsLookupAsync;
+        _ouiDatabase = ouiDatabase;
     }
 
     public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
@@ -90,6 +111,27 @@ public class PingScanTool : INetworkTargetTool
                     }
                 });
             alive.Sort(StringComparer.Ordinal);
+            var neighborTable = await _neighborLookupAsync(alive, cancellationToken);
+            var deviceDetails = new DeviceDetail[alive.Count];
+            await Parallel.ForEachAsync(
+                Enumerable.Range(0, alive.Count),
+                new ParallelOptions
+                {
+                    MaxDegreeOfParallelism = Math.Min(8, Math.Max(1, alive.Count)),
+                    CancellationToken = cancellationToken,
+                },
+                async (index, ct) =>
+                {
+                    var ip = alive[index];
+                    neighborTable.TryGetValue(ip, out var mac);
+                    var name = IsPrivateAddress(ip) ? await _mdnsLookupAsync(ip, ct) : null;
+                    deviceDetails[index] = new DeviceDetail(
+                        ip,
+                        mac,
+                        _ouiDatabase.Lookup(mac) ?? "未知",
+                        name ?? "未广播",
+                        "未知（需服务指纹或管理接口确认）");
+                });
 
             var result = new
             {
@@ -97,6 +139,7 @@ public class PingScanTool : INetworkTargetTool
                 total = ips.Count,
                 alive = alive.Count,
                 devices = alive,
+                deviceDetails,
                 hint = alive.Count == 0
                     ? $"目标 {requestedTarget} 无设备响应。请确认：1) 子网是否与当前网卡匹配 2) 防火墙是否阻止 ICMP"
                     : null,
@@ -117,6 +160,24 @@ public class PingScanTool : INetworkTargetTool
             return ToolResult.Fail(ex.Message, sw.Elapsed);
         }
     }
+
+    private static bool IsPrivateAddress(string value)
+    {
+        if (!IPAddress.TryParse(value, out var address)) return false;
+        var bytes = address.GetAddressBytes();
+        return bytes.Length == 4 &&
+               (bytes[0] == 10 || bytes[0] == 127 ||
+                bytes[0] == 192 && bytes[1] == 168 ||
+                bytes[0] == 172 && bytes[1] is >= 16 and <= 31 ||
+                bytes[0] == 169 && bytes[1] == 254);
+    }
+
+    internal sealed record DeviceDetail(
+        [property: JsonPropertyName("ip")] string Ip,
+        [property: JsonPropertyName("mac")] string? Mac,
+        [property: JsonPropertyName("vendor")] string Vendor,
+        [property: JsonPropertyName("name")] string Name,
+        [property: JsonPropertyName("model")] string Model);
 
     /// <summary>
     /// 解析 CIDR 或 IP 范围为目标 IP 列表
