@@ -6,7 +6,7 @@
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/local-tests-366%2F366%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/local-tests-393%2F393%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -117,7 +117,7 @@ curl -X POST http://localhost:5050/api/v1/scan \
 ## 🔐 自用与数据边界
 
 - 公网扫描在 CLI/Web 会要求授权确认；无交互自动化需在确认有权扫描后传 `--authorized`。
-- 设置 `LMIST_ALLOWED_TARGETS=192.168.1.0/24,router.home,*.lab.example` 后，范围外目标会被所有入口拒绝。
+- 设置 `LMIST_ALLOWED_TARGETS=203.0.113.0/24,host.example,*.lab.example` 后，范围外公网目标会被所有入口拒绝；RFC1918 和回环目标仍默认允许。
 - 扫描数据是明文 SQLite；建议使用全盘加密并限制 `data/`、报告和备份的文件权限。
 - 默认不上传扫描结果或遥测；云端 LLM、外部 CVE、DNS 与 Sirius 的精确边界见
   [隐私与网络出口审计](docs/compliance-telemetry-audit.md)。
@@ -211,7 +211,7 @@ Phase 2 ████████████ Core 层     ✅ ReAct + SQLite 持
 Phase 3 ████████████ Tools 层    ✅ 8 工具
 Phase 4 ████████████ Agent 层    ✅ ReAct + 双 LLM
 Phase 5 ████████████ CLI + API   ✅ 6 命令 + 控制器
-Phase 6 ████████████ 测试        ✅ 366/366 本地全量通过
+Phase 6 ████████████ 测试        ✅ 393/393 本地全量通过
 Phase 7 ████████████ 文档        ✅
 Phase 8 ████████████ 发布部署    ✅
 Phase 9 ████████████ 项目复盘    ✅
