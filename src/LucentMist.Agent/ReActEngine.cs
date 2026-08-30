@@ -25,6 +25,7 @@ public class ReActEngine
     public int MaxCompletionDeferrals { get; set; } = 2;
     public List<ReActObservation> Observations { get; } = [];
     public List<string> ThoughtLog { get; } = [];
+    public Func<ReActProgress, CancellationToken, Task>? Progress { get; set; }
 
     public IReadOnlyList<ReActObservation> ObservationsForRound(int round) =>
         Observations.Where(o => o.Step == round).ToList();
@@ -91,6 +92,7 @@ public class ReActEngine
             }
 
             ThoughtLog.Add(step.Thought);
+            if (Progress != null) await Progress(new(round, step.Thought, null), ct);
             _logger.LogInformation("ReAct Step {Round}: Thought={Thought}, Action={Action}",
                 round, step.Thought, step.Action);
 
@@ -104,7 +106,7 @@ public class ReActEngine
                     if (completionDeferrals < MaxCompletionDeferrals)
                     {
                         completionDeferrals++;
-                        Observations.Add(new ReActObservation
+                        await AddObservationAsync(new ReActObservation
                         {
                             Step = round,
                             ToolName = "analysis_completeness",
@@ -112,7 +114,7 @@ public class ReActEngine
                             Result = "尚不能给出安全结论：" + string.Join("；", incompleteChecks) +
                                      "。请继续执行缺失检查；若检查仍失败，最终结论必须明确标为未确认。",
                             Success = false,
-                        });
+                        }, ct);
                         continue;
                     }
 
@@ -139,14 +141,14 @@ public class ReActEngine
             var tool = _toolRegistry.Get(step.Action);
             if (tool == null)
             {
-                Observations.Add(new ReActObservation
+                await AddObservationAsync(new ReActObservation
                 {
                     Step = round,
                     ToolName = step.Action,
                     Input = step.ActionInput,
                     Result = $"未知工具: {step.Action}。可用: {toolDefs}",
                     Success = false
-                });
+                }, ct);
                 continue;
             }
 
@@ -183,7 +185,7 @@ public class ReActEngine
                             Result = reason,
                             Success = false,
                         };
-                        Observations.Add(blocked);
+                        await AddObservationAsync(blocked, ct);
                         await RecordAuditAsync(
                             auditEventId,
                             target,
@@ -228,7 +230,7 @@ public class ReActEngine
                         : toolResult.Error ?? toolResult.Data,
                     Success = toolResult.Success
                 };
-                Observations.Add(obs);
+                await AddObservationAsync(obs, ct);
 
                 // 自动服务识别：port_scan 成功后，对每个开放端口调用 service_identify
                 if (step.Action == "port_scan" && toolResult.Success)
@@ -250,7 +252,7 @@ public class ReActEngine
                     Result = ex.Message,
                     Success = false
                 };
-                Observations.Add(obs);
+                await AddObservationAsync(obs, ct);
             }
         }
 
@@ -449,7 +451,8 @@ public class ReActEngine
                 });
         }
 
-        Observations.AddRange(serviceObservations.OfType<ReActObservation>());
+        foreach (var observation in serviceObservations.OfType<ReActObservation>())
+            await AddObservationAsync(observation, ct);
 
         if (openPorts.Contains(443))
             await AutoCheckTlsAsync(target, round, ct);
@@ -515,14 +518,20 @@ public class ReActEngine
             result.Success ? "completed" : "failed",
             result.Success ? "Agent TLS 证书检查完成" : "Agent TLS 证书检查失败",
             ct);
-        Observations.Add(new ReActObservation
+        await AddObservationAsync(new ReActObservation
         {
             Step = round,
             ToolName = "ssl_check",
             Input = JsonSerializer.Serialize(sslArgs),
             Result = result.Success ? result.Data : result.Error ?? result.Data,
             Success = result.Success,
-        });
+        }, ct);
+    }
+
+    private async Task AddObservationAsync(ReActObservation observation, CancellationToken ct)
+    {
+        Observations.Add(observation);
+        if (Progress != null) await Progress(new(observation.Step, null, observation), ct);
     }
 
     private Task RecordAuditAsync(
@@ -671,6 +680,8 @@ public class ReActEngine
 /// <summary>
 /// ReAct 执行结果
 /// </summary>
+public record ReActProgress(int Round, string? Thought, ReActObservation? Observation);
+
 public record ReActResult
 {
     public bool Success { get; init; }
