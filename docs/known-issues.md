@@ -18,10 +18,24 @@ Current status as of the verified 0.9.5 release.
 
 ## Product Limitations
 
+- Current main validation and exact matching/source boundaries are recorded in
+  [agent-real-validation.md](agent-real-validation.md) and [cve-matching-sources.md](cve-matching-sources.md).
+  The real gateway and free APIs were exercised, but DeepSeek dialogues remain **not run** (no environment key).
+  Protocol-only cloud candidates are shown separately and do not count as target vulnerabilities.
+  Offline rules now total 18; MySQL/MongoDB unauthenticated data access checks are still not implemented.
+
+- Current main defaults to free cloud CVE lookups; set `LMIST_CVE_EXTERNAL=false` for offline use.
+  Only normalized service keywords/product CPEs (or explicit OSV commits) leave the scanner, not target IPs/raw banners.
+  Providers see the request's egress IP. Shodan CVEDB is free for **non-commercial** use, not unrestricted commercial use.
+  Source timeouts, HTTP failures and local NVD throttling are reported; capped responses are not an exhaustive CVE inventory.
+  Keyword/CPE results remain version-unverified candidates and can be irrelevant to the target.
+  Built-in matching always runs, and locally provable version mismatches are removed.
+
 - Built-in CVE database is small and heuristic. It is not equivalent to Nmap/Nessus fingerprinting.
 - SMB 3.1.1 dialect negotiation alone cannot reveal the Windows build or installed patch level.
-  LucentMist therefore shows SMBGhost as an unverified protocol assessment and does not add
-  `CVE-2020-0796` to findings or risk counts without stronger version/patch evidence.
+  The built-in matcher therefore shows SMBGhost only as an unverified protocol assessment.
+  Default cloud lookups can additionally return `CVE-2020-0796` as a version-unverified candidate;
+  that is metadata to review, not proof of a missing patch. SMBv1 is not SMBGhost's dialect.
 - Service version detection depends on banner format; many real-world banners will not produce exact versions.
 - UDP `closed` is an inference from an unreachable/refused socket error or a connection
   reset. Some firewalls synthesize reset-style errors, so a reset can be reported as
