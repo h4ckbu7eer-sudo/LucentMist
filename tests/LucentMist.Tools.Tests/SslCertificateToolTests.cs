@@ -14,6 +14,53 @@ namespace LucentMist.Tools.Tests;
 
 public class SslCertificateToolTests
 {
+    [Fact]
+    public void NormalizeEndpoint_AcceptsUrlAlias()
+    {
+        var endpoint = SslCertificateTool.NormalizeEndpoint(new ToolArguments
+        {
+            ["url"] = "https://router.local:8443/status",
+        });
+
+        Assert.Equal("router.local", endpoint.Target);
+        Assert.Equal(8443, endpoint.Port);
+    }
+
+    [Fact]
+    public void NormalizeEndpoint_AcceptsPortAliasWithProtocolSuffix()
+    {
+        var endpoint = SslCertificateTool.NormalizeEndpoint(new ToolArguments
+        {
+            ["host"] = "router.local",
+            ["ssl_port"] = "443/tcp",
+        });
+
+        Assert.Equal("router.local", endpoint.Target);
+        Assert.Equal(443, endpoint.Port);
+    }
+
+    [Fact]
+    public void NormalizeEndpoint_ExplicitPortOverridesUrlPort()
+    {
+        var endpoint = SslCertificateTool.NormalizeEndpoint(new ToolArguments
+        {
+            ["target"] = "https://router.local:8443",
+            ["port"] = "9443",
+        });
+
+        Assert.Equal("router.local", endpoint.Target);
+        Assert.Equal(9443, endpoint.Port);
+    }
+
+    [Fact]
+    public void ToolArguments_ParseFlexible_AcceptsJsonNumbersAndArrays()
+    {
+        var args = ToolArguments.ParseFlexible("{\"target\":\"127.0.0.1\",\"port\":443,\"ports\":[80,443]}");
+
+        Assert.Equal("127.0.0.1", args["target"]);
+        Assert.Equal("443", args["port"]);
+        Assert.Equal("80,443", args["ports"]);
+    }
     private readonly SslCertificateTool _tool = new(new Logger<SslCertificateTool>(NullLoggerFactory.Instance));
 
     // ============================
