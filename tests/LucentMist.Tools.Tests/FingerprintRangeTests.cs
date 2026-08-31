@@ -15,6 +15,11 @@ public class FingerprintRangeTests
     [InlineData("OpenSSH_for_Windows_9.5.0.0", "openssh", "9.5.0.0")]
     [InlineData("Apache Tomcat/9.0.1", "tomcat", "9.0.1")]
     [InlineData("nginx/1.24.0-rc1", "nginx", null)]
+    [InlineData("VMware Authentication Daemon Version 1.10", null, null)]
+    [InlineData("VMware Authentication Daemon Version 1.0", null, null)]
+    [InlineData("VMware ESXi 8.0", null, null)]
+    [InlineData("VMware vCenter 8.0", null, null)]
+    [InlineData("VMware Workstation/17.5.0", "vmware_workstation", "17.5.0")]
     public void Fingerprint_RequiresProductEvidence(string banner, string? product, string? version)
     {
         var fingerprint = ServiceFingerprint.FromBanner(banner);
@@ -31,6 +36,7 @@ public class FingerprintRangeTests
     [InlineData("smb")]
     [InlineData("ftp")]
     [InlineData("ngin")]
+    [InlineData("vmware")]
     public void ProtocolOrFuzzyName_DoesNotInventVendor(string service) =>
         Assert.Null(new CpeMatcher().Match(service, "1.2.3"));
 

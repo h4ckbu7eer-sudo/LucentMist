@@ -60,6 +60,25 @@ public class CloudCveTests
     }
 
     [Fact]
+    public async Task RealAuthenticationDaemon_DoesNotPromoteVendorHitsToWorkstationFindings()
+    {
+        var requests = new ConcurrentBag<string>();
+        using var http = new HttpClient(new Handler((request, _) =>
+        {
+            requests.Add(Uri.UnescapeDataString(request.RequestUri!.ToString()));
+            return Task.FromResult(Json(request.RequestUri.Host == "cvetodo.com"
+                ? """{"data":[{"id":"CVE-2099-0001","description":"VMware vCenter candidate","base_score":"9.8"}]}"""
+                : """{"cves":[],"vulnerabilities":[]}"""));
+        }));
+        var report = await CveApiClient.QueryWithStatusAsync("VMware Authentication Daemon Version 1.10", 902,
+            http, true, CancellationToken.None);
+        Assert.Single(report.Items);
+        Assert.Equal("service_keyword", report.Items[0].EvidenceScope);
+        Assert.Equal("unverified", report.Items[0].VersionStatus);
+        Assert.All(requests, url => { Assert.DoesNotContain("vmware_workstation", url); Assert.DoesNotContain("cpe", url); });
+    }
+
+    [Fact]
     public async Task Timeout_IsIsolated_AndAllFailuresExplicitlyFallback()
     {
         using var http = new HttpClient(new Handler(async (_, ct) =>
