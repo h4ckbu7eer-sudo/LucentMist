@@ -354,6 +354,51 @@ public class ReportGeneratorTests
         Assert.Contains("OS 指纹未识别", generator.Generate(report, ReportGenerator.Format.Csv));
     }
 
+    [Theory]
+    [InlineData("partial", false, false, 100, "无法完整评估")]
+    [InlineData("partial", true, false, 100, "无法完整评估（TLS 需处理）")]
+    [InlineData("completed", true, false, 100, "需处理（TLS）")]
+    [InlineData("completed", false, true, -1, "需处理（TLS）")]
+    [InlineData("completed", false, false, 10, "需处理（TLS）")]
+    [InlineData("completed", false, false, 100, "范围内未命中 CVE")]
+    [InlineData("failed", false, false, 100, "无法完整评估")]
+    public void Generate_Html_OverallCardUsesCoverageAndTlsEvidence(
+        string status, bool trustError, bool expired, int days, string expected)
+    {
+        var report = new ReportGenerator.ScanReport
+        {
+            Target = "192.0.2.1",
+            ScanStatus = status,
+            OnlineDevices = 1,
+            VulnInfo = ReportGenerator.BuildVulnerabilitySummary([]),
+            SslInfo = { new() { Port = 443, DaysRemaining = days, IsExpired = expired } }
+        };
+        if (trustError) report.SslInfo[0].TrustErrors.Add("NameMismatch");
+
+        var html = new ReportGenerator().Generate(report, ReportGenerator.Format.Html);
+
+        Assert.Contains($"<div class='val'>{expected}</div><div class='lbl'>综合风险</div>", html);
+        Assert.DoesNotContain("<div class='val'>安全</div>", html);
+        if (status != "completed" || trustError || expired || days <= 30)
+            Assert.Contains(".stat-card.risk .val{color:#fbbf24}", html);
+    }
+
+    [Fact]
+    public void Generate_Html_OverallCardDoesNotHideKnownHighRiskWhenPartial()
+    {
+        var report = new ReportGenerator.ScanReport
+        {
+            ScanStatus = "partial",
+            VulnInfo = ReportGenerator.BuildVulnerabilitySummary(
+                [new() { Cve = "CVE-2017-0144", Risk = "high" }])
+        };
+
+        var html = new ReportGenerator().Generate(report, ReportGenerator.Format.Html);
+
+        Assert.Contains("<div class='val'>高危（结果不完整）</div>", html);
+        Assert.Contains(".stat-card.risk .val{color:#f87171}", html);
+    }
+
     [Fact]
     public void ApplyCompletionStatus_CompletenessWarningMakesReportPartial()
     {

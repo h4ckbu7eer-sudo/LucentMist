@@ -299,7 +299,7 @@ public class ReportGenerator
 <li><strong>TCP 端口：</strong>{E(r.Scope.TcpPorts)}</li>
 <li><strong>漏洞检测：</strong>{E(r.Scope.VulnerabilityChecks)}</li>
 <li><strong>能力边界：</strong>{E(r.Scope.Limitations)}</li></ul></div>";
-        var overallRisk = NormalizeRisk(v?.OverallRisk ?? "");
+        var (assessmentLabel, overallRisk) = OverallAssessment(r);
         var riskBg = overallRisk switch
         {
             "critical" => "#7f1d1d",
@@ -312,6 +312,7 @@ public class ReportGenerator
             "critical" => "#ef4444",
             "high" => "#f87171",
             "medium" => "#fb923c",
+            "attention" => "#fbbf24",
             _ => "#4ade80"
         };
         // 层1: 摘要
@@ -451,7 +452,7 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
   <div class='stat-card devices'><div class='val'>{r.TotalDevices}</div><div class='lbl'>总设备</div></div>
   <div class='stat-card online'><div class='val'>{r.OnlineDevices}</div><div class='lbl'>在线</div></div>
   <div class='stat-card ports'><div class='val'>{r.OpenPorts.Count}</div><div class='lbl'>开放端口</div></div>
-  <div class='stat-card risk'><div class='val'>{E(v?.OverallRisk ?? "-")}</div><div class='lbl'>综合风险</div></div>
+  <div class='stat-card risk'><div class='val'>{E(assessmentLabel)}</div><div class='lbl'>综合风险</div></div>
 </div>
 {OpenPortsTable(r)}
 {SslTable(r)}
@@ -565,6 +566,26 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
 
     private static bool IsConclusive(ScanReport report) =>
         NormalizeStatus(report.ScanStatus) == "completed";
+
+    // A zero-CVE summary describes matching only, not the whole report's safety.
+    private static (string Label, string Risk) OverallAssessment(ScanReport report)
+    {
+        var incomplete = !IsConclusive(report) || report.Warnings.Count > 0 || report.VulnInfo == null;
+        if (report.VulnInfo?.Findings is { Count: > 0 } findings)
+        {
+            var risks = findings.Select(finding => NormalizeRisk(finding.Risk)).ToHashSet();
+            var highest = new[] { "critical", "high", "medium", "low" }.First(risks.Contains);
+            return (SafeZhRisk(highest) + (incomplete ? "（结果不完整）" : ""), highest);
+        }
+
+        var tlsNeedsAttention = report.SslInfo.Any(ssl =>
+            ssl.IsExpired || ssl.DaysRemaining <= 30 || ssl.TrustErrors.Count > 0);
+        if (incomplete)
+            return (tlsNeedsAttention ? "无法完整评估（TLS 需处理）" : "无法完整评估", "attention");
+        return tlsNeedsAttention
+            ? ("需处理（TLS）", "attention")
+            : ("范围内未命中 CVE", "low");
+    }
 
     private static string NormalizeStatus(string status) =>
         (status ?? "").Trim().ToLowerInvariant() switch
