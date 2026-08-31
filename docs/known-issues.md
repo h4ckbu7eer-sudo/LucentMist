@@ -28,6 +28,8 @@ Current status as of the verified 0.9.5 release.
   DNS probes can disagree, and no public reachability or unrestricted recursive-resolver claim was verified.
   The earlier Hourly Self-Check failed a live Baidu certificate SAN assertion. The eight external SSL tests have now been replaced by generated loopback certificates; main CI and hourly both run the full suite without an External filter.
   SAN values are parsed from DER rather than localized OS display text. See [testing-strategy.md](testing-strategy.md) for coverage limits and [final-validation-and-push.md](final-validation-and-push.md) for final-commit revalidation and current push evidence.
+  Final pushed runtime at `668c1c72` has successful Windows/Ubuntu/GHCR CI run `33358725600` and full hourly run `33358759327`. The first retry exposed an unrelated 250ms concurrency-test threshold; it was replaced with synchronization-based ordering assertions, not a production scheduling change.
+  User value remains partial: a gateway receives useful exposure/TLS findings and prioritized leads, but unknown firmware prevents confirmed CVEs and one gateway does not establish whole-network safety.
   Protocol-only cloud candidates are shown separately and do not count as target vulnerabilities.
   Offline rules now total 18; MySQL/MongoDB unauthenticated data access checks are still not implemented.
 
