@@ -52,7 +52,7 @@ else
 
     <div class="card" style="margin-bottom:1rem;">
         <div style="display:flex;gap:0.5rem;align-items:end;">
-            <input type="text" @bind="_input" placeholder="例如：扫描 127.0.0.1 的端口" style="flex:1" />
+            <input type="text" @bind="_input" @bind:event="oninput" placeholder="例如：扫描 127.0.0.1 的端口" style="flex:1" />
             <button class="btn btn-primary" @onclick="Send" disabled="@_busy">
                 @(_busy ? "分析中..." : "发送")
             </button>
