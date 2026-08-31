@@ -26,7 +26,8 @@ Current status as of the verified 0.9.5 release.
   Web verification used isolated loopback ports 15050/15051 because user processes occupied 5050/5051; it does not validate the existing hosts or a newly published image.
   Models can still infer unsupported device purpose or call a vendor-issued certificate self-signed. Check raw certificate/scan evidence; the Agent remains experimental.
   DNS probes can disagree, and no public reachability or unrestricted recursive-resolver claim was verified.
-  The latest inspected main CI had three successful jobs, but Hourly Self-Check failed a live Baidu certificate SAN assertion; see the linked evidence and exact run IDs.
+  The earlier Hourly Self-Check failed a live Baidu certificate SAN assertion. The eight external SSL tests have now been replaced by generated loopback certificates; main CI and hourly both run the full suite without an External filter.
+  SAN values are parsed from DER rather than localized OS display text. See [testing-strategy.md](testing-strategy.md) for coverage limits and [final-validation-and-push.md](final-validation-and-push.md) for final-commit revalidation and current push evidence.
   Protocol-only cloud candidates are shown separately and do not count as target vulnerabilities.
   Offline rules now total 18; MySQL/MongoDB unauthenticated data access checks are still not implemented.
 

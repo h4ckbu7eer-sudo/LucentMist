@@ -1,0 +1,14 @@
+[
+  {
+    "capture": "final-e80b897e",
+    "calls": 13,
+    "contractPassed": 13,
+    "percent": 100.0
+  },
+  {
+    "capture": "final-b5a73f34",
+    "calls": 12,
+    "contractPassed": 12,
+    "percent": 100.0
+  }
+]
