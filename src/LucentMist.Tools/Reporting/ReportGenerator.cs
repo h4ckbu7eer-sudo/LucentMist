@@ -533,16 +533,7 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
     private static string TrustErrorLabel(SslEntry ssl) =>
         ssl.TrustErrors.Count == 0
             ? "无"
-            : string.Join(", ", ssl.TrustErrors.Select(error => error switch
-            {
-                "UntrustedRoot" => "不可信根或自签证书 (UntrustedRoot)",
-                "NameMismatch" => "主机名不匹配 (NameMismatch)",
-                "NotTimeValid" => "证书不在有效期内 (NotTimeValid)",
-                "RevocationStatusUnknown" => "无法确认吊销状态 (RevocationStatusUnknown)",
-                "PartialChain" => "证书链不完整 (PartialChain)",
-                "ChainErrors" => "证书链验证失败 (ChainErrors)",
-                _ => error
-            }));
+            : string.Join(", ", ssl.TrustErrors.Select(Security.TlsTrustLabels.Describe));
 
     private static string SslAdvice(SslEntry ssl)
     {

@@ -76,6 +76,9 @@ public class PortScanTool : INetworkTargetTool
                 totalScanned = ports.Count,
                 scannedPortRange = portsStr,
                 scopeNote = "仅报告本次 TCP 受检端口；范围外端口及 WAN 可达性均未知。",
+                nonOpenCount = ports.Count - openPorts.Count,
+                nonOpenStatus = "closed_or_filtered_or_unreachable",
+                nonOpenReason = "未连接成功不等于关闭：当前扫描不区分连接拒绝、防火墙过滤、超时或不可达；开放仅表示 TCP 连接成功。",
                 openPorts,
                 device,
                 scanDuration = sw.Elapsed.ToString()

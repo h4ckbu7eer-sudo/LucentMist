@@ -98,6 +98,7 @@ public class SslCertificateTool : INetworkTargetTool
                 san = GetSubjectAlternativeNames(cert),
                 isTrusted = trustErrors.Length == 0,
                 trustErrors,
+                trustExplanations = trustErrors.Select(TlsTrustLabels.Describe).ToArray(),
                 chain = chainInfo.Elements,
                 scanDuration = sw.Elapsed.ToString()
             };

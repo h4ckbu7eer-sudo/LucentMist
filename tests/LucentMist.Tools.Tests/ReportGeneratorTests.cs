@@ -138,8 +138,9 @@ public class ReportGeneratorTests
         Assert.Contains("CN=*.baidu.com", html);
         Assert.Contains("CN=GlobalSign", html);
         Assert.Contains("有效期内（剩余 150 天）", html);
-        Assert.Contains("不可信根或自签证书", html);
-        Assert.Contains("主机名不匹配", html);
+        Assert.Contains("根证书不受当前系统信任", html);
+        Assert.Contains("不等于叶证书自签", html);
+        Assert.Contains("证书与访问地址/域名不匹配", html);
         Assert.Contains("UntrustedRoot", html);
         Assert.Contains("NameMismatch", html);
     }

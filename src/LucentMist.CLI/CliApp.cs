@@ -769,7 +769,7 @@ public class CliApp
                         .AddRow("SHA-256", Escape(thumbSha256[..16]) + "...");
 
                     if (trustErrors.Length > 0)
-                        table.AddRow("信任错误", Escape(string.Join(", ", trustErrors!)));
+                        table.AddRow("信任错误", Escape(string.Join(", ", trustErrors.Select(TlsTrustLabels.Describe))));
 
                     if (r.TryGetProperty("san", out var san) && san.GetArrayLength() > 0)
                     {
@@ -2565,7 +2565,7 @@ public class CliApp
         if (r.TryGetProperty("trustErrors", out var errors) &&
             errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0)
         {
-            table.AddRow("错误", Escape(string.Join(", ", errors.EnumerateArray().Select(item => item.GetString()))));
+            table.AddRow("错误", Escape(string.Join(", ", errors.EnumerateArray().Select(item => TlsTrustLabels.Describe(item.GetString())))));
         }
         table.AddRow("结论", expired
             ? "[red]不安全：证书已过期[/]"
