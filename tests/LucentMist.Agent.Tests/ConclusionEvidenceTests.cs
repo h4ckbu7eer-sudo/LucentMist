@@ -6,6 +6,17 @@ namespace LucentMist.Agent.Tests;
 
 public class ConclusionEvidenceTests
 {
+    [Fact]
+    public void UnknownDnsResponseIsNotAContradictoryNegativeObservation()
+    {
+        var observations = new ReActObservation[]
+        {
+            new() { ToolName = "service_identify", Success = true, Result = """{"target":"192.168.99.1","dnsSecurity":{"recursionAvailable":false,"recursionStatus":"unknown"}}""" },
+            new() { ToolName = "vuln_scan", Success = true, Result = """{"target":"192.168.99.1","dnsSecurity":{"recursionAvailable":true,"recursionStatus":"observed"}}""" },
+        };
+        Assert.Empty(SecurityAnalysisEvidence.DnsDisagreementNote(observations));
+        Assert.NotEmpty(SecurityAnalysisEvidence.FindConclusionConflicts("DNS 未开放递归", observations));
+    }
     private const string Tls = """{"target":"192.168.99.1","port":443,"isTrusted":false,"isExpired":false,"trustErrors":["NameMismatch","PartialChain","RevocationStatusUnknown"]}""";
     private const string IssuedTls = """{"target":"192.168.99.1","port":443,"subject":"CN=192.168.1.1, O=ZTE","issuer":"CN=ZTE-ROOT-CA, O=ZTE","isTrusted":false,"isExpired":false,"trustErrors":["NameMismatch","PartialChain"]}""";
 
