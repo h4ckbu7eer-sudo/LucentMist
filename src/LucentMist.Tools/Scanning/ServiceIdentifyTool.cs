@@ -80,7 +80,7 @@ public class ServiceIdentifyTool : INetworkTargetTool
             {
                 dnsSecurity = await _dnsProbeAsync(target, timeout, cancellationToken);
                 banner = dnsSecurity.Version == null
-                    ? "DNS（版本未公开）"
+                    ? "DNS（版本未知）"
                     : $"DNS {dnsSecurity.Version}";
             }
             else if (HttpBannerProbe.IsHttpPort(port))

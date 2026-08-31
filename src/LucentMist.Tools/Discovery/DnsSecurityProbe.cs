@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -8,10 +9,41 @@ namespace LucentMist.Tools.Discovery;
 
 public static class DnsSecurityProbe
 {
-    public static async Task<DnsSecurityResult> ProbeAsync(
+    private static readonly AsyncLocal<AnalysisScope?> CurrentScope = new();
+
+    /// <summary>One DNS snapshot per target per Agent run; never a process-wide TTL cache.</summary>
+    public static IDisposable BeginAnalysisScope()
+    {
+        var scope = new AnalysisScope(CurrentScope.Value);
+        CurrentScope.Value = scope;
+        return scope;
+    }
+
+    private sealed class AnalysisScope(AnalysisScope? previous) : IDisposable
+    {
+        internal readonly ConcurrentDictionary<string, Lazy<Task<DnsSecurityResult>>> Snapshots = new(StringComparer.OrdinalIgnoreCase);
+        public void Dispose()
+        {
+            CurrentScope.Value = previous;
+            Snapshots.Clear();
+        }
+    }
+
+    public static Task<DnsSecurityResult> ProbeAsync(
         string target,
         int timeoutMs,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default) => SnapshotAsync(target,
+            () => ProbeFreshAsync(target, timeoutMs, cancellationToken), cancellationToken);
+
+    internal static Task<DnsSecurityResult> SnapshotAsync(string target, Func<Task<DnsSecurityResult>> probe, CancellationToken ct = default)
+    {
+        ct.ThrowIfCancellationRequested();
+        var scope = CurrentScope.Value;
+        return (scope == null ? probe() : scope.Snapshots.GetOrAdd(target,
+            _ => new Lazy<Task<DnsSecurityResult>>(probe, LazyThreadSafetyMode.ExecutionAndPublication)).Value).WaitAsync(ct);
+    }
+
+    private static async Task<DnsSecurityResult> ProbeFreshAsync(string target, int timeoutMs, CancellationToken cancellationToken)
     {
         var versionQuery = BuildQuery("version.bind", 16, 3, recursionDesired: false);
         var recursionQuery = BuildQuery("example.com", 1, 1, recursionDesired: true);
@@ -25,19 +57,23 @@ public static class DnsSecurityProbe
 
         return new DnsSecurityResult(
             version,
-            version == null ? "版本未公开（查询被拒绝、隐藏或无响应）" : "服务器公开了 DNS 软件版本",
+            version == null ? versionResponse == null ? "DNS 版本查询无有效响应，无法判断是否公开版本" : "DNS 响应未公开软件版本" : "服务器公开了 DNS 软件版本",
             recursionAvailable,
             recursionAvailable ? "对当前扫描源开放递归；若该服务可从公网访问，可能被用于 DNS 反射/放大攻击" :
-                "未观察到对当前扫描源开放递归",
+                recursionResponse == null ? "DNS 递归查询无有效响应，状态未知，需复测；不能视为已关闭" : "未观察到对当前扫描源开放递归",
             recursionQuery.Length,
             recursionResponse?.Length ?? 0,
-            Math.Round(ratio, 2));
+            Math.Round(ratio, 2))
+        {
+            RecursionStatus = recursionResponse == null ? "unknown" : recursionAvailable ? "observed" : "not_observed",
+        };
     }
 
     internal static byte[] BuildQuery(string name, ushort type, ushort @class, bool recursionDesired)
     {
         using var stream = new MemoryStream();
         Span<byte> header = stackalloc byte[12];
+        header.Clear();
         BinaryPrimitives.WriteUInt16BigEndian(header, 0x4C4D);
         BinaryPrimitives.WriteUInt16BigEndian(header[2..], recursionDesired ? (ushort)0x0100 : (ushort)0);
         BinaryPrimitives.WriteUInt16BigEndian(header[4..], 1);
@@ -99,11 +135,16 @@ public static class DnsSecurityProbe
             using var udp = new UdpClient(AddressFamily.InterNetwork);
             udp.Connect(target, port);
             await udp.SendAsync(query, timeout.Token);
-            return (await udp.ReceiveAsync(timeout.Token)).Buffer;
+            var response = (await udp.ReceiveAsync(timeout.Token)).Buffer;
+            return IsResponseTo(query, response) ? response : null;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
+
+    internal static bool IsResponseTo(byte[] query, byte[] response) => response.Length >= query.Length &&
+        response[0] == query[0] && response[1] == query[1] && (response[2] & 0x80) != 0 &&
+        response[4] == 0 && response[5] == 1 && response.AsSpan(12, query.Length - 12).SequenceEqual(query.AsSpan(12));
 
     private static bool SkipName(byte[] packet, ref int offset)
     {
@@ -139,4 +180,10 @@ public sealed record DnsSecurityResult(
     [property: JsonPropertyName("recursionAssessment")] string RecursionAssessment,
     [property: JsonPropertyName("requestBytes")] int RequestBytes,
     [property: JsonPropertyName("responseBytes")] int ResponseBytes,
-    [property: JsonPropertyName("amplificationRatio")] double AmplificationRatio);
+    [property: JsonPropertyName("amplificationRatio")] double AmplificationRatio)
+{
+    [JsonPropertyName("recursionStatus")]
+    public string? RecursionStatus { get; init; }
+    [JsonPropertyName("evidenceId")]
+    public string EvidenceId { get; init; } = Guid.NewGuid().ToString("N");
+}

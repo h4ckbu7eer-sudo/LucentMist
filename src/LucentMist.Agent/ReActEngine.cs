@@ -64,6 +64,7 @@ public class ReActEngine
 
     private async Task<ReActResult> RunCoreAsync(string userQuery, CancellationToken ct)
     {
+        using var dnsScope = LucentMist.Tools.Discovery.DnsSecurityProbe.BeginAnalysisScope();
         Observations.Clear();
         ThoughtLog.Clear();
 

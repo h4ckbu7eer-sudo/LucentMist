@@ -300,6 +300,7 @@ internal static class SecurityAnalysisEvidence
                 var root = doc.RootElement;
                 var target = root.TryGetProperty("target", out var t) ? t.GetString() ?? "" : "";
                 if (root.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object &&
+                    (!dns.TryGetProperty("recursionStatus", out var status) || status.GetString() != "unknown") &&
                     dns.TryGetProperty("recursionAvailable", out var recursion) && recursion.ValueKind is JsonValueKind.True or JsonValueKind.False)
                     evidence.Add((target, recursion.GetBoolean()));
                 if (root.TryGetProperty("checkedServices", out var services))
@@ -400,14 +401,14 @@ internal static class SecurityAnalysisEvidence
         string target) =>
         observations.Any(item =>
         {
-            if (!item.Success || item.ToolName != "service_identify") return false;
+            if (!item.Success || item.ToolName is not ("service_identify" or "vuln_scan")) return false;
             try
             {
                 using var document = JsonDocument.Parse(item.Result);
                 var root = document.RootElement;
                 return root.TryGetProperty("target", out var targetNode) &&
                        string.Equals(targetNode.GetString(), target, StringComparison.OrdinalIgnoreCase) &&
-                       root.TryGetProperty("port", out var portNode) && portNode.GetInt32() == 53 &&
+                       (item.ToolName == "vuln_scan" || root.TryGetProperty("port", out var portNode) && portNode.GetInt32() == 53) &&
                        root.TryGetProperty("dnsSecurity", out var dnsNode) &&
                        dnsNode.ValueKind == JsonValueKind.Object;
             }
