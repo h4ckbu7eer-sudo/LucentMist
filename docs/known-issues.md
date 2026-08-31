@@ -1,9 +1,15 @@
 # Known Issues
 
-Current main self-use boundaries; the Release Status section preserves historical v0.9.5 artifact evidence.
+Current 0.9.6 self-use boundaries; older release evidence remains historical.
 Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md).
 
 ## Release Status
+
+- 0.9.6 is published at `98666f8e` / `v0.9.6`. Both main and tag CI passed Windows, Ubuntu and GHCR jobs; the independent published-image check returned HTTP 200 with version 0.9.6. Local gates passed 533 .NET tests and 14 separate Python tests, with zero build warnings/errors. Commands, run links, digest and transient proxy failures: [final-push-evidence.md](final-push-evidence.md).
+- The previous authorized DeepSeek validation completed four rounds / 77 calls, with 17/17 strict contracts in the final corrected round. This release gate did not make new model calls. API image health is not a new Web/browser or model semantic validation.
+- GitHub Actions reports Node 20 action-runtime deprecation annotations (forced Node 24); current jobs succeeded. Updating action major versions remains maintenance work, not a claim of failed .NET compilation.
+
+### Historical 0.9.5 evidence
 
 - The local 0.9.5 release gate passed with 336/336 tests, a Release build with zero warnings and zero errors, formatting verification, Compose configuration validation, and `git diff --check`.
 - The [v0.9.5 tag workflow](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33277190463) completed Windows, Ubuntu, and GHCR jobs successfully. The GHCR manifest digest is `sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698`.
@@ -19,7 +25,7 @@ Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SE
 
 ## Product Limitations
 
-- The self-use walkthrough found that the HTML overall-risk card still said safe for zero CVEs despite partial coverage and TLS trust errors. Current local source fixes that card with eight regression cases (516 total local tests); see [self-use-walkthrough.md](self-use-walkthrough.md). These new commits are not claimed pushed or CI-verified. Missing current environment credentials blocked the two fresh DeepSeek checks; prior model validation remains historical evidence.
+- The self-use walkthrough found that the HTML overall-risk card said safe for zero CVEs despite partial coverage and TLS trust errors. The fix and its eight regressions are included in 0.9.6; the initial 516-test/credential-blocked checkpoint is historical. Subsequent authorized validation and this release's remote CI evidence supersede that checkpoint; see [self-use-walkthrough.md](self-use-walkthrough.md) and [authorized validation](deepseek-authorized-validation-20260831.md). Incomplete checks must still not be interpreted as safety.
 
 - Current main validation and exact matching/source boundaries are recorded in
   [agent-real-validation.md](agent-real-validation.md) and [cve-matching-sources.md](cve-matching-sources.md).

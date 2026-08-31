@@ -1,6 +1,6 @@
 # LucentMist 0.9.6 发布说明
 
-日期：2026-08-31。状态：发布门禁进行中，远端证据尚待核实。
+日期：2026-08-31。状态：**已发布，远端 CI、GHCR 与独立镜像启动核验通过。**
 
 ## 为什么是新版本
 
@@ -55,5 +55,18 @@ Agent 仍为实验性，本次 CLI/REPL 复验不能冒充新版 Web 浏览器/S
 发布前基线：Release build 0 警告/0 错误；533 个 .NET 测试、14 个 Python 测试通过；
 format、Compose 与 diff 检查通过。0.9.6 版本变更后已再次跑完整门禁，结果相同。
 
-远端 CI、镜像摘要和独立拉起结果将由 [final-push-evidence](final-push-evidence.md) 记录真实命令输出；
-在核实之前不标注“已发布”。旧版本镜像不覆盖，main/latest 是可变引用，不适合作为唯一回滚依据。
+发布提交 `98666f8e862c5ec7eb59fe317991c916ae0e8e90`，标签 `v0.9.6`。
+[main CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33380904957) 与
+[tag CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33380904724) 的 Windows、Ubuntu、GHCR 三 job 均成功。
+[独立验证](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33381558006) 拉取并核对 manifest 摘要，启动后收到
+`{"status":"healthy","version":"0.9.6","uptime":"0h 0m"}`（HTTP 200）。
+
+固定发布镜像：
+
+```text
+ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:418807fea37e771e2be7b829e8b6be7e885f8d311da910565d68a0805e6fdf37
+```
+
+`0.9.6`、`main`、`latest` 和旧 `0.9.5` 均已通过实际 `docker manifest inspect --verbose` 读取。
+真实命令输出及中途代理失败记录见 [final-push-evidence](final-push-evidence.md)。
+旧版本镜像不覆盖，main/latest 是可变引用，不适合作为唯一回滚依据。

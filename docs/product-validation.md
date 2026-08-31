@@ -1,5 +1,7 @@
 # Product Validation
 
+Current release update (2026-08-31): **0.9.6 is published**. The final authorized DeepSeek CLI/REPL validation, its failures and corrections are in [deepseek-authorized-validation-20260831.md](deepseek-authorized-validation-20260831.md). Current main/tag CI and published API image health evidence are in [final-push-evidence.md](final-push-evidence.md). These release checks do not constitute new end-user interviews, confirmed gateway CVEs, or a fresh Web/browser run. The dated sections below retain their original historical scope.
+
 Date: 2026-08-28
 
 Target: `127.0.0.1`, controlled local loopback only.

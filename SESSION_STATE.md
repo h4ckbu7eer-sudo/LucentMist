@@ -2,7 +2,7 @@
 
 > 最后更新: 2026-08-31
 > 当前目标版本: v0.9.6
-> 状态: 发布门禁进行中，远端结果以 docs/final-push-evidence.md 为准；Agent 仍属实验性
+> 状态: v0.9.6 已推送，main/tag CI 全绿，GHCR 摘要与启动 health 200 已核实；证据见 docs/final-push-evidence.md；Agent 仍属实验性
 >
 > 以下条目保留历史会话记录；当前自用指引见 docs/SELF_USE_GUIDE.md。
 
