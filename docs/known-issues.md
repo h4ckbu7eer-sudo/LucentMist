@@ -1,6 +1,7 @@
 # Known Issues
 
-Current status as of the verified 0.9.5 release.
+Current main self-use boundaries; the Release Status section preserves historical v0.9.5 artifact evidence.
+Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md).
 
 ## Release Status
 
@@ -111,11 +112,14 @@ Current status as of the verified 0.9.5 release.
 
 ## Testing
 
-- CI runs `--filter "Category!=External"`. The filtered count changes as tests are added; do not treat a single number as a frozen contract.
-- Local full runs include external SSL tests and may show a different count.
-- Test counts in docs are being reconciled to this two-track statement.
+- Current main CI and hourly both run the complete 508-test suite without an External filter.
+- Former external TLS tests use generated loopback certificates. Real cloud/model/gateway checks are separate opt-in validations, not a claim that the unit suite exercises external services.
+- See [testing-strategy.md](testing-strategy.md) and [self-use-walkthrough.md](self-use-walkthrough.md) for current execution boundaries.
 
 ## Deployment
+
+- Native programs do not load `.env` automatically; Docker Compose performs environment interpolation. The base Compose file publishes host ports on all interfaces. Self-use can opt into `docker-compose.self-use.yml` for loopback-only host ports and allow-list forwarding.
+- Some CLI scan/SSL/report inner failures still end with exit code 0. CLI audit `completed` means command completion, not necessarily a successful or complete security assessment. Inspect the actual errors, report status and coverage; do not use exit code alone for automation acceptance.
 
 - The historical `0.9.4` entrypoint can independently generate API tokens in the API
   and Web containers when `LMIST_API_TOKEN` is blank. Because both containers share
