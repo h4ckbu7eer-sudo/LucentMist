@@ -4,6 +4,10 @@
 >
 > 当前稳定发布版：`v0.9.5`
 
+第一次自用请从 [自用手册](docs/SELF_USE_GUIDE.md) 开始；含 DeepSeek 配置、API/Web 双进程启动、
+仅本机 Docker 配置、报告解读与恢复演练。分享或提交前看 [安全清单](docs/SECURITY_CHECKLIST.md)。
+手册对应较新 main 源码；旧 GHCR `:0.9.5` 不自动包含后续修复，不能只看版本号判断功能。
+
 > 隐私提示（当前 main）：漏洞扫描默认联网查询免费 CVETodo / Shodan CVEDB / NVD，仅发送服务关键词或产品 CPE，不发送目标 IP、原始 banner、凭据或报告。需要离线扫描请设 `LMIST_CVE_EXTERNAL=false`。云端候选不代表确认漏洞；Shodan CVEDB 免费许可仅限非商业使用。
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
@@ -23,7 +27,7 @@
 - 📊 **报告导出** — HTML/Markdown/CSV/JSON，展示具体开放端口、服务与 SSL 信息
 - 🏷️ **服务识别** — Banner 抓取 + HTTP/SSH 检测 + 进程信息
 - 🤖 **AI 推理（实验性）** — ReAct 模式，自动调用工具分析网络
-- 🔄 **双 LLM** — Ollama 本地推理 + Claude API 云端推理，随时切换
+- 🔄 **LLM 提供商** — Ollama 本地推理、DeepSeek 和 Claude 云端推理；真实验证范围见自用手册
 - 🌐 **Web 管理界面** — Blazor Server 仪表板，实时监控 + 扫描控制
 - 📡 **双接口** — CLI 命令行 + RESTful API (SSE 流式)
 - 💾 **持久化** — SQLite 存储扫描记录与 Agent 会话
@@ -36,7 +40,7 @@
 ### 系统要求
 
 - .NET 10.0 SDK
-- 可选：Ollama（本地 AI）或 Claude API Key
+- 可选：Ollama（本地 AI）或 DeepSeek/Claude API Key
 
 ### 编译 & 测试
 

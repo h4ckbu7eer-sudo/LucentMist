@@ -1,0 +1,13 @@
+# Explicit opt-in override; use together with docker-compose.yml.
+# Requires Compose support for !override; validate config before starting.
+services:
+  lucentmist:
+    ports: !override
+      - "127.0.0.1:5050:5050"
+    environment:
+      LMIST_ALLOWED_TARGETS: ${LMIST_ALLOWED_TARGETS:-}
+  lucentmist-web:
+    ports: !override
+      - "127.0.0.1:5051:5051"
+    environment:
+      LMIST_ALLOWED_TARGETS: ${LMIST_ALLOWED_TARGETS:-}
