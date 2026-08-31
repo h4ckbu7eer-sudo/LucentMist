@@ -4,7 +4,7 @@
 >
 > 当前版本：`v0.9.8` — [发布说明与实证](docs/RELEASE_0.9.8.md)
 
-> 0.9.8 发布验证进行中；远端镜像与真实对话是否通过，以该版本发布说明中的实证为准。
+> 0.9.8 已通过远端 CI 与真实发布镜像复验：网关4轮收敛、DNS/TLS完整；[证据与边界](docs/release-artifact-validation-0.9.8.md)。云端线索不是确认漏洞。
 
 第一次自用请从 [自用手册](docs/SELF_USE_GUIDE.md) 开始；含 DeepSeek 配置、API/Web 双进程启动、
 仅本机 Docker 配置、报告解读与恢复演练。分享或提交前看 [安全清单](docs/SECURITY_CHECKLIST.md)。

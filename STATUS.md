@@ -1,11 +1,11 @@
 # LucentMist 项目状态
 
-> 最后更新：2026-08-31
+> 最后更新：2026-09-01
 
-0.9.8 修正版发布准备：590 个 .NET 测试通过。0.9.7 CI/镜像health虽通过，实际镜像对话发现证书年份和已扫端口误述，已补12个回归；等待新版本产物复验，见 [发布说明](docs/RELEASE_0.9.8.md) 和 [0.9.7失败证据](docs/release-artifact-validation-0.9.7.md)。
+0.9.8 已发布：590 个 .NET 测试、14个Python测试通过，main/tag CI三job及独立镜像health成功。0.9.7产物实测发现的证书年份和已扫端口误述已修复，0.9.8实际GHCR镜像网关4轮/0补查/147行、容器回环2轮/50行；[发布说明](docs/RELEASE_0.9.8.md)、[最终产物证据](docs/release-artifact-validation-0.9.8.md)和[0.9.7失败证据](docs/release-artifact-validation-0.9.7.md)分别保留。
 真实 DeepSeek 四轮复现/复验共14次调用，最终提交版4轮收敛、0次完成度补查；修复越界端口断言、DNS无依据评级与呈现冗余。
 [真实对话与边界](docs/gateway-deepseek-reproduction-20260831.md)；此前[脚本化 Provider 证据](docs/gateway-convergence-validation.md)保留为历史记录，不混称真实模型验证。
-下列 0.9.6 CI/镜像信息仍是已发布版本的历史证据，不代表本地新增修复已发布。
+下列0.9.6 CI/镜像信息是历史证据；当前发布身份以顶部0.9.8证据为准。
 
 ## 历史版本：0.9.6（已发布，远端核验通过）
 

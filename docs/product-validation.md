@@ -1,6 +1,6 @@
 # Product Validation
 
-Current release update (2026-08-31): **0.9.6 is published**. The final authorized DeepSeek CLI/REPL validation, its failures and corrections are in [deepseek-authorized-validation-20260831.md](deepseek-authorized-validation-20260831.md). Current main/tag CI and published API image health evidence are in [final-push-evidence.md](final-push-evidence.md). These release checks do not constitute new end-user interviews, confirmed gateway CVEs, or a fresh Web/browser run. The dated sections below retain their original historical scope.
+Current release update (2026-09-01): **0.9.8 is published**. [Published-artifact evidence](release-artifact-validation-0.9.8.md) records the real GHCR image, both three-job CI runs, digest/health, a four-round gateway assessment and a two-round container-loopback assessment. The earlier 0.9.7 image actually exposed wrong certificate-year and scan-scope claims; its [failed evidence](release-artifact-validation-0.9.7.md) is preserved, not counted as a pass. The corrected image still provides exposure/TLS findings and unverified cloud leads, not confirmed gateway CVEs. This is not a new user interview, whole-network safety assessment, Windows-host loopback scan, or Web/browser validation. Older dated evidence retains its historical scope.
 
 Date: 2026-08-28
 

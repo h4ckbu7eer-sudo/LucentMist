@@ -1,13 +1,15 @@
 # Known Issues
 
-Current 0.9.6 self-use boundaries; older release evidence remains historical.
+Current 0.9.8 self-use boundaries; older release evidence remains historical.
 Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md).
 
-## Unreleased gateway-analysis follow-up
+## Published gateway-analysis follow-up (0.9.8)
 
-Local changes after the 0.9.6 release converge incomplete checks into limited actionable assessments, share bounded HTTP HEAD/GET probes, fold unverified pre-2005 keyword leads, and reuse a DNS snapshot within one Agent run. Local gates now pass 564 .NET tests and 14 Python tests. The earlier [scripted-provider gateway validation](gateway-convergence-validation.md) remains historical. Subsequent [real DeepSeek reproduction](gateway-deepseek-reproduction-20260831.md) records all four real runs (14/14 JSON contracts), initial unsupported RDP/DNS claims, fixes, and a final committed-code four-round assessment with no completion deferrals. CLI presentation is compact by default; `-v` and session records retain details. Version/firmware identification is still limited, cloud keyword leads are not confirmed vulnerabilities, source failures/limits reduce coverage, and DNS conclusions remain vantage-specific. No new Web validation or push/tag/CI claim; the published 0.9.6 image does not yet contain this follow-up.
+The follow-up is now in 0.9.8: limited actionable assessments, shared HTTP HEAD/GET probes and DNS snapshots, historical keyword-lead folding, compact presentation and target-scoped port assertions. The [0.9.7 artifact test](release-artifact-validation-0.9.7.md) found two additional model fact errors despite passing JSON/CI; both were fixed and the [0.9.8 GHCR artifact](release-artifact-validation-0.9.8.md) was actually retested. Gateway: four model calls, zero completion corrections, 147 terminal lines; container loopback: two calls, 50 lines. Final model contract 6/6 is a focused reproduction, not a new ten-call benchmark or universal semantic guarantee. Local tests: 590 .NET plus 14 Python. Version/firmware identification remains limited; the gateway returned 40 protocol-keyword leads and zero version-matched CVEs. Source failures/limits reduce coverage, DNS is vantage-specific, and container loopback is not the Windows host. No fresh Web/browser or whole-network test is claimed.
 
 ## Release Status
+
+- 0.9.8: `bb6f6a18` / `v0.9.8`; main/tag Windows, Ubuntu and GHCR jobs succeeded, manifest `sha256:8040122220bc4fedca085a75cbc35ce5007cfe975b6eb0a191226f5a35fe2b2e`, independent image health HTTP 200. Full commands and transient TLS/EOF failures are in the [artifact evidence](release-artifact-validation-0.9.8.md). 0.9.7 remains immutable but has the documented semantic defects; use the corrected release.
 
 - 0.9.6 is published at `98666f8e` / `v0.9.6`. Both main and tag CI passed Windows, Ubuntu and GHCR jobs; the independent published-image check returned HTTP 200 with version 0.9.6. Local gates passed 533 .NET tests and 14 separate Python tests, with zero build warnings/errors. Commands, run links, digest and transient proxy failures: [final-push-evidence.md](final-push-evidence.md).
 - The previous authorized DeepSeek validation completed four rounds / 77 calls, with 17/17 strict contracts in the final corrected round. This release gate did not make new model calls. API image health is not a new Web/browser or model semantic validation.

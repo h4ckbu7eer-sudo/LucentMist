@@ -1,6 +1,6 @@
 # LucentMist 0.9.8 发布说明
 
-状态：修正版发布准备中，尚待本次CI和GHCR产物复验。
+状态：**已发布，真实GHCR产物复验通过**。2026-08-31发布，2026-09-01（UTC+8）完成验证；[全部命令、失败→修复→复验及边界](release-artifact-validation-0.9.8.md)。
 
 0.9.7在真实发布镜像上完成了扫描，但模型结论仍误述证书到期年份和受检端口范围，见[未通过记录](release-artifact-validation-0.9.7.md)。因此另发0.9.8，保留0.9.7标签，不以本地测试冒充发布产物通过。
 
@@ -17,6 +17,14 @@
 
 网关结果仍是暴露面、TLS信任风险、线索与建议，不是确认CVE；固件不公开、云源失败/限流、DNS扫描视角和容器网络视角仍限制结论。模型与断言守卫不保证所有自然语言变体永远正确。旧版本保留，但0.9.7有本次记录的语义问题，不能把回滚理解为修复。
 
-## 最终门禁（待补）
+## 最终门禁
 
-推送前重新跑Release build/test/format/Compose；推送后核查main/tag三job、manifest，并在新镜像上复验网关与不同目标。取得真实结果后更新本节及发布证据。
+Release build 0警告0错误；590个.NET测试及14个Python测试全绿；format/Compose/diff检查通过。
+
+- [main CI 33410263646](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33410263646)和[tag CI 33410263371](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33410263371)：Windows、Ubuntu、GHCR全部success。
+- 发布提交`bb6f6a18` / `v0.9.8`；GHCR manifest `sha256:8040122220bc4fedca085a75cbc35ce5007cfe975b6eb0a191226f5a35fe2b2e`，导入后身份一致，不挂载本地代码。
+- [独立镜像验证33411299128](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33411299128)：实际拉取、digest一致、health 200，version=0.9.8。
+- 同一发布镜像真实DeepSeek：网关4轮、0补查、147行，53/80/443全部分析，DNS共享证据，TLS信任风险和2031年到期一致；40条关键词线索最多显示5条，历史项折叠。容器回环2轮、50行，明确未检查范围。产物契约6/6，不冒充10次基准或所有自然语言正确率。
+- 网络查询曾遇TLS超时/EOF；本机Docker直接pull超时后，通过代理下载并逐层校验相同GHCR原始内容再导入；失败与替代路径均有记录。未修改全局Docker设置。
+
+0.9.7的两项真实事实错误已修复并在0.9.8产物上复验；旧标签及失败记录仍保留。文档证据在后续纯文档提交中补齐，标签仍固定在已验证的生产代码提交，不为文档回填重写标签。
