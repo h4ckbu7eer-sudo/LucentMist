@@ -47,9 +47,23 @@ public static class DnsSecurityProbe
     {
         var versionQuery = BuildQuery("version.bind", 16, 3, recursionDesired: false);
         var recursionQuery = BuildQuery("example.com", 1, 1, recursionDesired: true);
-        var versionResponse = await SendAsync(target, 53, versionQuery, timeoutMs, cancellationToken);
-        var recursionResponse = await SendAsync(target, 53, recursionQuery, timeoutMs, cancellationToken);
-        var version = versionResponse == null ? null : ReadFirstTxt(versionResponse);
+        var hostnameQuery = BuildQuery("hostname.bind", 16, 3, recursionDesired: false);
+        var octets = IPAddress.Parse(target).GetAddressBytes();
+        var zone = $"{octets[2]}.{octets[1]}.{octets[0]}.in-addr.arpa";
+        var soaQuery = BuildQuery(zone, 6, 1, recursionDesired: false);
+        // Four small, bounded queries. Identity/SOA records are not software versions.
+        var responses = await Task.WhenAll(new[] { versionQuery, recursionQuery, hostnameQuery, soaQuery }
+            .Select(query => SendAsync(target, 53, query, timeoutMs, cancellationToken)));
+        var versionResponse = responses[0];
+        var recursionResponse = responses[1];
+        var queries = new[]
+        {
+            Describe("version.bind", 16, 3, versionResponse),
+            Describe("example.com", 1, 1, recursionResponse),
+            Describe("hostname.bind", 16, 3, responses[2]),
+            Describe(zone, 6, 1, responses[3]),
+        };
+        var version = queries[0].Value;
         var recursion = recursionResponse == null ? default : ReadHeader(recursionResponse);
         var recursionAvailable = recursionResponse != null && recursion.ResponseCode == 0 &&
                                  recursion.RecursionAvailable && recursion.AnswerCount > 0;
@@ -66,6 +80,9 @@ public static class DnsSecurityProbe
             Math.Round(ratio, 2))
         {
             RecursionStatus = recursionResponse == null ? "unknown" : recursionAvailable ? "observed" : "not_observed",
+            Queries = queries,
+            Hostname = queries[2].Value,
+            SoaPrimaryName = queries[3].Value,
         };
     }
 
@@ -78,7 +95,7 @@ public static class DnsSecurityProbe
         BinaryPrimitives.WriteUInt16BigEndian(header[2..], recursionDesired ? (ushort)0x0100 : (ushort)0);
         BinaryPrimitives.WriteUInt16BigEndian(header[4..], 1);
         stream.Write(header);
-        foreach (var label in name.Split('.'))
+        foreach (var label in name.TrimEnd('.').Split('.', StringSplitOptions.RemoveEmptyEntries))
         {
             var bytes = Encoding.ASCII.GetBytes(label);
             stream.WriteByte((byte)bytes.Length); stream.Write(bytes);
@@ -96,6 +113,19 @@ public static class DnsSecurityProbe
             (flags & 0x0080) != 0,
             flags & 0x000F,
             BinaryPrimitives.ReadUInt16BigEndian(packet.AsSpan(6, 2)));
+    }
+
+    internal static DnsQueryEvidence Describe(string name, ushort type, ushort cls, byte[]? response)
+    {
+        if (response == null) return new(name, type, cls, "no_valid_response", null, null);
+        var header = ReadHeader(response);
+        var record = DnsRecords.Read(response).FirstOrDefault(r => r.Type == type && r.Class == cls &&
+            (type == 6 || r.Owner.Equals(name, StringComparison.OrdinalIgnoreCase)));
+        var value = header.ResponseCode == 0 || type == 6 && header.ResponseCode == 3
+            ? type == 16 && record != null ? string.Concat(record.Text) : record?.Name : null;
+        if (string.IsNullOrWhiteSpace(value)) value = null;
+        var status = header.ResponseCode switch { 5 => "refused", 3 => "nxdomain", 2 => "servfail", 0 => value == null ? "no_value" : "value_observed", _ => "error_response" };
+        return new(name, type, cls, status, header.ResponseCode, value);
     }
 
     internal static string? ReadFirstTxt(byte[] packet)
@@ -136,15 +166,24 @@ public static class DnsSecurityProbe
             udp.Connect(target, port);
             await udp.SendAsync(query, timeout.Token);
             var response = (await udp.ReceiveAsync(timeout.Token)).Buffer;
-            return IsResponseTo(query, response) ? response : null;
+            return IsResponseTo(query, response) && (response[2] & 2) == 0 ? response : null;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
     }
 
-    internal static bool IsResponseTo(byte[] query, byte[] response) => response.Length >= query.Length &&
-        response[0] == query[0] && response[1] == query[1] && (response[2] & 0x80) != 0 &&
-        response[4] == 0 && response[5] == 1 && response.AsSpan(12, query.Length - 12).SequenceEqual(query.AsSpan(12));
+    internal static bool IsResponseTo(byte[] query, byte[] response)
+    {
+        if (query.Length < 12 || response.Length < 12 || response[0] != query[0] || response[1] != query[1] ||
+            (response[2] & 0xf8) != 0x80 || response[4] != 0 || response[5] != 1) return false;
+        var queryOffset = 12;
+        var responseOffset = 12;
+        return DnsRecords.ReadName(query, ref queryOffset, out var requested) &&
+            DnsRecords.ReadName(response, ref responseOffset, out var answered) &&
+            requested.Equals(answered, StringComparison.OrdinalIgnoreCase) &&
+            queryOffset + 4 <= query.Length && responseOffset + 4 <= response.Length &&
+            query.AsSpan(queryOffset, 4).SequenceEqual(response.AsSpan(responseOffset, 4));
+    }
 
     private static bool SkipName(byte[] packet, ref int offset)
     {
@@ -186,4 +225,12 @@ public sealed record DnsSecurityResult(
     public string? RecursionStatus { get; init; }
     [JsonPropertyName("evidenceId")]
     public string EvidenceId { get; init; } = Guid.NewGuid().ToString("N");
+    [JsonPropertyName("queries")]
+    public IReadOnlyList<DnsQueryEvidence> Queries { get; init; } = [];
+    [JsonPropertyName("hostname")]
+    public string? Hostname { get; init; }
+    [JsonPropertyName("soaPrimaryName")]
+    public string? SoaPrimaryName { get; init; }
 }
+
+public sealed record DnsQueryEvidence(string Name, ushort Type, ushort Class, string Status, int? ResponseCode, string? Value);

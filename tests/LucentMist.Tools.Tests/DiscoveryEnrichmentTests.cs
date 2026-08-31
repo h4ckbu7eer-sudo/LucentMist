@@ -10,6 +10,18 @@ namespace LucentMist.Tools.Tests;
 
 public class DiscoveryEnrichmentTests
 {
+    [Theory]
+    [InlineData("00:17:9A:00:11:22", "D-Link")]
+    [InlineData("00:1B:11:00:11:22", "D-Link")]
+    [InlineData("28:6C:07:00:11:22", "XIAOMI")]
+    [InlineData("7C:7D:21:00:11:22", "ZTE")]
+    [InlineData("00:1E:10:00:11:22", "Huawei")]
+    [InlineData("18:D6:C7:00:11:22", "TP-Link")]
+    public void BuiltInPrefixesCoverGatewayVendors(string mac, string vendor)
+    {
+        Assert.Contains(vendor, new OuiDatabase().Lookup(mac), StringComparison.OrdinalIgnoreCase);
+    }
+
     [Fact]
     public void OuiDatabase_LoadsQuotedIeeeCsvAndHandlesRandomMac()
     {

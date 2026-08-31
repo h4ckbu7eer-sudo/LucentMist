@@ -7,21 +7,71 @@ namespace LucentMist.Tools.Discovery;
 
 public static class MdnsProbe
 {
-    public static async Task<string?> ResolveNameAsync(string target, CancellationToken cancellationToken = default)
+    public static async Task<string?> ResolveNameAsync(string target, CancellationToken cancellationToken = default) =>
+        (await ProbeAsync(target, cancellationToken)).Name;
+
+    public sealed record Identity(string? Name, string? Model, string Status, int Queries);
+
+    public static Task<Identity> ProbeAsync(string target, CancellationToken cancellationToken = default) =>
+        ProbeAsync(target, 5353, cancellationToken);
+
+    internal static async Task<Identity> ProbeAsync(string target, int port, CancellationToken cancellationToken)
     {
-        if (!IPAddress.TryParse(target, out var address) || address.AddressFamily != AddressFamily.InterNetwork) return null;
+        if (!IPAddress.TryParse(target, out var address) || address.AddressFamily != AddressFamily.InterNetwork)
+            return new(null, null, "unsupported_address", 0);
+        var records = new List<DnsRecords.Record>();
+        var queried = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        var reverse = string.Join('.', address.GetAddressBytes().Reverse()) + ".in-addr.arpa";
+        const string enumeration = "_services._dns-sd._udp.local";
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeout.CancelAfter(750);
+            timeout.CancelAfter(1200);
             using var udp = new UdpClient(AddressFamily.InterNetwork);
-            udp.Connect(new IPEndPoint(address, 5353));
-            await udp.SendAsync(BuildReversePtrQuery(address), timeout.Token);
-            var response = await udp.ReceiveAsync(timeout.Token);
-            return ParsePtrAnswers(response.Buffer).FirstOrDefault();
+            udp.Connect(new IPEndPoint(address, port));
+            await Query(reverse, 12);
+            await Query(enumeration, 12);
+            while (!timeout.IsCancellationRequested)
+            {
+                var packet = (await udp.ReceiveAsync(timeout.Token)).Buffer;
+                records.AddRange(DnsRecords.Read(packet).Where(r => r.Class == 1));
+                if (records.Count > 256) break;
+                foreach (var type in records.Where(r => r.Owner == enumeration && r.Type == 12 && r.Name != null)
+                    .Select(r => r.Name!).Distinct().Take(2).ToArray())
+                {
+                    await Query(type, 12);
+                    foreach (var instance in records.Where(r => r.Owner.Equals(type, StringComparison.OrdinalIgnoreCase) && r.Type == 12 && r.Name != null)
+                        .Select(r => r.Name!).Distinct().Take(2).ToArray())
+                        await Query(instance, 16);
+                }
+            }
+
+            async Task Query(string name, ushort type)
+            {
+                if (queried.Count >= 8 || !queried.Add($"{type}:{name}")) return;
+                // QU requests a unicast reply; connected socket rejects other devices.
+                await udp.SendAsync(DnsSecurityProbe.BuildQuery(name, type, 0x8001, false)
+                    .Select((b, i) => i < 2 ? (byte)0 : b).ToArray(), timeout.Token);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
-        catch { return null; }
+        catch (Exception ex) when (ex is OperationCanceledException or SocketException or IOException) { }
+        return Identify(records, reverse, queried.Count);
+    }
+
+    internal static Identity Identify(IEnumerable<DnsRecords.Record> source, string reverse, int queries)
+    {
+        var records = source.Where(r => r.Class == 1).ToArray();
+        var name = records.FirstOrDefault(r => r.Type == 12 && r.Owner.Equals(reverse, StringComparison.OrdinalIgnoreCase))?.Name;
+        var types = records.Where(r => r.Type == 12 && r.Owner == "_services._dns-sd._udp.local")
+            .Select(r => r.Name).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var instances = records.Where(r => r.Type == 12 && types.Contains(r.Owner))
+            .Select(r => r.Name).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var txt = records.Where(r => r.Type == 16 && instances.Contains(r.Owner)).SelectMany(r => r.Text);
+        var model = txt.Select(value => value.Split('=', 2))
+            .FirstOrDefault(pair => pair.Length == 2 && pair[0].ToLowerInvariant() is "model" or "md" or "ty")?[1];
+        name ??= records.FirstOrDefault(r => r.Type == 33 && instances.Contains(r.Owner))?.Name;
+        return new(name, model, records.Length == 0 ? "no_valid_unicast_response" : "response_observed", queries);
     }
 
     internal static byte[] BuildReversePtrQuery(IPAddress address)

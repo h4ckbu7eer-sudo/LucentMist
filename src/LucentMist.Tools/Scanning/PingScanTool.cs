@@ -21,6 +21,7 @@ public class PingScanTool : INetworkTargetTool
     private readonly Func<IReadOnlyCollection<string>, CancellationToken, Task<IReadOnlyDictionary<string, string>>> _neighborLookupAsync;
     private readonly Func<string, CancellationToken, Task<string?>> _mdnsLookupAsync;
     private readonly OuiDatabase _ouiDatabase;
+    private readonly Func<string, CancellationToken, Task<MdnsProbe.Identity>>? _identityProbe;
     private const int IcmpNoResponse = 1;
     private const int IcmpRejected = 2;
     private const int IcmpUnavailable = 4;
@@ -39,6 +40,7 @@ public class PingScanTool : INetworkTargetTool
     public PingScanTool(ILogger<PingScanTool> logger)
         : this(logger, SendIcmpAsync, TcpProbeAsync, NeighborTable.ReadAsync, MdnsProbe.ResolveNameAsync, new OuiDatabase())
     {
+        _identityProbe = MdnsProbe.ProbeAsync;
     }
 
     internal PingScanTool(
@@ -124,13 +126,14 @@ public class PingScanTool : INetworkTargetTool
                 {
                     var ip = alive[index];
                     neighborTable.TryGetValue(ip, out var mac);
-                    var name = IsPrivateAddress(ip) ? await _mdnsLookupAsync(ip, ct) : null;
+                    var identity = IsPrivateAddress(ip) && _identityProbe != null ? await _identityProbe(ip, ct) : null;
+                    var name = identity?.Name ?? (IsPrivateAddress(ip) && _identityProbe == null ? await _mdnsLookupAsync(ip, ct) : null);
                     deviceDetails[index] = new DeviceDetail(
                         ip,
                         mac,
                         _ouiDatabase.Lookup(mac) ?? "未知",
-                        name ?? "未广播",
-                        "未知（需服务指纹或管理接口确认）");
+                        name ?? "未知（未获得有效名称响应）",
+                        identity?.Model ?? "未知（需服务指纹或管理接口确认）");
                 });
 
             var result = new

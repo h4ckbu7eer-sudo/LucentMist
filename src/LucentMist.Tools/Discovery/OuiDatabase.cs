@@ -9,6 +9,9 @@ public sealed class OuiDatabase
     {
         ["000C29"] = "VMware, Inc.",
         ["00155D"] = "Microsoft Corporation",
+        // IEEE MA-L snapshot verified 2026-09-01; these are vendor clues, not models.
+        ["00179A"] = "D-Link Corporation",
+        ["001B11"] = "D-Link Corporation",
         ["001B21"] = "Intel Corporate",
         ["001C42"] = "Parallels, Inc.",
         ["001E10"] = "Huawei Technologies",
@@ -16,6 +19,7 @@ public sealed class OuiDatabase
         ["0026BB"] = "Apple, Inc.",
         ["0C9D92"] = "ASUSTek COMPUTER INC.",
         ["18D6C7"] = "TP-Link Technologies Co., Ltd.",
+        ["286C07"] = "XIAOMI Electronics,CO.,LTD",
         ["3C846A"] = "TP-Link Technologies Co., Ltd.",
         ["5CC5D4"] = "Intel Corporate",
         ["7C7D21"] = "ZTE Corporation",
