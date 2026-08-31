@@ -5,7 +5,7 @@ Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SE
 
 ## Unreleased gateway-analysis follow-up
 
-Local changes after the 0.9.6 release converge incomplete checks into limited actionable assessments, share bounded HTTP HEAD/GET probes, fold unverified pre-2005 keyword leads, and reuse a DNS snapshot within one Agent run. Local gates: 551 .NET tests and 14 Python tests. [Gateway validation](gateway-convergence-validation.md) distinguishes the 50-lead simulated analysis from real gateway tools driven by a scripted provider. No new DeepSeek or Web validation, no new push/tag/CI claim; the published 0.9.6 image does not yet contain this follow-up.
+Local changes after the 0.9.6 release converge incomplete checks into limited actionable assessments, share bounded HTTP HEAD/GET probes, fold unverified pre-2005 keyword leads, and reuse a DNS snapshot within one Agent run. Local gates now pass 564 .NET tests and 14 Python tests. The earlier [scripted-provider gateway validation](gateway-convergence-validation.md) remains historical. Subsequent [real DeepSeek reproduction](gateway-deepseek-reproduction-20260831.md) records all four real runs (14/14 JSON contracts), initial unsupported RDP/DNS claims, fixes, and a final committed-code four-round assessment with no completion deferrals. CLI presentation is compact by default; `-v` and session records retain details. Version/firmware identification is still limited, cloud keyword leads are not confirmed vulnerabilities, source failures/limits reduce coverage, and DNS conclusions remain vantage-specific. No new Web validation or push/tag/CI claim; the published 0.9.6 image does not yet contain this follow-up.
 
 ## Release Status
 
