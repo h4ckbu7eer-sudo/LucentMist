@@ -123,11 +123,9 @@ internal static class SecurityAnalysisEvidence
             sb.AppendLine($"  判断依据: {reasonNode.GetString()}");
         if (root.TryGetProperty("cloudCandidateGroups", out var groups) && groups.ValueKind == JsonValueKind.Array)
         {
-            var remaining = LucentMist.Tools.Security.CloudLeadRanking.ModelLeadLimit;
-            foreach (var group in groups.EnumerateArray())
+            foreach (var group in LucentMist.Tools.Security.CloudLeadRanking.ForPresentation(groups.EnumerateArray()))
             {
-                var leads = group.GetProperty("leads").EnumerateArray().Take(remaining).ToArray();
-                remaining -= leads.Length;
+                var leads = group.GetProperty("leads").EnumerateArray().ToArray();
                 sb.AppendLine($"  端口 {group.GetProperty("port")} 优先核实（非目标漏洞）：" +
                     (leads.Length > 0 ? string.Join(", ", leads.Select(lead => lead.GetProperty("cve").GetString())) : "无优先展示项；其余线索保留在原始结果中"));
                 if (group.TryGetProperty("historicalCount", out var historical) && historical.GetInt32() > 0)

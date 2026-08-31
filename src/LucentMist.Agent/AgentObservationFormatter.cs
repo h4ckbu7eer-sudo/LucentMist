@@ -19,15 +19,8 @@ internal static class AgentObservationFormatter
             if (observation.ToolName == "vuln_scan" && root is JsonObject obj && obj["cloudCandidateGroups"] is JsonArray)
             {
                 obj.Remove("cloudCandidates");
-                var remaining = CloudLeadRanking.ModelLeadLimit;
-                foreach (var group in obj["cloudCandidateGroups"]!.AsArray().OfType<JsonObject>())
-                {
-                    if (group["leads"] is not JsonArray leads) continue;
-                    var retained = leads.Take(remaining).Select(item => item?.DeepClone()).ToArray();
-                    group["modelOmittedCount"] = leads.Count - retained.Length;
-                    group["leads"] = new JsonArray(retained);
-                    remaining -= retained.Length;
-                }
+                obj["cloudCandidateGroups"] = JsonSerializer.SerializeToNode(CloudLeadRanking.ForPresentation(
+                    JsonSerializer.SerializeToElement(obj["cloudCandidateGroups"]).EnumerateArray()));
                 obj["presentationGuidance"] = "最终评估按暴露面、TLS/DNS 风险、未知项、下一步组织；最多列5条优先核实线索并注明非确认漏洞，历史无版本证据线索已折叠。版本未知/DNS 不一致允许有限结论，不应反复扫描。";
             }
             if (observation.ToolName == "ssl_check" && root is JsonObject tls)

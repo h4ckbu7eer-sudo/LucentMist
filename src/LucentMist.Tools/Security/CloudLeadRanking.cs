@@ -35,6 +35,23 @@ public static class CloudLeadRanking
             limitation = "按可观察相关性排序，均为待核实线索，不是目标漏洞；年份/引用数仅用于同相关性排序，不代表正在被利用。",
         })).ToArray();
 
+    public static JsonElement[] ForPresentation(IEnumerable<JsonElement> groups)
+    {
+        var array = groups.ToArray();
+        static string Key(JsonElement lead) => $"{lead.GetProperty("port")}:{lead.GetProperty("cve")}";
+        var selected = Rank(array.SelectMany(group => group.GetProperty("leads").EnumerateArray()))
+            .Take(ModelLeadLimit).Select(Key).ToHashSet(StringComparer.Ordinal);
+        return array.Select(group =>
+        {
+            var node = JsonNode.Parse(group.GetRawText())!.AsObject();
+            var all = group.GetProperty("leads").EnumerateArray().ToArray();
+            var retained = all.Where(lead => selected.Contains(Key(lead))).ToArray();
+            node["modelOmittedCount"] = all.Length - retained.Length;
+            node["leads"] = JsonSerializer.SerializeToNode(retained);
+            return JsonSerializer.SerializeToElement(node);
+        }).ToArray();
+    }
+
     private static JsonObject Annotate(JsonElement candidate)
     {
         var item = JsonNode.Parse(candidate.GetRawText())!.AsObject();
