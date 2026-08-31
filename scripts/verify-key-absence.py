@@ -57,7 +57,7 @@ def scan_objects(objects):
 result = {}
 try:
     check = subprocess.run(["rg", "--quiet", "--text", "--fixed-strings", "--hidden", "--no-ignore",
-                            "--glob", "!.git", "-f", "-", str(root)],
+                            "-f", "-", str(root)],
                            input=secret + b"\n", capture_output=True)
     result["workingTree"] = {0: "FOUND", 1: "ABSENT"}.get(check.returncode, "ERROR")
     index = {entry.split(b"\t", 1)[0].split()[1]
