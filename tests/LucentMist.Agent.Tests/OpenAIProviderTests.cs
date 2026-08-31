@@ -60,6 +60,9 @@ public sealed class OpenAIProviderTests
     [InlineData("{\"thought\":\"done\",\"action\":\"final_answer\",\"action_input\":\"first\nsecond\"}")]
     [InlineData("{\"thought\":\"done\",\"action\":\"ssl_check\",\"action_input\":[443]}")]
     [InlineData("")]
+    [InlineData("""{"thought":"done","action":"final_answer","action_input":"first","action_input":"second"}""")]
+    [InlineData("""{"thought":"probe","action":"ssl_check","action_input":{"target":"first","target":"second"}}""")]
+    [InlineData("""{"thought":"probe","action":"ssl_check","action_input":"{\"target\":\"first\",\"target\":\"second\"}"}""")]
     [InlineData("{\"thought\":\"done\",\"action\":\"final_answer\",\"action_input\":\"ok\",\"action\":\"port_scan\"}")]
     [InlineData("{\"thought\":\"done\",\"action\":\"final_answer\",\"action_input\":\"ok\"};")]
     public void InvalidModelOutputIsNotPresentedAsAnAnswer(string raw)

@@ -18,6 +18,7 @@ import time
 import urllib.error
 import urllib.request
 import uuid
+from react_contract import evaluate
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", required=True)
@@ -80,15 +81,9 @@ class Recorder(http.server.BaseHTTPRequestHandler):
         action = None
         try:
             content = json.loads(data)["choices"][0]["message"]["content"]
-            step = json.loads(content)
-            valid_json = isinstance(step, dict) and isinstance(step.get("thought"), str)
-            action = step.get("action")
             prompt = request_data["messages"][-1]["content"]
             tools = set(re.findall(r'^- ([a-z_]+):', prompt.split("## 用户问题")[0], re.MULTILINE))
-            valid_action = action == "final_answer" or action in tools
-            value = step.get("action_input")
-            valid_input = (isinstance(value, str) and bool(value.strip()) if action == "final_answer" else
-                           isinstance(value, dict) or isinstance(value, str) and isinstance(json.loads(value), dict))
+            valid_json, valid_action, valid_input, action = evaluate(content, tools)
         except (ValueError, KeyError, TypeError, AttributeError, IndexError):
             pass
         record("model-responses.jsonl", json.dumps({

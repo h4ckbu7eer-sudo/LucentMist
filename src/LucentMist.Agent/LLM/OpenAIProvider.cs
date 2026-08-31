@@ -136,7 +136,7 @@ action_input 在工具调用时必须是 JSON 对象，在 final_answer 时必�
         {
             using var doc = JsonDocument.Parse(reply);
             var root = doc.RootElement;
-            if (root.ValueKind == JsonValueKind.Object &&
+            if (HasUniqueProperties(root) && root.ValueKind == JsonValueKind.Object &&
                 root.EnumerateObject().Count() == 3 &&
                 root.EnumerateObject().Select(property => property.Name).Distinct(StringComparer.Ordinal).Count() == 3 &&
                 root.TryGetProperty("thought", out var thought) && thought.ValueKind == JsonValueKind.String &&
@@ -149,7 +149,7 @@ action_input 在工具调用时必须是 JSON 对象，在 final_answer 时必�
                 if (!final && ai.ValueKind == JsonValueKind.String)
                 {
                     using var arguments = JsonDocument.Parse(input);
-                    validInput = arguments.RootElement.ValueKind == JsonValueKind.Object;
+                    validInput = arguments.RootElement.ValueKind == JsonValueKind.Object && HasUniqueProperties(arguments.RootElement);
                 }
                 if (validInput && !string.IsNullOrWhiteSpace(action.GetString()))
                     return new ReActStep { Thought = thought.GetString() ?? "", Action = action.GetString()!, ActionInput = input };
@@ -161,9 +161,17 @@ action_input 在工具调用时必须是 JSON 对象，在 final_answer 时必�
         {
             Thought = "模型输出不符合 ReAct JSON 契约，需重新生成",
             Action = "invalid_response",
-            ActionInput = "请输出合法 JSON 对象 {thought, action, action_input}；工具参数须为对象，最终答案须为非空字符串；字符串内换行必须转义。"
+            ActionInput = "请重新生成合法 JSON 对象 {thought, action, action_input}；每个字段只能出现一次，尤其不要重复 action_input。工具参数须为对象，最终答案须为非空字符串；字符串内换行必须转义。"
         };
     }
 
     public void Dispose() => _http.Dispose();
+
+    private static bool HasUniqueProperties(JsonElement node) => node.ValueKind switch
+    {
+        JsonValueKind.Object => node.EnumerateObject().Select(p => p.Name).Distinct(StringComparer.Ordinal).Count() == node.EnumerateObject().Count()
+            && node.EnumerateObject().All(p => HasUniqueProperties(p.Value)),
+        JsonValueKind.Array => node.EnumerateArray().All(HasUniqueProperties),
+        _ => true,
+    };
 }
