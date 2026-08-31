@@ -8,7 +8,11 @@ namespace LucentMist.Tools.Security;
 
 internal static class HttpBannerProbe
 {
-    internal sealed record Result(string? Banner, string Status, string Reason);
+    internal sealed record HeaderEvidence(string Method, string StatusLine, int HeaderBytes, string? Server, string? PoweredBy, string? Via);
+    internal sealed record Result(string? Banner, string Status, string Reason)
+    {
+        public IReadOnlyList<HeaderEvidence> Responses { get; init; } = [];
+    }
     internal static bool IsHttpPort(int port) => port is 80 or 443 or 8000 or 8080 or 8443 or 8888;
 
     internal static string Parse(string headers)
@@ -16,15 +20,17 @@ internal static class HttpBannerProbe
         // Never interpret response body text (or cookies) as product evidence.
         var end = headers.IndexOf("\r\n\r\n", StringComparison.Ordinal);
         if (end >= 0) headers = headers[..end];
-        static string? Header(string text, string name)
-        {
-            var match = Regex.Match(text, $@"^{name}:[ \t]*([^\r\n]*)", RegexOptions.Multiline | RegexOptions.IgnoreCase);
-            return match.Success && !string.IsNullOrWhiteSpace(match.Groups[1].Value) ? match.Groups[1].Value.Trim() : null;
-        }
         var server = Header(headers, "Server");
         var powered = Header(headers, "X-Powered-By");
         return (server == null ? "HTTP (无 Server 头)" : $"HTTP Server: {server}")
             + (powered == null ? "" : $"; X-Powered-By: {powered}");
+    }
+
+    private static string? Header(string text, string name)
+    {
+        var match = Regex.Match(text, $@"^{name}:[ \t]*([^\r\n]*)", RegexOptions.Multiline | RegexOptions.IgnoreCase,
+            TimeSpan.FromMilliseconds(100));
+        return match.Success && !string.IsNullOrWhiteSpace(match.Groups[1].Value) ? match.Groups[1].Value.Trim() : null;
     }
 
     internal static async Task<string?> ProbeAsync(string target, int port, int timeoutMs, CancellationToken ct) =>
@@ -38,6 +44,7 @@ internal static class HttpBannerProbe
         string? best = null;
         var responses = 0;
         var failures = new List<string>();
+        var evidence = new List<HeaderEvidence>();
         foreach (var method in new[] { "HEAD", "GET" })
         {
             using var attempt = CancellationTokenSource.CreateLinkedTokenSource(timeout.Token);
@@ -62,13 +69,14 @@ internal static class HttpBannerProbe
                     responses++;
                     if (best == null || banner.Contains("Server:", StringComparison.Ordinal)) best = banner;
                     if (ServiceFingerprint.FromBanner(banner)?.Version != null)
-                        return new Result(banner, "version_observed", $"{method} / 响应头公开了可识别服务版本（未经认证的 Banner 证据）");
+                        return new Result(banner, "version_observed", $"{method} / 响应头公开了可识别服务版本（未经认证的 Banner 证据）") { Responses = evidence };
                 }
 
                 async Task<string?> ReadAsync(Stream transport)
                 {
                     await transport.WriteAsync(Encoding.ASCII.GetBytes($"{method} / HTTP/1.1\r\nHost: {target}:{port}\r\nConnection: close\r\n\r\n"), attempt.Token);
-                    var buffer = new byte[4096];
+                    // Read complete headers up to a bounded 32 KiB, not a single 4 KiB chunk.
+                    var buffer = new byte[32768];
                     var count = 0;
                     while (count < buffer.Length)
                     {
@@ -78,7 +86,14 @@ internal static class HttpBannerProbe
                         if (Encoding.ASCII.GetString(buffer, 0, count).Contains("\r\n\r\n", StringComparison.Ordinal)) break;
                     }
                     var text = Encoding.ASCII.GetString(buffer, 0, count);
-                    return text.StartsWith("HTTP/", StringComparison.Ordinal) && text.Contains("\r\n\r\n", StringComparison.Ordinal) ? Parse(text) : null;
+                    var end = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+                    if (!text.StartsWith("HTTP/", StringComparison.Ordinal) || end < 0) return null;
+                    text = text[..end];
+                    // Persist only public software hints, never cookies, authentication headers or body.
+                    evidence.Add(new HeaderEvidence(method, text.Split("\r\n")[0], end + 4,
+                        Header(text, "Server"), Header(text, "X-Powered-By"), Header(text, "Via")));
+                    // Via identifies an intermediary, not necessarily the scanned origin product.
+                    return Parse(text);
                 }
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
@@ -90,7 +105,7 @@ internal static class HttpBannerProbe
         }
         ct.ThrowIfCancellationRequested();
         return responses == 2
-            ? new Result(best, "version_not_disclosed", "服务器在 HEAD/GET / 响应头中未公开可识别版本；不代表其它路径也不公开")
-            : new Result(best, "probe_incomplete", "HTTP Banner 抓取未完成，不能断言服务器未公开版本：" + string.Join("；", failures));
+            ? new Result(best, "version_not_disclosed", "服务器在 HEAD/GET / 响应头中未公开可识别版本；不代表其它路径或正确虚拟主机名称下也不公开") { Responses = evidence }
+            : new Result(best, "probe_incomplete", "HTTP Banner 抓取未完成，不能断言服务器未公开版本：" + string.Join("；", failures)) { Responses = evidence };
     }
 }

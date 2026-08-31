@@ -130,6 +130,8 @@ public class ServiceIdentifyTool : INetworkTargetTool
                 dnsSecurity,
                 bannerStatus = httpBanner?.Status,
                 bannerReason = httpBanner?.Reason,
+                httpResponses = httpBanner?.Responses,
+                fingerprint = LucentMist.Tools.Vulnerability.ServiceFingerprint.FromBanner(banner),
             };
 
             _logger.LogInformation("ServiceIdentify 完成: {Target}:{Port} → {Service}",

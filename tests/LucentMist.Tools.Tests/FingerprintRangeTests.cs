@@ -6,6 +6,27 @@ namespace LucentMist.Tools.Tests;
 public class FingerprintRangeTests
 {
     [Theory]
+    [InlineData("HTTP Server: Apache-AdvancedExtranetServer/2.0.47 (Linux)", "apache", "2.0.47")]
+    [InlineData("HTTP Server: lighttpd/1.4.76", "lighttpd", "1.4.76")]
+    [InlineData("SSH-2.0-OpenSSH_9.8p1", "openssh", "9.8p1")]
+    [InlineData("DNS dnsmasq-2.90", "dnsmasq", "2.90")]
+    [InlineData("MySQL 8.0.36", "mysql", "8.0.36")]
+    [InlineData("redis_version:6.2.7", "redis", "6.2.7")]
+    public void EvidenceTableAndCatalogRecognizeServicesWithoutInventingVersions(string banner, string product, string? version)
+    {
+        var fingerprint = ServiceFingerprint.FromBanner(banner);
+        Assert.NotNull(fingerprint);
+        Assert.Equal(product, fingerprint.ProductKey);
+        Assert.Equal(version, fingerprint.Version);
+    }
+
+    [Theory]
+    [InlineData("SMBv3.1.1")]
+    [InlineData("HTTP (无 Server 头)")]
+    [InlineData("DNS（版本未知）")]
+    public void ProtocolVersionDoesNotInventProductCpe(string banner) => Assert.Null(ServiceFingerprint.FromBanner(banner));
+
+    [Theory]
     [InlineData("HTTP/1.1 200 OK", null, null)]
     [InlineData("DNS（版本未公开）", null, null)]
     [InlineData("SSH-2.0", null, null)]

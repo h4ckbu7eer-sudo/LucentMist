@@ -9,6 +9,20 @@ namespace LucentMist.Tools.Tests;
 public class HttpBannerProbeTests
 {
     [Fact]
+    public async Task HeadersBeyondFourKiBAreRead_ViaIsEvidenceNotOriginProduct()
+    {
+        var (result, _) = await Probe("HTTP/1.1 200 OK\r\nX-Padding: " + new string('a', 5000) +
+            "\r\nServer: lighttpd/1.4.76\r\nVia: 1.1 nginx/1.0\r\nSet-Cookie: private-test-value\r\n\r\n");
+        Assert.Equal("version_observed", result.Status);
+        var response = Assert.Single(result.Responses);
+        Assert.True(response.HeaderBytes > 4096);
+        Assert.Equal("lighttpd/1.4.76", response.Server);
+        Assert.Equal("1.1 nginx/1.0", response.Via);
+        Assert.DoesNotContain("private-test-value", System.Text.Json.JsonSerializer.Serialize(result));
+        Assert.Equal("lighttpd", ServiceFingerprint.FromBanner(result.Banner)?.ProductKey);
+    }
+
+    [Fact]
     public async Task HeadWithoutVersion_GetFallbackFindsServer_WithoutReadingBody()
     {
         var (result, requests) = await Probe(
