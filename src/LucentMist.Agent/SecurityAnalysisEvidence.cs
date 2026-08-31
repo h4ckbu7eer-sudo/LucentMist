@@ -31,7 +31,7 @@ internal static class SecurityAnalysisEvidence
         }
 
         var incomplete = new List<string>();
-        if (targets.Count == 0 && !observations.Any(item => item.ToolName is "port_scan" or "vuln_scan") &&
+        if (targets.Count == 0 && (includeFailedAttempts || !observations.Any(item => item.ToolName is "port_scan" or "vuln_scan")) &&
             Regex.IsMatch(userQuery, @"网关|网络|子网|\b(?:\d{1,3}\.){3}\d{1,3}\b", RegexOptions.None, TimeSpan.FromMilliseconds(100)))
             incomplete.Add("尚未检查目标端口暴露面");
         foreach (var (target, openPorts) in targets)
