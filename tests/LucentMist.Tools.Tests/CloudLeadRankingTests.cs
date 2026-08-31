@@ -34,6 +34,22 @@ public class CloudLeadRankingTests
     }
 
     [Fact]
+    public void PresentationUsesGlobalRelevance_NotFirstPortOrder()
+    {
+        var candidates = Enumerable.Range(0, 9).Select(i => JsonSerializer.SerializeToElement(new
+        {
+            port = i < 3 ? 53 : i < 6 ? 80 : 443,
+            cve = $"CVE-2024-{1000 + i}",
+            name = i < 6 ? "unrelated" : "HTTPS port 443",
+            source = "NVD",
+            cvss = 7.0,
+        }));
+        var groups = CloudLeadRanking.ForPresentation(CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates)));
+        Assert.Equal(5, groups.Sum(group => group.GetProperty("leads").GetArrayLength()));
+        Assert.Equal(3, groups.Single(group => group.GetProperty("port").GetInt32() == 443).GetProperty("leads").GetArrayLength());
+    }
+
+    [Fact]
     public void FortyLeads_RelevanceWinsOverRecencyAndGroupsAreBounded()
     {
         var candidates = Enumerable.Range(0, 40).Select(index => JsonSerializer.SerializeToElement(new
