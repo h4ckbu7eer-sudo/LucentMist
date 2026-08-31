@@ -213,8 +213,8 @@
       "lucentmist.agent": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Core": "[0.9.6, )",
-          "LucentMist.Tools": "[0.9.6, )",
+          "LucentMist.Core": "[0.9.7, )",
+          "LucentMist.Tools": "[0.9.7, )",
           "Microsoft.Extensions.Http": "[10.0.10, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )"
         }
@@ -229,7 +229,7 @@
       "lucentmist.tools": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Core": "[0.9.6, )",
+          "LucentMist.Core": "[0.9.7, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "System.ServiceProcess.ServiceController": "[10.0.10, )"
         }

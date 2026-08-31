@@ -24,7 +24,7 @@ services:
 
   report-generator:
     profiles: ["report"]
-    image: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.6
+    image: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
     command:
       - dotnet
       - cli/lmist.dll
