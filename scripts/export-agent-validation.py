@@ -54,7 +54,7 @@ for capture in args.capture:
             value = step.get("action_input")
             valid_input = isinstance(value, str) if action == "final_answer" else isinstance(value, dict) or isinstance(value, str) and isinstance(json.loads(value), dict)
             valid_json = valid_json and isinstance(step.get("thought"), str)
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError):
             pass
         rows.append({"capture": label, "call": index, "utc": raw["utc"], "run": raw["run"],
                      "httpStatus": raw["httpStatus"], "jsonValid": valid_json, "actionValid": valid_action,
@@ -64,7 +64,7 @@ for capture in args.capture:
     all_rows.extend(rows)
     passed = sum(row["httpStatus"] == 200 and row["jsonValid"] and row["actionValid"] and row["inputValid"] for row in rows)
     summary.append({"capture": label, "calls": len(rows), "contractPassed": passed, "percent": round(100 * passed / len(rows), 2)})
-    for transcript in ("ip.txt", "gateway.txt", "repl.txt"):
+    for transcript in ("ip.txt", "local.txt", "gateway.txt", "repl.txt"):
         path = directory / transcript
         if path.exists():
             save(output / f"{label}-{transcript}", path.read_text(encoding="utf-8"))
