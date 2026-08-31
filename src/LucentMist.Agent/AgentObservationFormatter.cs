@@ -16,6 +16,8 @@ internal static class AgentObservationFormatter
         try
         {
             var root = JsonNode.Parse(observation.Result);
+            if (observation.ToolName == "port_scan" && root is JsonObject scan && scan["scannedPortRange"] is JsonValue range)
+                scan["scopeInterpretation"] = $"实际已检查的 TCP 端口范围为 {range}；不能把此范围内的端口列为未检查，也不能把范围外端口断言为关闭。无需重复扫描来修正文字。";
             if (observation.ToolName == "vuln_scan" && root is JsonObject obj && obj["cloudCandidateGroups"] is JsonArray)
             {
                 obj.Remove("cloudCandidates");
@@ -26,6 +28,8 @@ internal static class AgentObservationFormatter
             if (observation.ToolName == "ssl_check" && root is JsonObject tls)
             {
                 using var document = JsonDocument.Parse(observation.Result);
+                if (CertificateValidityEvidence.Describe(document.RootElement) is { } validity)
+                    tls["certificateValidityAssessment"] = validity;
                 if (SecurityAnalysisEvidence.TlsIdentityAssessment(document.RootElement) is { } identity)
                     tls["certificateIdentityAssessment"] = identity;
                 if (tls["trustErrors"] is JsonArray { Count: > 0 })

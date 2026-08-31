@@ -28,15 +28,29 @@ internal static class PortScopeEvidence
             catch (JsonException) { }
         }
 
+        if (scopes.Count == 0) yield break;
         foreach (var clause in Regex.Split(answer, @"[。；;\n]", RegexOptions.None, MatchTimeout))
         {
-            if (!Regex.IsMatch(clause, Negative, RegexOptions.IgnoreCase, MatchTimeout) ||
-                Regex.IsMatch(clause, @"不能|不可|不得|不应|无法|不代表|不等于|cannot|can't", RegexOptions.IgnoreCase, MatchTimeout)) continue;
+            if (Regex.IsMatch(clause, @"不能|不可|不得|不应|无法|不代表|不等于|cannot|can't", RegexOptions.IgnoreCase, MatchTimeout)) continue;
             var namedTargets = scopes.Keys.Where(target => clause.Contains(target, StringComparison.OrdinalIgnoreCase)).ToArray();
             var applicable = namedTargets.Length > 0 ? namedTargets : scopes.Keys.ToArray();
             // Remove addresses, CVE identifiers and version-like tokens before
             // finding arbitrary numeric ports; these are not port claims.
             var text = Regex.Replace(clause, @"\b(?:\d{1,3}\.){3}\d{1,3}(?:/\d+)?\b|\bCVE-\d{4}-\d+\b|\b\d+(?:\.\d+)+\b", " ", RegexOptions.IgnoreCase, MatchTimeout);
+            // The inverse error is also misleading: a port inside a recorded
+            // TCP scan must not be presented as outside that scan. Only check
+            // explicit port-scope claims, not unfinished TLS/UDP/service checks.
+            if (!Regex.IsMatch(text, "UDP|TLS|证书|漏洞匹配", RegexOptions.IgnoreCase, MatchTimeout))
+                foreach (Match unknown in Regex.Matches(text,
+                             @"(?:范围外端口|未扫描端口|未检查端口|端口)\s*[（(]?(?:如\s*)?(?<ports>\d+(?:\s*[,，、/]\s*\d+)*)[）)]?\s*(?:未检查|未扫描|不在扫描范围)?|(?<ports>\d+)\s*端口\s*(?:未检查|未扫描)",
+                             RegexOptions.None, MatchTimeout))
+                {
+                    if (!Regex.IsMatch(unknown.Value, "范围外|未检查|未扫描|不在扫描范围", RegexOptions.None, MatchTimeout)) continue;
+                    foreach (Match number in Regex.Matches(unknown.Groups["ports"].Value, @"\d+", RegexOptions.None, MatchTimeout))
+                        if (int.TryParse(number.Value, out var checkedPort) && applicable.All(target => scopes[target].Contains(checkedPort)))
+                            yield return $"端口 {checkedPort} 已在所述目标的 TCP 受检范围内，不能列为范围外或未检查；未观察开放不等于服务已全面评估，不必重新扫描";
+                }
+            if (!Regex.IsMatch(text, Negative, RegexOptions.IgnoreCase, MatchTimeout)) continue;
             text = Regex.Replace(text, @"\d{1,5}\s*(?:端口)?\s*(?:未知|未检查|未扫描|未检验)", " ", RegexOptions.None, MatchTimeout);
             var claims = Regex.Matches(text, $@"(?:{Negative})\s*(?<subject>(?:(?!但|未知|未检查|未扫描|不在|范围外).){{0,60}})|(?<subject>[a-zA-Z0-9][a-zA-Z0-9 /,，、()（）-]{{0,59}})(?:端口)?\s*(?:{Negative})", RegexOptions.IgnoreCase, MatchTimeout);
             foreach (Match claim in claims)

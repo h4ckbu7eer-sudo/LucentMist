@@ -158,6 +158,8 @@ internal static class SecurityAnalysisEvidence
 
     internal static void AppendTlsSummary(StringBuilder sb, JsonElement root, bool compact = false)
     {
+        if (CertificateValidityEvidence.Describe(root) is { } validity)
+            sb.AppendLine($"  {validity.Split('；')[0]}。");
         if (compact)
         {
             if (root.TryGetProperty("trustErrors", out var compactErrors) && compactErrors.ValueKind == JsonValueKind.Array && compactErrors.GetArrayLength() > 0)
@@ -209,6 +211,7 @@ internal static class SecurityAnalysisEvidence
                 !Regex.IsMatch(claim.Value, "不能|不可|无法|不代表|不等于|不是", RegexOptions.None, TimeSpan.FromMilliseconds(100))))
             conflicts.Add("单次 DNS 响应/请求字节比不能推出放大攻击风险较低；只描述观测值，明确公网可达性和反射能力未验证，不必反复探测");
         conflicts.AddRange(PortScopeEvidence.FindConflicts(answer, observations));
+        conflicts.AddRange(CertificateValidityEvidence.FindConflicts(answer, observations));
         var dnsEvidence = ReadDnsEvidence(observations);
         var hasPositiveDns = dnsEvidence.Any(item => item.Positive);
         // A TLS name mismatch is not an acknowledgement of conflicting DNS probes.
