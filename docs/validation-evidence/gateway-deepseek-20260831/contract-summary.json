@@ -1,0 +1,26 @@
+[
+  {
+    "capture": "initial",
+    "calls": 4,
+    "contractPassed": 4,
+    "percent": 100.0
+  },
+  {
+    "capture": "recheck",
+    "calls": 3,
+    "contractPassed": 3,
+    "percent": 100.0
+  },
+  {
+    "capture": "final",
+    "calls": 3,
+    "contractPassed": 3,
+    "percent": 100.0
+  },
+  {
+    "capture": "committed",
+    "calls": 4,
+    "contractPassed": 4,
+    "percent": 100.0
+  }
+]

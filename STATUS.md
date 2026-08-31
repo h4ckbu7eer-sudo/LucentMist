@@ -2,8 +2,9 @@
 
 > 最后更新：2026-08-31
 
-当前本地有 0.9.6 发布后的网关收敛修复，尚未推送/发布：551 个 .NET 测试与 14 个 Python 测试通过。
-真实网关工具链使用脚本化 Provider 复验，未调用 DeepSeek；[证据与边界](docs/gateway-convergence-validation.md)。
+当前本地有 0.9.6 发布后的网关收敛修复，尚未推送/发布：564 个 .NET 测试与 14 个 Python 测试通过。
+真实 DeepSeek 四轮复现/复验共14次调用，最终提交版4轮收敛、0次完成度补查；修复越界端口断言、DNS无依据评级与呈现冗余。
+[真实对话与边界](docs/gateway-deepseek-reproduction-20260831.md)；此前[脚本化 Provider 证据](docs/gateway-convergence-validation.md)保留为历史记录，不混称真实模型验证。
 下列 0.9.6 CI/镜像信息仍是已发布版本的历史证据，不代表本地新增修复已发布。
 
 ## 当前版本：0.9.6（已发布，远端核验通过）
