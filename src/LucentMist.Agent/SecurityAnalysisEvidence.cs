@@ -12,7 +12,8 @@ internal static class SecurityAnalysisEvidence
 
     internal static IReadOnlyList<string> FindIncompleteChecks(
         string userQuery,
-        IReadOnlyCollection<ReActObservation> observations)
+        IReadOnlyCollection<ReActObservation> observations,
+        bool includeFailedAttempts = true)
     {
         if (!RequiresSecurityConclusion(userQuery)) return [];
 
@@ -30,11 +31,15 @@ internal static class SecurityAnalysisEvidence
         }
 
         var incomplete = new List<string>();
+        if (targets.Count == 0 && !observations.Any(item => item.ToolName is "port_scan" or "vuln_scan") &&
+            Regex.IsMatch(userQuery, @"网关|网络|子网|\b(?:\d{1,3}\.){3}\d{1,3}\b", RegexOptions.None, TimeSpan.FromMilliseconds(100)))
+            incomplete.Add("尚未检查目标端口暴露面");
         foreach (var (target, openPorts) in targets)
         {
             var vulnerabilityObservation = observations.LastOrDefault(item =>
                 item.Success && item.ToolName == "vuln_scan" && ResultTargets(item.Result, target));
-            if (openPorts.Count > 0 && vulnerabilityObservation == null)
+            if (openPorts.Count > 0 && vulnerabilityObservation == null &&
+                (includeFailedAttempts || !Attempted("vuln_scan", target)))
             {
                 incomplete.Add($"{target} 的开放端口尚未完成漏洞匹配");
             }
@@ -46,16 +51,43 @@ internal static class SecurityAnalysisEvidence
                     incomplete.Add($"{target} 的端口 {string.Join(',', missingPorts)} 尚未进入漏洞分析");
             }
 
-            if (openPorts.Contains(443) && !observations.Any(item =>
+            if (openPorts.Contains(443) && (includeFailedAttempts || !Attempted("ssl_check", target, 443)) && !observations.Any(item =>
                     item.Success && item.ToolName == "ssl_check" &&
                     ResultTargetsPort(item.Result, target, 443)))
                 incomplete.Add($"{target}:443 的 TLS 检查失败或尚未完成");
 
-            if (openPorts.Contains(53) && !HasDnsAssessment(observations, target))
+            if (openPorts.Contains(53) && (includeFailedAttempts || !Attempted("service_identify", target, 53)) && !HasDnsAssessment(observations, target))
                 incomplete.Add($"{target}:53 的 DNS 版本/递归检查失败或尚未完成");
         }
 
         return incomplete;
+
+        bool Attempted(string tool, string target, int? port = null) => observations.Any(item =>
+            !item.Success && item.ToolName == tool && (port.HasValue
+                ? ResultTargetsPort(item.Input, target, port.Value) : ResultTargets(item.Input, target)));
+    }
+
+    internal static string LimitedAssessment(string query, IReadOnlyCollection<ReActObservation> observations)
+    {
+        var sb = new StringBuilder("【有限安全评估】以下结论受限于未确认项；检查完成不等于目标安全。\n");
+        foreach (var group in observations.Where(item => item.Success && item.ToolName is "port_scan" or "vuln_scan")
+                     .Select(item => TryReadTargetAndOpenPorts(item.Result, out var target, out var ports)
+                         ? (Target: target, Ports: ports) : (Target: "", Ports: Array.Empty<int>()))
+                     .Where(item => item.Target.Length > 0).GroupBy(item => item.Target))
+            sb.AppendLine($"暴露面 {group.Key}：受检开放端口 {string.Join(", ", group.SelectMany(item => item.Ports).Distinct().Order())}（仅本次扫描视角）。");
+
+        // Keep successful evidence, not internal correction/contract failures, in the user assessment.
+        var facts = WithVerifiedFacts(query, "", observations);
+        if (facts.Length > 0) sb.AppendLine(facts.Trim());
+        foreach (var missing in FindIncompleteChecks(query, observations)) sb.AppendLine($"未确认：{missing}。");
+        foreach (var failure in observations.Where(item => !item.Success &&
+                     item.ToolName is "port_scan" or "vuln_scan" or "ssl_check" or "service_identify")
+                     .GroupBy(item => (item.ToolName, item.Input)).Select(group => group.Last())
+                     .Where(failure => !observations.Any(item => item.Success && item.ToolName == failure.ToolName && item.Input == failure.Input)))
+            sb.AppendLine($"检查受限 {failure.ToolName}：{failure.Result}");
+        sb.AppendLine("下一步：优先核对 HTTPS 设备身份和完整证书链，不绕过信任校验；限制管理端口仅授权网段可达。");
+        sb.AppendLine("登录设备管理端查询厂商、型号、固件/服务版本，对照厂商补丁公告；DNS 不确定项请复测并检查递归 ACL。版本未知不能确认具体 CVE，未检查/检查失败不等于安全。");
+        return sb.ToString().TrimEnd();
     }
 
     internal static void AppendVulnerabilitySummary(StringBuilder sb, JsonElement root)
@@ -149,8 +181,8 @@ internal static class SecurityAnalysisEvidence
             RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
         if (hasPositiveDns && ClaimsNoRecursion(answer) && !describesDnsDifference)
             conflicts.Add("至少一次 DNS 探测观察到对当前扫描源开放递归，不能断言未开放；不同探测结果须说明差异");
-        if (DnsDisagreements(dnsEvidence).Count > 0 && !describesDnsDifference)
-            conflicts.Add("同一目标多次 DNS 探测结果不一致，必须说明差异；未观察到响应不等于关闭递归");
+        // A disagreement is a limitation, not an instruction to keep probing. The
+        // deterministic facts below always disclose it; only contradictory claims block.
         foreach (var observation in observations.Where(item => item.Success && item.ToolName is "ssl_check" or "service_identify"))
         {
             try
@@ -277,7 +309,7 @@ internal static class SecurityAnalysisEvidence
         return evidence;
     }
 
-    private static bool RequiresSecurityConclusion(string query) =>
+    internal static bool RequiresSecurityConclusion(string query) =>
         new[] { "安全", "风险", "漏洞", "分析", "security", "risk", "vulnerability", "audit" }
             .Any(term => query.Contains(term, StringComparison.OrdinalIgnoreCase));
 
@@ -329,7 +361,7 @@ internal static class SecurityAnalysisEvidence
             var root = document.RootElement;
             return root.TryGetProperty("target", out var targetNode) &&
                    string.Equals(targetNode.GetString(), target, StringComparison.OrdinalIgnoreCase) &&
-                   root.TryGetProperty("port", out var portNode) && portNode.GetInt32() == port;
+                   root.TryGetProperty("port", out var portNode) && int.TryParse(portNode.ToString(), out var parsedPort) && parsedPort == port;
         }
         catch (JsonException)
         {
