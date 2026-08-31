@@ -115,6 +115,8 @@ Auto-check PASS: docs/auto-check-latest.md
 
 本节将在 `gh run view` 返回本次 push 的实际 Windows/Ubuntu/GHCR 状态后更新。旧 run 的成功不作为本次提交的验证。
 
+第一次 push 已完成：`ba5fc51c..522443ad main -> main`。真实 hourly run `33358190504` 首次复验失败，但不是 SSL 外网依赖：Tools 364/364、Agent 85/85、API 28/28；Scanning 30/31，失败是快任务 374ms 超过硬编码 250ms。慢任务 504ms、max-active=2。已将该测试改为事件同步的并发顺序断言，不改生产代码，失败历史保留，须再次推送并复查。
+
 ## 密钥与工作区
 
 key 仅用于验证进程环境与必要的请求内存，记录器不保存请求头；两个复验进程退出时全仓精确 key 检查均为 `ABSENT`。推送前还会检查暂存区和本轮提交历史。不会把用户任务前已有的 `tests/LucentMist.Tools.Tests/packages.lock.json`（364 行新增）或 `.codex/`、`.workbuddy/`、`deliverables/` 混入提交。

@@ -48,6 +48,9 @@ public sealed class ScanWorkerTests(ITestOutputHelper output) : IDisposable
         channel.Writer.Complete();
 
         var timer = Stopwatch.StartNew();
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+        var slowStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSlow = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var fastCompleted = new TaskCompletionSource<TimeSpan>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var active = 0;
@@ -60,10 +63,13 @@ public sealed class ScanWorkerTests(ITestOutputHelper output) : IDisposable
             try
             {
                 if (job.ScanType == "ping")
-                    await Task.Delay(500, cancellationToken);
+                {
+                    slowStarted.TrySetResult();
+                    await releaseSlow.Task.WaitAsync(cancellationToken);
+                }
                 else
                 {
-                    await Task.Delay(20, cancellationToken);
+                    await slowStarted.Task.WaitAsync(cancellationToken);
                     fastCompleted.TrySetResult(timer.Elapsed);
                 }
             }
@@ -77,21 +83,23 @@ public sealed class ScanWorkerTests(ITestOutputHelper output) : IDisposable
             channel.Reader,
             ExecuteAsync,
             maxConcurrency: 2,
-            CancellationToken.None);
-        var fastElapsed = await fastCompleted.Task.WaitAsync(TimeSpan.FromSeconds(2));
-        await dispatcher;
-        timer.Stop();
-
-        output.WriteLine(
-            $"fast TCP completed at {fastElapsed.TotalMilliseconds:F0}ms; " +
-            $"slow ping/whole batch completed at {timer.Elapsed.TotalMilliseconds:F0}ms; " +
-            $"max-active={maximumActive}");
-
-        Assert.True(
-            fastElapsed < TimeSpan.FromMilliseconds(250),
-            $"Fast TCP was head-of-line blocked for {fastElapsed.TotalMilliseconds:F0}ms");
-        Assert.True(timer.Elapsed >= TimeSpan.FromMilliseconds(450));
-        Assert.Equal(2, maximumActive);
+            deadline.Token);
+        try
+        {
+            var fastElapsed = await fastCompleted.Task.WaitAsync(deadline.Token);
+            // Prove ordering while the slow scan is still held, independently of
+            // CI scheduling latency. A serial dispatcher cannot reach this point.
+            Assert.False(releaseSlow.Task.IsCompleted);
+            Assert.False(dispatcher.IsCompleted);
+            Assert.Equal(2, maximumActive);
+            output.WriteLine($"fast TCP completed before slow ping was released; elapsed={fastElapsed.TotalMilliseconds:F0}ms; max-active={maximumActive}");
+        }
+        finally
+        {
+            releaseSlow.TrySetResult();
+            await dispatcher;
+            timer.Stop();
+        }
     }
 
     private static void UpdateMaximum(ref int maximum, int candidate)
