@@ -1,5 +1,5 @@
 # LucentMist Dockerfile — 多阶段构建
-# 使用: docker build -t lucentmist:0.9.5 .
+# 使用: docker build -t lucentmist:0.9.6 .
 
 # 国内网络构建可覆盖: docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json
 ARG NUGET_SOURCE=https://api.nuget.org/v3/index.json

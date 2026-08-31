@@ -119,7 +119,7 @@
       "lucentmist.tools": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Core": "[0.9.5, )",
+          "LucentMist.Core": "[0.9.6, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "System.ServiceProcess.ServiceController": "[10.0.10, )"
         }
