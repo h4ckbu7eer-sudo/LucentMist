@@ -302,8 +302,8 @@
       "lucentmist.agent": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Core": "[0.9.5, )",
-          "LucentMist.Tools": "[0.9.5, )",
+          "LucentMist.Core": "[0.9.6, )",
+          "LucentMist.Tools": "[0.9.6, )",
           "Microsoft.Extensions.Http": "[10.0.10, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )"
         }
@@ -318,7 +318,7 @@
       "lucentmist.scanning": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Tools": "[0.9.5, )",
+          "LucentMist.Tools": "[0.9.6, )",
           "Microsoft.Data.Sqlite": "[10.0.11, )",
           "Microsoft.Extensions.Hosting.Abstractions": "[10.0.10, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )"
@@ -327,7 +327,7 @@
       "lucentmist.tools": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Core": "[0.9.5, )",
+          "LucentMist.Core": "[0.9.6, )",
           "Microsoft.Extensions.Logging.Abstractions": "[10.0.10, )",
           "System.ServiceProcess.ServiceController": "[10.0.10, )"
         }

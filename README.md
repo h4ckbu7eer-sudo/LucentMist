@@ -2,17 +2,17 @@
 
 > 🌫️ 基于 ReAct 模式的智能网络分析助手 — 融合网络扫描工具与 AI 推理能力
 >
-> 当前稳定发布版：`v0.9.5`
+> 当前版本：`v0.9.6` — [发布说明与实证](docs/RELEASE_0.9.6.md)
 
 第一次自用请从 [自用手册](docs/SELF_USE_GUIDE.md) 开始；含 DeepSeek 配置、API/Web 双进程启动、
 仅本机 Docker 配置、报告解读与恢复演练。分享或提交前看 [安全清单](docs/SECURITY_CHECKLIST.md)。
-手册对应较新 main 源码；旧 GHCR `:0.9.5` 不自动包含后续修复，不能只看版本号判断功能。
+手册已对齐 0.9.6；旧发布镜像不会自动获得新修复，升级与回滚请按发布说明核对版本和摘要。
 
 > 隐私提示（当前 main）：漏洞扫描默认联网查询免费 CVETodo / Shodan CVEDB / NVD，仅发送服务关键词或产品 CPE，不发送目标 IP、原始 banner、凭据或报告。需要离线扫描请设 `LMIST_CVE_EXTERNAL=false`。云端候选不代表确认漏洞；Shodan CVEDB 免费许可仅限非商业使用。
 
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com)
 [![CI](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml/badge.svg)](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/workflows/ci.yml)
-[![Tests](https://img.shields.io/badge/local-tests-516%2F516%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/local-tests-533%2F533%20passed-brightgreen)]()
 [![License](https://img.shields.io/badge/license-MIT-blue)]()
 
 ---
@@ -89,18 +89,18 @@ dotnet run --project src/LucentMist.Web
 
 ```bash
 # 国内网络建议指定华为云 NuGet 镜像
-docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.5 .
+docker build --build-arg NUGET_SOURCE=https://repo.huaweicloud.com/repository/nuget/v3/index.json -t lucentmist:0.9.6 .
 
 # 私有 GHCR 包先登录；令牌需要 read:packages，且不要写入脚本
 echo "$CR_PAT" | docker login ghcr.io -u YOUR_GITHUB_USER --password-stdin
 
-# 拉取固定摘要，确保以后仍得到经过验证的 0.9.5 发布物
-docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698
-docker tag ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:48271745e38a425340004bf5852e84f8fc08e2cc03a7795d5bf4feb89c9bb698 lucentmist:0.9.5
+# 拉取新版本；需要不可变部署时使用 RELEASE_0.9.6.md 中核实后的 manifest digest
+docker pull ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.6
+docker tag ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.6 lucentmist:0.9.6
 
 # 使用刚拉取的发布镜像启动 API + Web，不在本地重建
 # 请先在未提交的 .env 中设置三项强凭据
-docker compose up -d --no-build
+docker compose -f docker-compose.yml -f docker-compose.self-use.yml up -d --no-build
 
 # API 健康检查
 curl http://localhost:5050/api/v1/health
@@ -192,7 +192,7 @@ export LMIST_LLM_APIKEY=sk-ant-api03-...
 | [Agent 实验状态](docs/agent-experimental.md) | Agent 深化能力边界与验证状态 |
 | [产品验证协议](docs/product-validation-protocols.md) | 方向 A 的用户需求、报告、网段验证 |
 | [已知问题](docs/known-issues.md) | 产品、Agent、测试、部署的已知边界 |
-| [0.9.5 发布说明](docs/RELEASE_0.9.5.md) | 核心变更、验证证据与部署要求 |
+| [0.9.6 发布说明](docs/RELEASE_0.9.6.md) | 核心变更、验证证据与部署要求 |
 | [0.9.4 发布说明](docs/RELEASE_0.9.4.md) | 上一版本的历史发布证据与回滚信息 |
 
 ---

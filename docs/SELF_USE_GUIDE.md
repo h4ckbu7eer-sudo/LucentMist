@@ -1,10 +1,10 @@
-# LucentMist 自用手册（0.9.5 后续 main）
+# LucentMist 自用手册（0.9.6）
 
 适用日期：2026-08-31。目标：在自己有权测试的网络上发现暴露、阅读证据、保存报告、备份和恢复。
 不需要先使用 Agent；确定性扫描与报告不依赖 LLM key。
 
-> **先分清版本与边界。** 本手册对应当前源码 main，不是较早的 GHCR `:0.9.5` 镜像。
-> 版本字符串相同不代表代码相同：先记下 `git rev-parse HEAD`，从该源码构建。
+> **先分清版本与边界。** 本手册对应 0.9.6；旧发布镜像不自动包含后续修复。
+> 先记下 `git rev-parse HEAD`；镜像部署核对 [0.9.6 发布实证](RELEASE_0.9.6.md)中的摘要。
 > 漏洞扫描默认查询免费云源；使用 DeepSeek 会把问题和工具观察（可能含 IP/拓扑）发送给提供商。
 > 不想外发这些数据，就不用云端 Agent，并设 `LMIST_CVE_EXTERNAL=false`。
 
@@ -72,7 +72,7 @@ docker compose -f docker-compose.yml -f docker-compose.self-use.yml config --qui
 docker compose -f docker-compose.yml -f docker-compose.self-use.yml up -d --build
 ```
 
-此命令构建当前源码，不是拉取旧 `:0.9.5`。`!override` 必须被本机 Compose 支持；
+此命令构建当前源码，不是拉取历史镜像。`!override` 必须被本机 Compose 支持；
 若配置校验失败，升级 Compose 或使用原生方式，不要省掉 override 后暴露所有接口。
 override 也将 `LMIST_ALLOWED_TARGETS` 传入 API/Web（仅在宿主 `.env` 中写任意变量并不等于容器会收到它）。
 
