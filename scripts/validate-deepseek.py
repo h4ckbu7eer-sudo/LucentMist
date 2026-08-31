@@ -14,18 +14,23 @@ from pathlib import Path
 import re
 import subprocess
 import threading
+import time
 import urllib.error
 import urllib.request
+import uuid
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", required=True)
 parser.add_argument("--mode", choices=["cli", "web"], default="cli")
-parser.add_argument("--scenario", choices=["all", "gateway"], default="all",
+parser.add_argument("--scenario", choices=["all", "gateway", "local"], default="all",
                     help="gateway is a focused reproduction, not the 10-call contract benchmark")
+parser.add_argument("--image", help="Run the pulled CLI image by immutable repo@sha256 digest, without mounting local code")
 parser.add_argument("--recorder-port", type=int, default=8357)
 parser.add_argument("--api-port", type=int, default=5050)
 parser.add_argument("--web-port", type=int, default=5051)
 options = parser.parse_args()
+if options.image and (options.mode != "cli" or not re.fullmatch(r"[a-z0-9][a-z0-9./_-]+@sha256:[0-9a-f]{64}", options.image)):
+    raise SystemExit("--image requires CLI mode and an immutable image digest")
 secret = os.environ.get("LMIST_LLM_APIKEY", "")
 if not secret:
     raise SystemExit("Set LMIST_LLM_APIKEY in the process environment first.")
@@ -108,6 +113,7 @@ env.update(LMIST_LLM_PROVIDER="deepseek", LMIST_LLM_MODEL="deepseek-chat",
            LMIST_LOG_FILE=str(output / "application.log"), LMIST_INJECT_NETWORK_INFO="true",
            NO_PROXY="localhost,127.0.0.1,192.168.2.1", Logging__LogLevel__Default="Error")
 children = []
+containers = []
 cli_exits = []
 try:
     if options.mode == "cli":
@@ -120,12 +126,47 @@ try:
             if options.scenario != "all" and label != options.scenario:
                 continue
             run_label = label
-            process = subprocess.Popen(["dotnet", str(root / "src/LucentMist.CLI/bin/Release/net10.0/lmist.dll"), "agent", *args],
+            command = ["dotnet", str(root / "src/LucentMist.CLI/bin/Release/net10.0/lmist.dll"), "agent", *args]
+            input_data = stdin.encode("utf-8") if stdin else None
+            if options.image:
+                name = "lmist-validation-" + uuid.uuid4().hex[:12]
+                containers.append(name)
+                container_env = {
+                    "LMIST_LLM_PROVIDER": "deepseek", "LMIST_LLM_MODEL": "deepseek-chat",
+                    "LMIST_LLM_ENDPOINT": f"http://host.docker.internal:{options.recorder_port}/v1",
+                    "LMIST_DB": "/validation/validation.db", "LMIST_LOG_FILE": "/validation/application.log",
+                    "LMIST_INJECT_NETWORK_INFO": "true", "LMIST_CVE_EXTERNAL": "true",
+                }
+                command = ["docker", "run", "--rm", "--pull=never", "--name", name, "-i",
+                           "--mount", f"type=bind,source={output},target=/validation", "--entrypoint", "/bin/sh"]
+                for key, value in container_env.items():
+                    command.extend(["--env", key + "=" + value])
+                command.extend([options.image, "-c",
+                                'IFS= read -r LMIST_LLM_APIKEY; export LMIST_LLM_APIKEY; exec dotnet /app/cli/lmist.dll "$@"',
+                                "sh", "agent", *args])
+                # The key crosses stdin once, then lives only in the CLI process
+                # environment. It is not in Docker Config.Env, argv, mounts or logs.
+                input_data = (secret + "\n" + (stdin or "")).encode("utf-8")
+                record("artifact.jsonl", json.dumps({"image": options.image, "container": name,
+                       "scenario": label, "localCodeMounted": False, "targetScope": "container loopback" if label == "local" else "LAN gateway"}))
+            process = subprocess.Popen(command,
                                        cwd=root, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                        stderr=subprocess.STDOUT)
             children.append(process)
             try:
-                stdout, _ = process.communicate(stdin.encode("utf-8") if stdin else None, timeout=600)
+                if options.image:
+                    deadline = time.monotonic() + 15
+                    while True:
+                        metadata = subprocess.run(["docker", "inspect", name, "--format", "{{json .Config}}"], capture_output=True, timeout=5)
+                        if metadata.returncode == 0:
+                            if secret.encode() in metadata.stdout:
+                                raise RuntimeError("Credential unexpectedly present in Docker configuration; output withheld")
+                            record("artifact.jsonl", json.dumps({"container": name, "credentialInDockerConfig": False}))
+                            break
+                        if time.monotonic() >= deadline:
+                            raise RuntimeError("Could not verify container configuration before supplying credential")
+                        time.sleep(.1)
+                stdout, _ = process.communicate(input_data, timeout=600)
             except subprocess.TimeoutExpired:
                 process.kill()
                 stdout, _ = process.communicate()
@@ -163,6 +204,11 @@ finally:
         if child.poll() is None:
             child.terminate()
             child.wait(timeout=15)
+    for name in containers:
+        # Exact names created by this run only; --rm normally already removed it.
+        remaining = subprocess.run(["docker", "ps", "-aq", "--filter", "name=^/" + name + "$"], capture_output=True)
+        if remaining.returncode == 0 and remaining.stdout.strip():
+            subprocess.run(["docker", "rm", "-f", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     server.shutdown()
     scan = subprocess.run([os.sys.executable, "-B", str(root / "scripts/verify-key-absence.py")],
                           env=env, text=True, encoding="utf-8", capture_output=True)
