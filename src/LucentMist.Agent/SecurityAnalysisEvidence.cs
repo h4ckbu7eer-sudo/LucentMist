@@ -114,11 +114,23 @@ internal static class SecurityAnalysisEvidence
         sb.AppendLine($"  TLS 结论: {(trusted && !expired ? "证书有效且信任校验通过" : "证书检查已完成，但存在信任或有效期风险")}");
         if (root.TryGetProperty("securityConclusion", out var conclusionNode))
             sb.AppendLine($"  判断依据: {conclusionNode.GetString()}");
+        var identity = TlsIdentityAssessment(root);
+        if (identity != null) sb.AppendLine($"  证书身份依据: {identity}");
         if (root.TryGetProperty("trustErrors", out var errors) && errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0)
         {
             sb.AppendLine($"  HTTPS 信任风险: {string.Join(", ", errors.EnumerateArray().Select(item => item.GetString()))}");
             sb.AppendLine("  不能可靠确认 HTTPS 服务身份，可能增加中间人风险；不等于已遭攻击。请核对证书名称和完整信任链，不要直接忽略警告。");
         }
+    }
+
+    internal static string? TlsIdentityAssessment(JsonElement root)
+    {
+        if (!root.TryGetProperty("subject", out var subject) || subject.ValueKind != JsonValueKind.String ||
+            !root.TryGetProperty("issuer", out var issuer) || issuer.ValueKind != JsonValueKind.String ||
+            string.IsNullOrWhiteSpace(subject.GetString()) || string.IsNullOrWhiteSpace(issuer.GetString()) ||
+            string.Equals(subject.GetString(), issuer.GetString(), StringComparison.OrdinalIgnoreCase)) return null;
+        return $"主体与签发者不同（subject={subject.GetString()}; issuer={issuer.GetString()}），" +
+               "不能把该叶证书称为自签证书；链不完整也不能证明未取得的根证书是自签或可信。";
     }
 
     internal static IReadOnlyList<string> FindConclusionConflicts(string answer, IReadOnlyCollection<ReActObservation> observations)
@@ -146,10 +158,27 @@ internal static class SecurityAnalysisEvidence
                     (!answer.Contains("信任", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(answer,
                         @"(?:证书|TLS|HTTPS)[^。\n]{0,150}(?:属正常|无风险|无需关注)", RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))))
                     conflicts.Add("HTTPS 信任校验有错误：必须说明身份校验/中间人风险，不得因自签常见就称为正常或无风险");
+                if (observation.ToolName == "ssl_check" && TlsIdentityAssessment(root) is { } identity &&
+                    ClaimsSelfSigned(answer))
+                    conflicts.Add(identity + "请删除没有证据的自签断言，按主体、签发者及实际 trustErrors 描述。");
             }
             catch (JsonException) { }
         }
         return conflicts.Distinct().ToArray();
+    }
+
+    private static bool ClaimsSelfSigned(string answer)
+    {
+        foreach (Match match in Regex.Matches(answer, @"自签|self[- ]signed",
+                     RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
+        {
+            // Scope negation to this clause: "不能断言自签（此处确为自签根）"
+            // contains both a disclaimer and a separate unsupported assertion.
+            var clause = answer[..match.Index].Split(['。', '；', ';', '，', ',', '\n', '（', '(']).Last();
+            if (!Regex.IsMatch(clause, @"不能|不可|不得|不应|并非|不是|未确认|无法|不代表|不等于|是否|可能|尚未|不一定|cannot|not |unknown|may ",
+                    RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))) return true;
+        }
+        return false;
     }
 
     private static bool ClaimsNoRecursion(string answer)
