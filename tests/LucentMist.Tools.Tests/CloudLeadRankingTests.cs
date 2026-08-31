@@ -6,6 +6,19 @@ namespace LucentMist.Tools.Tests;
 public class CloudLeadRankingTests
 {
     [Fact]
+    public void OsHeuristicsRankButDoNotDiscardOtherPlatforms()
+    {
+        var candidates = new[] { "Windows", "Linux" }.Select(os => JsonSerializer.SerializeToElement(new
+        { port = 80, cve = "CVE-2025-1234", name = os + " HTTP", source = "NVD", versionStatus = "unverified" }));
+        var ranked = CloudLeadRanking.Rank(candidates, new OsHint("Linux", 30));
+        Assert.Equal(2, ranked.Length);
+        Assert.Equal("Linux HTTP", ranked[0].GetProperty("name").GetString());
+        Assert.All(ranked, r => Assert.Equal("unverified", r.GetProperty("versionStatus").GetString()));
+        var visible = CloudLeadRanking.ForPresentation(CloudLeadRanking.Group(ranked));
+        Assert.Equal("Linux HTTP", visible[0].GetProperty("leads")[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
     public void RealGateway_CliCompactViewBoundsAllPortsAndRetainsFailureAndHistoricalCounts()
     {
         var candidates = Enumerable.Range(0, 50).Select(i => new

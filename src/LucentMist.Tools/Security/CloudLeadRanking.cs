@@ -12,7 +12,7 @@ public static class CloudLeadRanking
     public const int ModelLeadLimit = 5;
     public const string NextStep = "先登录设备管理端确认厂商、型号和固件/服务版本，再对照厂商安全公告与受影响范围；不要仅凭这些关键词线索认定漏洞或执行利用。";
 
-    public static JsonElement[] Rank(IEnumerable<JsonElement> candidates) => candidates.Select(Annotate)
+    public static JsonElement[] Rank(IEnumerable<JsonElement> candidates, OsHint? os = null) => candidates.Select(item => Annotate(item, os))
         .OrderBy(item => item["historicalUnverified"]!.GetValue<bool>())
         .ThenByDescending(item => item["relevanceScore"]!.GetValue<int>())
         .ThenByDescending(item => item["hasCvss"]!.GetValue<bool>())
@@ -52,7 +52,7 @@ public static class CloudLeadRanking
         }).ToArray();
     }
 
-    private static JsonObject Annotate(JsonElement candidate)
+    private static JsonObject Annotate(JsonElement candidate, OsHint? os)
     {
         var item = JsonNode.Parse(candidate.GetRawText())!.AsObject();
         var port = item["port"]!.GetValue<int>();
@@ -62,6 +62,16 @@ public static class CloudLeadRanking
         var product = ServiceFingerprint.FromBanner(banner)?.ProductKey;
         var reasons = new List<string>();
         var score = 0;
+        os ??= item["osEvidence"]?.Deserialize<OsHint>();
+        if (os != null)
+        {
+            item["osEvidence"] = JsonSerializer.SerializeToNode(os);
+            if (ContainsToken(description, os.Family))
+            {
+                score += 5;
+                reasons.Add("公告与 OS 推测一致（仅排序，不证明适用或排除其它平台）");
+            }
+        }
         if (product != null && ContainsToken(description, product))
         {
             score += 100;

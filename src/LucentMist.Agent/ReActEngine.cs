@@ -274,6 +274,8 @@ public class ReActEngine
                 // 自动服务识别：port_scan 成功后，对每个开放端口调用 service_identify
                 if (step.Action == "port_scan" && toolResult.Success)
                 {
+                    if (SecurityAnalysisEvidence.RequiresSecurityConclusion(userQuery))
+                        await AutoFingerprintOsAsync(toolResult.Data, round, ct);
                     await AutoAnalyzeOpenPorts(toolResult.Data, round, ct);
                 }
             }
@@ -506,9 +508,45 @@ public class ReActEngine
             await AutoCheckTlsAsync(target, round, ct);
     }
 
+    private async Task AutoFingerprintOsAsync(string portScanJson, int round, CancellationToken ct)
+    {
+        var tool = _toolRegistry.Get("os_fingerprint");
+        if (tool == null) return;
+        using var document = JsonDocument.Parse(portScanJson);
+        var target = document.RootElement.GetProperty("target").GetString() ?? "";
+        if (Observations.Any(o => o.ToolName == "os_fingerprint" &&
+            ToolArguments.ParseFlexible(o.Input).GetOrDefault("target") == target)) return;
+        var args = new ToolArguments
+        {
+            ["target"] = target,
+            ["open_ports"] = string.Join(",", document.RootElement.GetProperty("openPorts").EnumerateArray().Select(p => p.GetInt32())),
+            ["timeout_ms"] = "2000",
+        };
+        var eventId = Guid.NewGuid().ToString("N");
+        await RecordAuditAsync(eventId, target, tool.Name, "queued", "复用受检端口补充 OS 线索，不据此判安全", ct);
+        ToolResult result;
+        try { result = await tool.ExecuteAsync(args, ct); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception) { result = ToolResult.Fail("OS 指纹探测失败；不阻断有限评估", TimeSpan.Zero); }
+        await RecordAuditAsync(eventId, target, tool.Name, result.Success ? "completed" : "failed", "OS 线索采集结束", ct);
+        await AddObservationAsync(new ReActObservation
+        {
+            Step = round,
+            ToolName = tool.Name,
+            Input = JsonSerializer.Serialize(args),
+            Result = result.Success ? result.Data : result.Error ?? result.Data,
+            Success = result.Success,
+        }, ct);
+    }
+
     private void ReuseDiscoveredOpenPorts(ToolArguments args)
     {
         var target = args.GetOrDefault("target");
+        // OS is heuristic, not an authenticated inventory fact. Never hard-filter
+        // affected versions by TTL (Linux SMB and Windows OpenSSH both exist).
+        var os = Observations.LastOrDefault(o => o.Success && o.ToolName == "os_fingerprint" &&
+            ToolArguments.ParseFlexible(o.Input).GetOrDefault("target") == target);
+        if (os != null) args["os_evidence"] = os.Result;
         foreach (var observation in Observations.AsEnumerable().Reverse())
         {
             if (!observation.Success || observation.ToolName != "port_scan") continue;

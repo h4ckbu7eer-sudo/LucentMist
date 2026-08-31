@@ -4,6 +4,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text.Json;
 using LucentMist.Core.Networking;
+using LucentMist.Tools.Common;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Security;
@@ -19,6 +20,7 @@ public class OsFingerprintTool : INetworkTargetTool
     public string Description => "识别目标 IP 的操作系统类型，通过 TTL/TCP/ICMP 特征推断";
     public ToolParameter[] Parameters => [
         new() { Name = "target", Type = "string", Description = "目标 IP", Required = true },
+        new() { Name = "open_ports", Type = "string", Description = "复用已发现的开放端口；空字符串表示已扫描且无开放端口", Required = false },
         new() { Name = "timeout_ms", Type = "int", Description = "超时(毫秒)", Required = false, Default = "5000" }
     ];
 
@@ -53,7 +55,7 @@ public class OsFingerprintTool : INetworkTargetTool
     {
         var sw = Stopwatch.StartNew();
         var target = args.GetOrDefault("target");
-        var timeout = args.GetInt("timeout_ms", 5000);
+        var timeout = Math.Clamp(args.GetInt("timeout_ms", 5000), 100, 10000);
 
         if (string.IsNullOrWhiteSpace(target))
             return ToolResult.Fail("必须指定目标 IP", sw.Elapsed);
@@ -71,17 +73,24 @@ public class OsFingerprintTool : INetworkTargetTool
             var (reachable, ttl, pingMs) = await PingWithTtl(target, timeout, cancellationToken);
 
             // 2. 开放端口 → OS 提示
-            var portHints = await ProbeKnownPorts(target, timeout, cancellationToken);
+            var knownPorts = args.ContainsKey("open_ports") ? PortHelper.ParsePorts(args.GetOrDefault("open_ports")) : null;
+            var portHints = knownPorts != null
+                ? HintsFromPorts(knownPorts)
+                : await ProbeKnownPorts(target, timeout, cancellationToken);
+            var tcpReachable = knownPorts?.Count > 0 || portHints.Count > 0;
 
             // 3. 综合推断 OS
-            var (osFamily, confidence, reasons) = InferOs(reachable, ttl, portHints);
+            var (osFamily, confidence, reasons) = InferOs(reachable || tcpReachable, ttl, portHints);
 
             var result = new
             {
                 target,
-                reachable,
+                reachable = reachable || tcpReachable,
+                icmpReachable = reachable,
                 osFamily,
                 confidence,
+                evidenceType = "heuristic",
+                limitation = "TTL/端口仅提供低置信度 OS 线索，不是设备型号或确定 OS；不能据此排除另一平台的漏洞。",
                 reasons,
                 ttl,
                 pingMs,
@@ -115,6 +124,7 @@ public class OsFingerprintTool : INetworkTargetTool
             var reply = await ping.SendPingAsync(ip, timeout, new byte[32], options).WaitAsync(cancellationToken);
             return (reply.Status == IPStatus.Success, reply.Options?.Ttl ?? 0, reply.RoundtripTime);
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logger.LogDebug(ex, "Ping with TTL options failed for {Ip}; retrying without options", ip);
@@ -126,6 +136,7 @@ public class OsFingerprintTool : INetworkTargetTool
                 var reply = await ping.SendPingAsync(ip, timeout).WaitAsync(cancellationToken);
                 return (reply.Status == IPStatus.Success, reply.Options?.Ttl ?? 0, reply.RoundtripTime);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception fallbackEx)
             {
                 _logger.LogDebug(fallbackEx, "Ping failed for {Ip}", ip);
@@ -148,6 +159,7 @@ public class OsFingerprintTool : INetworkTargetTool
                 await client.ConnectAsync(ip, port, cts.Token);
                 hints.Add(hint);
             }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception ex)
             {
                 _logger.LogDebug(ex, "Known port probe failed for {Ip}:{Port}", ip, port);
@@ -156,13 +168,16 @@ public class OsFingerprintTool : INetworkTargetTool
         return hints;
     }
 
+    internal static List<string> HintsFromPorts(IEnumerable<int> ports) => ports.Distinct()
+        .Where(PortOsHints.ContainsKey).Select(port => PortOsHints[port]).ToList();
+
     internal static (string os, int confidence, string[] reasons) InferOs(
         bool reachable, int ttl, List<string> portHints)
     {
         var reasons = new List<string>();
         var scores = new Dictionary<string, int>();
 
-        if (!reachable)
+        if (!reachable && portHints.Count == 0)
             return ("未知 (不可达)", 0, ["目标不可达"]);
 
         if (ttl <= 0)

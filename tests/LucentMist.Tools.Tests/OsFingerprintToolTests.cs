@@ -8,6 +8,17 @@ namespace LucentMist.Tools.Tests;
 
 public class OsFingerprintToolTests
 {
+    [Fact]
+    public void KnownTcpEvidenceWithIcmpFailureIsNotAnUnreachableDevice()
+    {
+        var hints = OsFingerprintTool.HintsFromPorts([22, 22, 80]);
+        Assert.Single(hints);
+        var result = OsFingerprintTool.InferOs(false, 0, hints);
+        Assert.DoesNotContain("不可达", result.os);
+        Assert.Contains("TTL", result.os);
+        Assert.Equal(0, result.confidence);
+    }
+
     private readonly OsFingerprintTool _tool = new();
 
     [Fact]
