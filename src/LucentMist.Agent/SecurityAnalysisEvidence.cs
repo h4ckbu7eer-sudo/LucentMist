@@ -90,7 +90,7 @@ internal static class SecurityAnalysisEvidence
         return sb.ToString().TrimEnd();
     }
 
-    internal static void AppendVulnerabilitySummary(StringBuilder sb, JsonElement root)
+    internal static void AppendVulnerabilitySummary(StringBuilder sb, JsonElement root, bool compact = false)
     {
         var total = root.TryGetProperty("totalFindings", out var totalNode) ? totalNode.GetInt32() : 0;
         var sources = root.TryGetProperty("sourcesConsulted", out var sourcesNode) &&
@@ -121,6 +121,15 @@ internal static class SecurityAnalysisEvidence
         }
         if (total == 0 && root.TryGetProperty("noMatchReason", out var reasonNode))
             sb.AppendLine($"  判断依据: {reasonNode.GetString()}");
+        if (compact)
+        {
+            if (root.TryGetProperty("cloudNotice", out var notice)) sb.AppendLine($"  覆盖边界: {notice.GetString()}");
+            // Counts are enough in the evidence footer; the model and tool panel
+            // already show the selected leads. Raw results keep every lead/reason.
+            if (root.TryGetProperty("cloudCandidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array)
+                sb.AppendLine($"  云端 {candidates.GetArrayLength()} 条关键词线索，非确认漏洞；详见工具记录。");
+            return;
+        }
         if (root.TryGetProperty("cloudCandidateGroups", out var groups) && groups.ValueKind == JsonValueKind.Array)
         {
             foreach (var group in LucentMist.Tools.Security.CloudLeadRanking.ForPresentation(groups.EnumerateArray()))
@@ -147,8 +156,25 @@ internal static class SecurityAnalysisEvidence
         }
     }
 
-    internal static void AppendTlsSummary(StringBuilder sb, JsonElement root)
+    internal static void AppendTlsSummary(StringBuilder sb, JsonElement root, bool compact = false)
     {
+        if (compact)
+        {
+            if (root.TryGetProperty("trustErrors", out var compactErrors) && compactErrors.ValueKind == JsonValueKind.Array && compactErrors.GetArrayLength() > 0)
+            {
+                sb.AppendLine($"  HTTPS 信任风险: {string.Join(", ", compactErrors.EnumerateArray().Select(item => item.GetString()))}");
+                if (root.TryGetProperty("isExpired", out var expiredValue) && expiredValue.ValueKind == JsonValueKind.True)
+                    sb.AppendLine("  有效期风险：证书已过期。");
+                if (TlsIdentityAssessment(root) != null)
+                {
+                    static string CommonName(string value) => Regex.Match(value, @"(?:^|,\s*)CN=([^,]+)",
+                        RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)) is { Success: true } match ? "CN=" + match.Groups[1].Value : "名称见工具记录";
+                    sb.AppendLine($"  主体与签发者不同（{CommonName(root.GetProperty("subject").GetString()!)} / {CommonName(root.GetProperty("issuer").GetString()!)}），不能断言自签。");
+                }
+                sb.AppendLine("  身份未可靠确认，可能增加中间人风险，非攻击证据；先核对身份与完整链，不绕过校验。");
+                return;
+            }
+        }
         var trusted = root.TryGetProperty("isTrusted", out var trustedNode) && trustedNode.GetBoolean();
         var expired = root.TryGetProperty("isExpired", out var expiredNode) && expiredNode.GetBoolean();
         sb.AppendLine($"  TLS 结论: {(trusted && !expired ? "证书有效且信任校验通过" : "证书检查已完成，但存在信任或有效期风险")}");
@@ -177,6 +203,34 @@ internal static class SecurityAnalysisEvidence
     internal static IReadOnlyList<string> FindConclusionConflicts(string answer, IReadOnlyCollection<ReActObservation> observations)
     {
         var conflicts = new List<string>();
+        if (ReadDnsEvidence(observations).Count > 0 && Regex.Matches(answer,
+                @"(?:放大比|响应[\/／]请求比)[^。；\n]{0,50}(?:风险较低|风险低|中低水平|偏低|无风险)",
+                RegexOptions.None, TimeSpan.FromMilliseconds(100)).Any(claim =>
+                !Regex.IsMatch(claim.Value, "不能|不可|无法|不代表|不等于|不是", RegexOptions.None, TimeSpan.FromMilliseconds(100))))
+            conflicts.Add("单次 DNS 响应/请求字节比不能推出放大攻击风险较低；只描述观测值，明确公网可达性和反射能力未验证，不必反复探测");
+        // A real model claimed "未发现 22/RDP" after scanning only 1-1000.
+        // Check negative service assertions against actual scan scope, not openPorts.
+        foreach (var observation in observations.Where(item => item.Success && item.ToolName == "port_scan"))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(observation.Result);
+                if (!doc.RootElement.TryGetProperty("scannedPortRange", out var range) ||
+                    !LucentMist.Tools.Common.PortHelper.TryParsePorts(range.GetString() ?? "", out var scanned)) continue;
+                foreach (var (name, port) in new[] { ("RDP", 3389), ("SSH", 22), ("Telnet", 23), ("SMB", 445) })
+                {
+                    if (scanned.Contains(port)) continue;
+                    foreach (Match claim in Regex.Matches(answer, $@"(?:未发现|未开放|没有开放|已关闭)[^。；\n]{{0,35}}(?:\b{name}\b|(?<![\d.]){port}(?![\d.]))",
+                                 RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
+                    {
+                        var prefix = answer[..claim.Index].Split(['。', '；', '\n']).Last();
+                        if (!Regex.IsMatch(prefix, "不能|不可|不得|不应|无法", RegexOptions.None, TimeSpan.FromMilliseconds(100)))
+                            conflicts.Add($"{name}({port}) 不在受检范围 {range.GetString()} 内，不能断言未开放；请明确范围外未知，不必扩大扫描");
+                    }
+                }
+            }
+            catch (JsonException) { }
+        }
         var dnsEvidence = ReadDnsEvidence(observations);
         var hasPositiveDns = dnsEvidence.Any(item => item.Positive);
         // A TLS name mismatch is not an acknowledgement of conflicting DNS probes.
@@ -261,16 +315,25 @@ internal static class SecurityAnalysisEvidence
                 var target = root.TryGetProperty("target", out var node) ? node.GetString() : null;
                 if (observation.ToolName == "ssl_check")
                 {
+                    // Do not append the entire certificate and advice a second time
+                    // when the model already states the trust evidence accurately.
+                    if (root.TryGetProperty("trustErrors", out var errors) && errors.ValueKind == JsonValueKind.Array &&
+                        errors.GetArrayLength() > 0 && errors.EnumerateArray().All(error => answer.Contains(error.GetString() ?? "", StringComparison.Ordinal)) &&
+                        answer.Contains("信任", StringComparison.Ordinal) && answer.Contains("中间人", StringComparison.Ordinal) &&
+                        (!root.TryGetProperty("isExpired", out var expiredValue) || expiredValue.ValueKind != JsonValueKind.True || answer.Contains("已过期", StringComparison.Ordinal)) &&
+                        (TlsIdentityAssessment(root) == null || answer.Contains("不能称为自签", StringComparison.Ordinal) ||
+                         answer.Contains("主体与签发者不同", StringComparison.Ordinal))) continue;
                     facts.AppendLine($"{target} HTTPS 核验：");
-                    AppendTlsSummary(facts, root);
+                    AppendTlsSummary(facts, root, compact: answer.Length > 0);
                 }
                 if (observation.ToolName == "service_identify" && root.TryGetProperty("dnsSecurity", out var dns) &&
-                    dns.ValueKind == JsonValueKind.Object && dns.TryGetProperty("recursionAssessment", out var assessment))
+                    dns.ValueKind == JsonValueKind.Object && dns.TryGetProperty("recursionAssessment", out var assessment) &&
+                    !(answer.Contains(assessment.GetString() ?? "", StringComparison.Ordinal) && answer.Contains("公网", StringComparison.Ordinal)))
                     facts.AppendLine($"{target} DNS 核验：{assessment.GetString()}（仅当前扫描视角，未验证公网可达性）");
                 if (observation.ToolName == "vuln_scan")
                 {
                     facts.AppendLine($"{target} 漏洞核验：");
-                    AppendVulnerabilitySummary(facts, root);
+                    AppendVulnerabilitySummary(facts, root, compact: answer.Length > 0);
                 }
             }
             catch (JsonException) { }

@@ -21,7 +21,7 @@ internal static class AgentObservationFormatter
                 obj.Remove("cloudCandidates");
                 obj["cloudCandidateGroups"] = JsonSerializer.SerializeToNode(CloudLeadRanking.ForPresentation(
                     JsonSerializer.SerializeToElement(obj["cloudCandidateGroups"]).EnumerateArray()));
-                obj["presentationGuidance"] = "最终评估按暴露面、TLS/DNS 风险、未知项、下一步组织；最多列5条优先核实线索并注明非确认漏洞，历史无版本证据线索已折叠。版本未知/DNS 不一致允许有限结论，不应反复扫描。";
+                obj["presentationGuidance"] = "单目标最终评估尽量控制在600字内，按暴露面、TLS/DNS 风险、未知项、下一步组织；最多列5条优先核实线索并注明非确认漏洞，不复述工具明细。版本未知/DNS 不一致允许有限结论，不应反复扫描。";
             }
             if (observation.ToolName == "ssl_check" && root is JsonObject tls)
             {

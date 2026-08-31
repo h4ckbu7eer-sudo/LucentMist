@@ -1976,11 +1976,12 @@ public class CliApp
             // 推理过程
             if (engine.ThoughtLog.Count > 0)
             {
-                AnsiConsole.Write(new Rule("[grey]推理过程[/]"));
+                AnsiConsole.Write(new Rule(_minimumLogLevel <= LogLevel.Debug ? "[grey]推理过程[/]" : "[grey]检查过程（详细推理可用 -v 查看）[/]"));
                 for (int i = 0; i < engine.ThoughtLog.Count; i++)
                 {
                     await store.AddMessageAsync(session.Id, "assistant", engine.ThoughtLog[i]);
-                    AnsiConsole.MarkupLine($"  [yellow] {i + 1}.[/] [white]{Escape(engine.ThoughtLog[i])}[/]");
+                    if (_minimumLogLevel <= LogLevel.Debug)
+                        AnsiConsole.MarkupLine($"  [yellow] {i + 1}.[/] [white]{Escape(engine.ThoughtLog[i])}[/]");
                     foreach (var obs in engine.ObservationsForRound(i + 1))
                     {
                         await store.AddMessageAsync(
@@ -1994,7 +1995,7 @@ public class CliApp
                                 success = obs.Success,
                             }));
                         AnsiConsole.MarkupLine($"     [blue]-> {obs.ToolName}[/]");
-                        RenderObservation(obs.ToolName, obs.Result);
+                        RenderObservation(obs.ToolName, obs.Result, compact: _minimumLogLevel > LogLevel.Debug);
                     }
                 }
             }
@@ -2213,7 +2214,7 @@ public class CliApp
         catch { AnsiConsole.WriteLine(json); }
     }
 
-    private static void RenderObservation(string toolName, string json)
+    private static void RenderObservation(string toolName, string json, bool compact = false)
     {
         try
         {
@@ -2235,7 +2236,7 @@ public class CliApp
                     RenderServiceObs(r);
                     break;
                 case "vuln_scan":
-                    RenderVulnerabilityObs(r);
+                    RenderVulnerabilityObs(r, compact);
                     break;
                 case "ssl_check":
                     RenderSslObs(r);
@@ -2397,7 +2398,7 @@ public class CliApp
         }
     }
 
-    private static void RenderVulnerabilityObs(JsonElement r)
+    private static void RenderVulnerabilityObs(JsonElement r, bool compact = false)
     {
         var target = r.TryGetProperty("target", out var targetNode) ? targetNode.GetString() ?? "?" : "?";
         var overall = r.TryGetProperty("overallRisk", out var riskNode) ? riskNode.GetString() ?? "未知" : "未知";
@@ -2421,7 +2422,7 @@ public class CliApp
         AnsiConsole.Write(new Panel(summary)
             .Header($"[teal] 🛡 漏洞评估 {Escape(target)} [/]")
             .BorderColor(color));
-        RenderCloudSourceStatus(r);
+        RenderCloudSourceStatus(r, compact);
 
         if (findings.Count > 0)
         {
@@ -2478,8 +2479,14 @@ public class CliApp
             RenderVulnerabilityAssessments(r);
     }
 
-    private static void RenderCloudSourceStatus(JsonElement r)
+    private static void RenderCloudSourceStatus(JsonElement r, bool compact = false)
     {
+        if (compact)
+        {
+            AnsiConsole.Write(new Text(BuildCompactCloudSummary(r), new Style(Color.Yellow)));
+            AnsiConsole.WriteLine();
+            return;
+        }
         if (r.TryGetProperty("exposureChecks", out var exposure))
             foreach (var item in exposure.EnumerateArray())
                 AnsiConsole.MarkupLine($"[yellow]端口 {item.GetProperty("port")}: {Escape(item.GetProperty("message").GetString() ?? "")}[/]");
@@ -2502,6 +2509,34 @@ public class CliApp
             table.AddRow(check.GetProperty("port").ToString(), Escape(check.GetProperty("source").GetString() ?? ""),
                 Escape(check.GetProperty("status").GetString() ?? ""), Escape(check.GetProperty("detail").GetString() ?? ""));
         if (checks.GetArrayLength() > 0) AnsiConsole.Write(table);
+    }
+
+    internal static string BuildCompactCloudSummary(JsonElement root)
+    {
+        var lines = new List<string>();
+        if (root.TryGetProperty("exposureChecks", out var exposure))
+            lines.AddRange(exposure.EnumerateArray().Select(item => $"端口 {item.GetProperty("port")}: {item.GetProperty("message").GetString()}"));
+        if (root.TryGetProperty("cloudNotice", out var notice)) lines.Add(notice.GetString() ?? "");
+        if (root.TryGetProperty("cloudCandidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array && candidates.GetArrayLength() > 0)
+        {
+            var groups = CloudLeadRanking.ForPresentation(CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())));
+            lines.Add($"云端 {candidates.GetArrayLength()} 条线索，跨端口最多展示 {CloudLeadRanking.ModelLeadLimit} 条（版本未验证，非目标漏洞）：");
+            foreach (var group in groups)
+            {
+                var leads = group.GetProperty("leads").EnumerateArray().ToArray();
+                lines.Add($"  {group.GetProperty("port")}: " + (leads.Length == 0 ? "无优先展示项" :
+                    string.Join(", ", leads.Select(lead => lead.GetProperty("cve").GetString()))) +
+                    $"；收起 {group.GetProperty("totalCount").GetInt32() - leads.Length} 条（含历史 {group.GetProperty("historicalCount")} 条）");
+            }
+            lines.Add("下一步：核对设备型号/固件与厂商公告。完整线索及来源明细保留在会话记录，-v 可显示详细过程。");
+        }
+        if (root.TryGetProperty("sourceChecks", out var checks) && checks.ValueKind == JsonValueKind.Array)
+        {
+            var failures = checks.EnumerateArray().Where(check => check.GetProperty("status").GetString() != "ok")
+                .Select(check => $"{check.GetProperty("source")}:{check.GetProperty("status")}").Distinct().ToArray();
+            if (failures.Length > 0) lines.Add("云源受限（不代表无漏洞）：" + string.Join(" + ", failures));
+        }
+        return string.Join(Environment.NewLine, lines);
     }
 
     internal static Table BuildCloudCandidateTable(JsonElement candidates)

@@ -7,6 +7,90 @@ namespace LucentMist.Agent.Tests;
 public class ConclusionEvidenceTests
 {
     [Fact]
+    public void CompactTlsFactsMustStillDiscloseExpiration()
+    {
+        var observation = new ReActObservation
+        {
+            ToolName = "ssl_check",
+            Success = true,
+            Result = """{"target":"192.168.2.1","isExpired":true,"trustErrors":["NotTimeValid"]}"""
+        };
+        var answer = SecurityAnalysisEvidence.WithVerifiedFacts("分析网关", "HTTPS 信任错误 NotTimeValid，中间人风险需关注。", [observation]);
+        Assert.Contains("证书已过期", answer);
+    }
+
+    [Theory]
+    [InlineData("DNS 放大比 2.1，单点风险较低", true)]
+    [InlineData("DNS 放大比 2.1，属中低水平", true)]
+    [InlineData("DNS 放大比 2.1，不能据此说明风险较低", false)]
+    [InlineData("DNS 本次响应/请求比 2.1，不是攻击风险评级；公网可达性未验证", false)]
+    public void RealGateway_ResponseRatioCannotBecomeAnUnsupportedRiskGrade(string answer, bool conflict)
+    {
+        var observation = new ReActObservation
+        {
+            ToolName = "service_identify",
+            Success = true,
+            Result = """{"target":"192.168.2.1","dnsSecurity":{"recursionAvailable":false}}"""
+        };
+        Assert.Equal(conflict, SecurityAnalysisEvidence.FindConclusionConflicts(answer, [observation]).Count > 0);
+    }
+
+    [Fact]
+    public void RealGateway_MissingTlsEvidenceAddsOnlyCompactFacts_NotTheEntireDnAndRepeatedAdvice()
+    {
+        var answer = SecurityAnalysisEvidence.WithVerifiedFacts("分析网关", "先核对HTTPS身份。", [new()
+        {
+            ToolName = "ssl_check", Success = true, Result = IssuedTls,
+        }]);
+        Assert.Contains("NameMismatch", answer);
+        Assert.Contains("CN=ZTE-ROOT-CA", answer);
+        Assert.Contains("中间人风险", answer);
+        Assert.DoesNotContain("O=ZTE", answer);
+        Assert.True(answer.Length < 350);
+    }
+
+    [Theory]
+    [InlineData("未发现 22/RDP 等远程管理端口", true)]
+    [InlineData("本次未开放 RDP", true)]
+    [InlineData("RDP 未检查，不能断言未开放 RDP", false)]
+    [InlineData("仅检查 TCP 1-1000；3389 不在扫描范围内", false)]
+    public void RealGateway_UnscannedRdpCannotBeClaimedAbsent(string answer, bool conflict)
+    {
+        var observation = new ReActObservation
+        {
+            ToolName = "port_scan",
+            Success = true,
+            Result = """{"target":"192.168.2.1","scannedPortRange":"1-1000","openPorts":[53,80,443]}""",
+        };
+        Assert.Equal(conflict, SecurityAnalysisEvidence.FindConclusionConflicts(answer, [observation]).Count > 0);
+    }
+
+    [Fact]
+    public void RealGateway_CompleteTlsAndDnsSummaryIsNotAppendedAgain()
+    {
+        var answer = "HTTPS 信任失败：NameMismatch、PartialChain；主体与签发者不同，不能称为自签，可能增加中间人风险，不等于遭攻击；应核对完整证书链。" +
+                     "DNS 未观察到对当前扫描源开放递归；公网可达性未验证。";
+        var observations = new ReActObservation[]
+        {
+            new() { ToolName = "ssl_check", Success = true, Result = IssuedTls },
+            new() { ToolName = "service_identify", Success = true,
+                Result = """{"target":"192.168.2.1","dnsSecurity":{"recursionAssessment":"未观察到对当前扫描源开放递归"}}""" },
+        };
+        Assert.Equal(answer, SecurityAnalysisEvidence.WithVerifiedFacts("分析网关", answer, observations));
+    }
+
+    [Fact]
+    public void RealGateway_VulnerabilityFooterKeepsEvidenceWithoutRepeatingEveryPortAndLead()
+    {
+        var observation = new ReActObservation { ToolName = "vuln_scan", Success = true, Result = GatewayConvergenceTests.Vulns };
+        var answer = SecurityAnalysisEvidence.WithVerifiedFacts("分析网关", "53/80/443 暴露；先核对固件。", [observation]);
+        Assert.Contains("内置库 + NVD", answer);
+        Assert.Contains("版本未知", answer);
+        Assert.DoesNotContain("端口 80 判断", answer);
+        Assert.True(answer.Length < 350);
+    }
+
+    [Fact]
     public void UnknownDnsResponseIsNotAContradictoryNegativeObservation()
     {
         var observations = new ReActObservation[]

@@ -74,6 +74,8 @@ public class PortScanTool : INetworkTargetTool
             {
                 target,
                 totalScanned = ports.Count,
+                scannedPortRange = portsStr,
+                scopeNote = "仅报告本次 TCP 受检端口；未扫描的端口（包括范围外的 RDP 等）及 WAN 可达性均未知。",
                 openPorts,
                 device,
                 scanDuration = sw.Elapsed.ToString()
