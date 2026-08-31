@@ -17,6 +17,12 @@ internal static class AgentObservationFormatter
             var root = JsonNode.Parse(observation.Result);
             if (observation.ToolName == "vuln_scan" && root is JsonObject obj && obj["cloudCandidateGroups"] is JsonArray)
                 obj.Remove("cloudCandidates");
+            if (observation.ToolName == "ssl_check" && root is JsonObject tls)
+            {
+                using var document = JsonDocument.Parse(observation.Result);
+                if (SecurityAnalysisEvidence.TlsIdentityAssessment(document.RootElement) is { } identity)
+                    tls["certificateIdentityAssessment"] = identity;
+            }
             return root?.ToJsonString(Readable) ?? observation.Result;
         }
         catch (JsonException) { return observation.Result; }

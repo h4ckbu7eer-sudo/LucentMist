@@ -7,6 +7,47 @@ namespace LucentMist.Agent.Tests;
 public class ConclusionEvidenceTests
 {
     private const string Tls = """{"target":"192.168.2.1","port":443,"isTrusted":false,"isExpired":false,"trustErrors":["NameMismatch","PartialChain","RevocationStatusUnknown"]}""";
+    private const string IssuedTls = """{"target":"192.168.2.1","port":443,"subject":"CN=192.168.1.1, O=ZTE","issuer":"CN=ZTE-ROOT-CA, O=ZTE","isTrusted":false,"isExpired":false,"trustErrors":["NameMismatch","PartialChain"]}""";
+
+    [Theory]
+    [InlineData("HTTPS 使用 ZTE 自签证书，存在信任风险")]
+    [InlineData("HTTPS 信任失败，不能断言自签（此处确为自签根）")]
+    public void RealGateway_IssuedLeafCannotBeInventedAsSelfSigned(string answer)
+    {
+        Assert.NotEmpty(SecurityAnalysisEvidence.FindConclusionConflicts(answer,
+            [new() { ToolName = "ssl_check", Success = true, Result = IssuedTls }]));
+    }
+
+    [Fact]
+    public void RealGateway_IssuerEvidenceReachesModelAndFinal()
+    {
+        var observation = new ReActObservation { ToolName = "ssl_check", Success = true, Result = IssuedTls };
+        Assert.Contains("主体与签发者不同", AgentObservationFormatter.ForModel(observation));
+        var final = SecurityAnalysisEvidence.WithVerifiedFacts("分析网关", "证书信任失败，不能认定为自签证书", [observation]);
+        Assert.Contains("主体与签发者不同", final);
+        Assert.Contains("CN=ZTE-ROOT-CA", final);
+        Assert.Empty(SecurityAnalysisEvidence.FindConclusionConflicts(final, [observation]));
+    }
+
+    [Fact]
+    public async Task RealGateway_WrongSelfSignedConclusionIsRetried()
+    {
+        var tool = new Mock<ITool>();
+        tool.SetupGet(item => item.Name).Returns("ssl_check");
+        tool.SetupGet(item => item.Description).Returns("TLS");
+        tool.SetupGet(item => item.Parameters).Returns([]);
+        tool.Setup(item => item.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok(IssuedTls, TimeSpan.Zero));
+        var llm = new Mock<ILLMProvider>();
+        llm.SetupSequence(item => item.ReActAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<ReActObservation>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReActStep { Action = "ssl_check", ActionInput = "{\"target\":\"192.168.2.1\"}" })
+            .ReturnsAsync(new ReActStep { Action = "final_answer", ActionInput = "HTTPS 使用自签证书，存在信任风险" })
+            .ReturnsAsync(new ReActStep { Action = "final_answer", ActionInput = "HTTPS 信任失败，签发者与主体不同，不能断言为自签证书" });
+        var result = await new ReActEngine(llm.Object, new ToolRegistry().Register(tool.Object), "prompt").RunAsync("分析网关风险");
+        Assert.Contains(result.Observations, item => item.ToolName == "analysis_completeness");
+        Assert.DoesNotContain("HTTPS 使用自签证书", result.Answer);
+        Assert.Contains("主体与签发者不同", result.Answer);
+    }
 
     [Fact]
     public async Task InvalidContractIsFedBackInsteadOfDisplayedAsFinal()
