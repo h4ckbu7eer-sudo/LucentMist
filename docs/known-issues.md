@@ -3,6 +3,10 @@
 Current 0.9.6 self-use boundaries; older release evidence remains historical.
 Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md).
 
+## Unreleased gateway-analysis follow-up
+
+Local changes after the 0.9.6 release converge incomplete checks into limited actionable assessments, share bounded HTTP HEAD/GET probes, fold unverified pre-2005 keyword leads, and reuse a DNS snapshot within one Agent run. Local gates: 551 .NET tests and 14 Python tests. [Gateway validation](gateway-convergence-validation.md) distinguishes the 50-lead simulated analysis from real gateway tools driven by a scripted provider. No new DeepSeek or Web validation, no new push/tag/CI claim; the published 0.9.6 image does not yet contain this follow-up.
+
 ## Release Status
 
 - 0.9.6 is published at `98666f8e` / `v0.9.6`. Both main and tag CI passed Windows, Ubuntu and GHCR jobs; the independent published-image check returned HTTP 200 with version 0.9.6. Local gates passed 533 .NET tests and 14 separate Python tests, with zero build warnings/errors. Commands, run links, digest and transient proxy failures: [final-push-evidence.md](final-push-evidence.md).
