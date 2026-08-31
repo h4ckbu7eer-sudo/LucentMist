@@ -141,7 +141,7 @@ internal static class SecurityAnalysisEvidence
         // A TLS name mismatch is not an acknowledgement of conflicting DNS probes.
         // An explicit DNS disagreement may quote both positive and negative readings.
         var describesDnsDifference = Regex.IsMatch(answer,
-            @"(?:DNS|递归)[^。\n]{0,120}(?:不一致|波动|差异|矛盾)",
+            @"(?:DNS|递归)(?:(?!HTTPS|TLS|证书)[^\n]){0,120}(?:不一致|波动|差异|矛盾)",
             RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
         if (hasPositiveDns && ClaimsNoRecursion(answer) && !describesDnsDifference)
             conflicts.Add("至少一次 DNS 探测观察到对当前扫描源开放递归，不能断言未开放；不同探测结果须说明差异");
@@ -175,6 +175,7 @@ internal static class SecurityAnalysisEvidence
             // Scope negation to this clause: "不能断言自签（此处确为自签根）"
             // contains both a disclaimer and a separate unsupported assertion.
             var clause = answer[..match.Index].Split(['。', '；', ';', '，', ',', '\n', '（', '(']).Last();
+            if (clause.TrimEnd().EndsWith("非", StringComparison.Ordinal)) continue;
             if (!Regex.IsMatch(clause, @"不能|不可|不得|不应|并非|不是|未确认|无法|不代表|不等于|是否|可能|尚未|不一定|cannot|not |unknown|may ",
                     RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))) return true;
         }

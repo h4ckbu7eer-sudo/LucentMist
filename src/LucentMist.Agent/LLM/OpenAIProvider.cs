@@ -135,7 +135,7 @@ public class OpenAIProvider : ILLMProvider
             {
                 var final = action.GetString() == "final_answer";
                 var input = ai.ValueKind == JsonValueKind.String ? ai.GetString() ?? "" : ai.GetRawText();
-                var validInput = final ? ai.ValueKind == JsonValueKind.String : ai.ValueKind == JsonValueKind.Object;
+                var validInput = final ? ai.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(input) : ai.ValueKind == JsonValueKind.Object;
                 if (!final && ai.ValueKind == JsonValueKind.String)
                 {
                     using var arguments = JsonDocument.Parse(input);
@@ -151,7 +151,7 @@ public class OpenAIProvider : ILLMProvider
         {
             Thought = "模型输出不符合 ReAct JSON 契约，需重新生成",
             Action = "invalid_response",
-            ActionInput = "请输出合法 JSON 对象 {thought, action, action_input}；工具参数须为对象，最终答案须为字符串；字符串内换行必须转义。"
+            ActionInput = "请输出合法 JSON 对象 {thought, action, action_input}；工具参数须为对象，最终答案须为非空字符串；字符串内换行必须转义。"
         };
     }
 

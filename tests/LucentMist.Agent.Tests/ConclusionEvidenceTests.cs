@@ -30,6 +30,29 @@ public class ConclusionEvidenceTests
     }
 
     [Fact]
+    public void RealGateway_CorrectParagraphsAreNotRejectedBySentenceOrNegationMatching()
+    {
+        var observations = new ReActObservation[]
+        {
+            new() { ToolName = "service_identify", Success = true, Result = """{"target":"192.168.2.1","dnsSecurity":{"recursionAvailable":false}}""" },
+            new() { ToolName = "vuln_scan", Success = true, Result = """{"target":"192.168.2.1","checkedServices":[{"port":53,"reason":"对当前扫描源开放递归"}]}""" },
+            new() { ToolName = "ssl_check", Success = true, Result = IssuedTls },
+        };
+        Assert.Empty(SecurityAnalysisEvidence.FindConclusionConflicts(
+            "53/DNS：DNS 服务，版本未公开。不同探测结果不一致：一次观察到递归，另一次未观察到。\n" +
+            "HTTPS 信任失败，证书非自签（主体与签发者不同），不能证明根证书可信，存在身份校验风险。", observations));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void RealModel_EmptyFinalIsAContractFailureNotACompletedAnswer(string answer)
+    {
+        var raw = System.Text.Json.JsonSerializer.Serialize(new { thought = "done", action = "final_answer", action_input = answer });
+        Assert.Equal("invalid_response", OpenAIProvider.ParseResponse(raw).Action);
+    }
+
+    [Fact]
     public async Task RealGateway_WrongSelfSignedConclusionIsRetried()
     {
         var tool = new Mock<ITool>();

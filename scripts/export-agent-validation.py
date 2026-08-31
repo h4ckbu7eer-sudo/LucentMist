@@ -52,7 +52,7 @@ for capture in args.capture:
             tools = set(re.findall(r"^- ([a-z_]+):", definitions, re.MULTILINE))
             valid_action = action == "final_answer" or action in tools
             value = step.get("action_input")
-            valid_input = isinstance(value, str) if action == "final_answer" else isinstance(value, dict) or isinstance(value, str) and isinstance(json.loads(value), dict)
+            valid_input = isinstance(value, str) and bool(value.strip()) if action == "final_answer" else isinstance(value, dict) or isinstance(value, str) and isinstance(json.loads(value), dict)
             valid_json = valid_json and isinstance(step.get("thought"), str)
         except (ValueError, KeyError, TypeError, AttributeError, IndexError):
             pass
