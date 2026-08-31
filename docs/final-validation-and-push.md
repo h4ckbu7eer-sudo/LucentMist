@@ -111,12 +111,53 @@ Auto-check PASS: docs/auto-check-latest.md
 
 ## 推送与远端状态
 
-截至本节初次提交，真实复验与本地门禁通过，准备按本轮用户授权推送。此次 push 会触发主 CI 和 GHCR；本轮没有创建新版本号/tag，既有 0.9.5 版本 tag 不会被重写。
+已按本轮用户指示推送，实际触发 CI/GHCR。本轮未创建新版本号/tag；既有 0.9.5 版本 tag 未重写，主分支发布的是 main/latest/sha 镜像。
 
-本节将在 `gh run view` 返回本次 push 的实际 Windows/Ubuntu/GHCR 状态后更新。旧 run 的成功不作为本次提交的验证。
+```text
+git push origin main
+ba5fc51c..522443ad  main -> main
+# 原 6 个提交 + 本轮 TLS 测试修复 + 真实证据文档
 
-第一次 push 已完成：`ba5fc51c..522443ad main -> main`。真实 hourly run `33358190504` 首次复验失败，但不是 SSL 外网依赖：Tools 364/364、Agent 85/85、API 28/28；Scanning 30/31，失败是快任务 374ms 超过硬编码 250ms。慢任务 504ms、max-active=2。已将该测试改为事件同步的并发顺序断言，不改生产代码，失败历史保留，须再次推送并复查。
+git push origin main
+522443ad..668c1c72  main -> main
+# 本轮远端实际暴露的计时断言修复（仅测试/文档）
+```
+
+| 提交 | 实际工作流 | 结果 |
+| --- | --- | --- |
+| `522443ad` | [CI 33358159499](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33358159499) | Windows / Ubuntu / GHCR 全部 success |
+| `522443ad` | [Hourly 33358190504](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33358190504) | **failure**，并发测试错误使用 250ms 速度阈值 |
+| `668c1c72` | [CI 33358725600](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33358725600) | **Windows / Ubuntu / GHCR 全部 success** |
+| `668c1c72` | [Hourly 33358759327](https://github.com/h4ckbu7eer-sudo/LucentMist/actions/runs/33358759327) | **success**，完整 build / format / test / compose |
+
+首次 hourly 失败不是 SSL 外网依赖：Tools 364/364、Agent 85/85、API 28/28；Scanning 30/31，失败是快任务 374ms 超过硬编码 250ms。慢任务 504ms、max-active=2。保留这一失败历史；随后以事件同步验证并发顺序，未修改生产调度器。本地重新 build/test/format/compose 全部通过后才推送 `668c1c72`。
+
+实际查询命令与返回字段摘录：
+
+```text
+gh run view 33358725600 --repo h4ckbu7eer-sudo/LucentMist --json databaseId,headSha,status,conclusion,jobs,url
+headSha: 668c1c72f742320ebf3b8e195a6482d78667d966
+status: completed; conclusion: success
+Build & Test (windows-latest), job 99385775120: success
+Build & Test (ubuntu-latest), job 99385775231: success
+Build & Push GHCR, job 99386205268: success
+
+gh run view 33358759327 --repo h4ckbu7eer-sudo/LucentMist --json databaseId,headSha,status,conclusion,jobs,url
+headSha: 668c1c72f742320ebf3b8e195a6482d78667d966
+status: completed; conclusion: success
+Build, Test and Compose Validate, job 99385870021: success
+
+gh run view 33358759327 --repo h4ckbu7eer-sudo/LucentMist --log
+0 Warning(s)
+0 Error(s)
+Passed! API: 28; Scanning: 31; Agent: 85; Tools: 364
+Auto-check PASS: docs/auto-check-latest.md
+```
+
+完整状态字段另存 [final-ci.json](validation-evidence/final-push-20260831/final-ci.json) 和 [final-hourly.json](validation-evidence/final-push-20260831/final-hourly.json)；[首次 push CI](validation-evidence/final-push-20260831/first-push-ci.json) 也保留。JSON 文件通过 `gh run view --json ... --jq` 仅选择相关字段生成。查询过程中本机代理曾出现 TLS timeout/EOF，重试后才取得上述终态；未将查询失败等同于 CI 失败。
+
+`668c1c72` 的生产 `src`/`config` tree 与真实复验的 `b5a73f34` 完全相同。本节的最终证据收尾提交只改文档；工作流已有 docs-only 路径忽略，因此不据此虚构又跑了一次 CI。远端实证精确对应 `668c1c72`，不是旧版 `ba5fc51c`。
 
 ## 密钥与工作区
 
-key 仅用于验证进程环境与必要的请求内存，记录器不保存请求头；两个复验进程退出时全仓精确 key 检查均为 `ABSENT`。推送前还会检查暂存区和本轮提交历史。不会把用户任务前已有的 `tests/LucentMist.Tools.Tests/packages.lock.json`（364 行新增）或 `.codex/`、`.workbuddy/`、`deliverables/` 混入提交。
+key 仅用于验证进程环境与必要的请求内存，记录器不保存请求头；两个复验进程退出时全仓精确 key 检查均为 `ABSENT`。首次推送前仓库、暂存区和本轮提交历史均检查为 `ABSENT`，最终证据提交前再次扫描。用户任务前已有的 `tests/LucentMist.Tools.Tests/packages.lock.json`（364 行新增）及 `.codex/`、`.workbuddy/`、`deliverables/` 原样保留，未混入提交；不声称工作区从来没有用户自己的修改。
