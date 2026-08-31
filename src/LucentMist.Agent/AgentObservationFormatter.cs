@@ -22,6 +22,8 @@ internal static class AgentObservationFormatter
                 using var document = JsonDocument.Parse(observation.Result);
                 if (SecurityAnalysisEvidence.TlsIdentityAssessment(document.RootElement) is { } identity)
                     tls["certificateIdentityAssessment"] = identity;
+                if (tls["trustErrors"] is JsonArray { Count: > 0 })
+                    tls["trustRemediationBoundary"] = SecurityAnalysisEvidence.TlsTrustGuidance;
             }
             return root?.ToJsonString(Readable) ?? observation.Result;
         }
