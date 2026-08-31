@@ -42,7 +42,7 @@ SMBGhost 的禁用压缩缓解只保护服务端，不保护 SMB 客户端；安
 - initial：23/23，100%；但语义失败，不能作为完成证据。
 - retry1：17/18，94.44%；空字符串虽可反序列化，按最终非空契约计为失败。旧记录器当时打印 18/18，只检验结构；这里保留原始响应并按更严格最终规则重新统计。该轮仍因结论误拦截未通过语义验收。
 - retry2：18/19，94.74%；一次空答案被自动重试纠正。三组安全分析完整执行，但证书处置建议仍需上述修复，不冒充最终通过。
-- final：**17/17，100%**（IP 2 次、本机 3 次、网关 6 次、REPL 6 次），全部 HTTP 200，四个 CLI 退出码均 0。四轮总计 77 次，严格契约 75 次通过；最终验收只使用最后一轮，不混算出一个更好的数字。
+- final：经 2026-09-01 严格重复键复算为 **16/17，94.12%**（IP 2 次、本机 3 次、网关 6 次、REPL 6 次）；第 5 条重复 action，旧统计后值覆盖而误计成功。全部 HTTP 200，四个 CLI 退出码均 0。四轮总计 77 次，严格契约 **74 次**通过。原始文件保留，见[勘误](upstream-device-remediation.md)；不把重答成功当首次契约成功。
 
 原始响应逐条保存在 [model-responses.jsonl](validation-evidence/authorized-deepseek-20260831/model-responses.jsonl)，保留 `capture`、`run`、每次实际工具清单、原始模型文本和重新计算的三项契约标记。
 [contract-summary.json](validation-evidence/authorized-deepseek-20260831/contract-summary.json) 可独立复算上述数字。所有轮次均保留，不删掉不合格回答。

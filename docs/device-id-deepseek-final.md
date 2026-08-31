@@ -40,7 +40,7 @@ dotnet src/LucentMist.CLI/bin/Release/net10.0/lmist.dll agent "分析 192.168.99
 
 | 捕获 | 原始契约 | 实际结果 |
 | --- | --- | --- |
-| first | 4/4 | OS 确已调用，但首次结论把 DNS 比值 2.1 推成低风险，被守卫纠正；另有无响应被写成版本未公开 |
+| first | **3/4（重复键勘误，旧统计 4/4）** | 第 4 条重复 action；OS 确已调用，但首次结论把 DNS 比值 2.1 推成低风险，被守卫纠正；另有无响应被写成版本未公开 |
 | failed（临时目录曾名 final，不代表通过） | **5/8，62.5%** | 强化 DNS 解释后暴露 JSON 不合法和 TLS 同义表述被误拦；本轮不通过 |
 | repaired-a | 3/3 | 修复后 3 轮，无补查/契约重答，有限评估完成 |
 | committed | **3/3** | 在上述最终代码提交上重新构建并运行，3 轮，无补查/契约重答，147 行原始终端输出 |
@@ -51,7 +51,7 @@ dotnet src/LucentMist.CLI/bin/Release/net10.0/lmist.dll agent "分析 192.168.99
 [最终会话/工具记录](validation-evidence/device-id/committed-sessions.jsonl)。
 first/failed/repaired-a 的完整会话与 CLI 文件也在同目录。
 
-本次所有阶段合计 15/18，不写成全程 100%；修复后两次为 6/6。
+本次所有阶段经[严格复算勘误](upstream-device-remediation.md)为 **14/18**（旧统计 15/18 高估一次），不写成全程 100%；修复后两次仍为 6/6。
 这两次是定向回归，不是最终代码 10+ 次契约基准，也不能保证任意模型/目标永不回归。
 
 ### 实测发现 → 修复 → 复验

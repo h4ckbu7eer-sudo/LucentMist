@@ -12,7 +12,7 @@ The follow-up is now in 0.9.8: limited actionable assessments, shared HTTP HEAD/
 - 0.9.8: `bb6f6a18` / `v0.9.8`; main/tag Windows, Ubuntu and GHCR jobs succeeded, manifest `sha256:8040122220bc4fedca085a75cbc35ce5007cfe975b6eb0a191226f5a35fe2b2e`, independent image health HTTP 200. Full commands and transient TLS/EOF failures are in the [artifact evidence](release-artifact-validation-0.9.8.md). 0.9.7 remains immutable but has the documented semantic defects; use the corrected release.
 
 - 0.9.6 is published at `98666f8e` / `v0.9.6`. Both main and tag CI passed Windows, Ubuntu and GHCR jobs; the independent published-image check returned HTTP 200 with version 0.9.6. Local gates passed 533 .NET tests and 14 separate Python tests, with zero build warnings/errors. Commands, run links, digest and transient proxy failures: [final-push-evidence.md](final-push-evidence.md).
-- The previous authorized DeepSeek validation completed four rounds / 77 calls, with 17/17 strict contracts in the final corrected round. This release gate did not make new model calls. API image health is not a new Web/browser or model semantic validation.
+- The previous authorized DeepSeek validation completed four rounds / 77 calls. A duplicate-property scoring audit corrected the final round to **16/17**, overall **74/77** (formerly overstated as 17/17 and 75/77). See [raw-evidence errata](upstream-device-remediation.md). This release gate did not make new model calls. API image health is not a new Web/browser or model semantic validation.
 - GitHub Actions reports Node 20 action-runtime deprecation annotations (forced Node 24); current jobs succeeded. Updating action major versions remains maintenance work, not a claim of failed .NET compilation.
 
 ### Historical 0.9.5 evidence

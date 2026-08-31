@@ -32,6 +32,13 @@ SSH/Redis/MySQL/DNS，以及 Apache Tomcat 不能被误识别成 Apache HTTP Ser
 
 ## 设备身份
 
+后续真实输出修复增加 `HttpPageIdentity`：从最多 64KiB 的解压 HTTP 正文读取标题/显式 generator，
+只保存公开身份字段，不保存正文、Cookie、会话值，不自动跟随重定向。
+另从 [Recog http_wwwauth.xml](https://github.com/rapid7/recog/blob/d3d20938da9f5f1e442c2419fe6c30cd651b6878/xml/http_wwwauth.xml)
+转换 **3 条** ZTE realm 规则（cpe@zte.com、ZXHN、ZXV），均有可运行回归测试。
+这些是设备声明，不是软件版本规则；总计借鉴 Recog 2 条服务头规则 + 3 条设备 realm 规则。
+已拉取的 WhatWeb/Recog/Nmap 版本、许可证和使用边界见 [tools/README.md](../tools/README.md)。
+
 mDNS 采用定向单播 PTR → 服务 PTR → TXT，最多 8 次查询、总预算 1.2 秒。
 只接受目标地址的回复，并要求 TXT 与服务 PTR 关联；名称/型号仍是未经认证、可能被代理公告的线索。
 未收到回复不证明设备没有广播。没有监听 DHCP，ARP/ip-neigh 也不含 DHCP Option，不能伪造 DHCP 结论。

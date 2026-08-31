@@ -4,7 +4,7 @@ Agent 深化能力在 0.9.8 中仍按实验功能维护，不属于稳定发布�
 
 ## 已实证
 
-- 真实 DeepSeek 四轮 77 次调用；最终轮严格契约 17/17，CLI 主 IP、本机、网关及 REPL 路径通过。原始错误总结经证据护栏纠正，不代表原始模型语义从不出错。见[授权复验记录](deepseek-authorized-validation-20260831.md)。
+- 真实 DeepSeek 四轮 77 次调用；最终轮严格契约经重复键勘误为 **16/17**（旧统计误写 17/17），CLI 主 IP、本机、网关及 REPL 路径完成。原始错误总结经证据护栏纠正，不代表原始模型语义从不出错。见[统计勘误](upstream-device-remediation.md)及[授权复验记录](deepseek-authorized-validation-20260831.md)。
 
 - WorkingMemory 精简摘要可将 eval 上下文字符减少约 76%
 - `get_evidence` 可以按引用取回原始 observation
