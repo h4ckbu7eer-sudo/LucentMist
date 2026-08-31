@@ -69,3 +69,8 @@ BenchmarkDotNet.Artifacts/
 
 # Offline package caches should not be committed to the repository
 /build/offline/
+
+# Local upstream reference checkouts (see tools/README.md)
+/tools/WhatWeb/
+/tools/recog/
+/tools/nmap/

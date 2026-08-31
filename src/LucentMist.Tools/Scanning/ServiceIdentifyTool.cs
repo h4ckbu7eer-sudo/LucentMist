@@ -131,6 +131,8 @@ public class ServiceIdentifyTool : INetworkTargetTool
                 bannerStatus = httpBanner?.Status,
                 bannerReason = httpBanner?.Reason,
                 httpResponses = httpBanner?.Responses,
+                pageIdentity = httpBanner?.PageIdentity,
+                pageReadStatus = httpBanner?.BodyStatus,
                 fingerprint = LucentMist.Tools.Vulnerability.ServiceFingerprint.FromBanner(banner),
             };
 

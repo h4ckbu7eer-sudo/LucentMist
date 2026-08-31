@@ -8,6 +8,11 @@ Apache-AdvancedExtranetServer) and Lighttpd. The adaptation uses named .NET
 captures and stricter version boundaries. The Redis INFO rule is independently
 implemented, not converted from Recog. Consult `docs/fingerprint-sources.md`.
 
+Three device realm rules in `HttpPageIdentity.cs` are adapted from
+`xml/http_wwwauth.xml`: ZTE CPE (`cpe@zte.com`), ZXHN, and ZXV. No WhatWeb or
+Nmap implementation code is copied into the application. Those GPL/NPSL source
+checkouts remain separately licensed local references under `tools/`.
+
 Copyright (c) 2014, Rapid7, Inc. All rights reserved.
 
 Redistribution and use in source and binary forms, with or without

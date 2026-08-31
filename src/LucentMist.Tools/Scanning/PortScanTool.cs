@@ -68,7 +68,7 @@ public class PortScanTool : INetworkTargetTool
                     }
                 });
             openPorts.Sort();
-            var device = await deviceTask;
+            var device = await DeviceDiscovery.EnrichServicesAsync(await deviceTask, openPorts, cancellationToken);
 
             var result = new
             {

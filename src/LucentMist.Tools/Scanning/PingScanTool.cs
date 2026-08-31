@@ -125,6 +125,12 @@ public class PingScanTool : INetworkTargetTool
                 async (index, ct) =>
                 {
                     var ip = alive[index];
+                    if (IPAddress.TryParse(ip, out var address) && IPAddress.IsLoopback(address))
+                    {
+                        var local = await DeviceDiscovery.EnrichAsync(ip, ct);
+                        deviceDetails[index] = new DeviceDetail(ip, local.Mac, local.Vendor, local.Name, local.Model);
+                        return;
+                    }
                     neighborTable.TryGetValue(ip, out var mac);
                     var identity = IsPrivateAddress(ip) && _identityProbe != null ? await _identityProbe(ip, ct) : null;
                     var name = identity?.Name ?? (IsPrivateAddress(ip) && _identityProbe == null ? await _mdnsLookupAsync(ip, ct) : null);
