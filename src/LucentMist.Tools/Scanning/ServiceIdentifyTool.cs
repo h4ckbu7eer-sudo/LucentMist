@@ -9,6 +9,7 @@ using System.Text.RegularExpressions;
 using LucentMist.Core.Networking;
 using LucentMist.Tools.Common;
 using LucentMist.Tools.Discovery;
+using LucentMist.Tools.Security;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Scanning;
@@ -20,7 +21,6 @@ public class ServiceIdentifyTool : INetworkTargetTool
 {
     private readonly ILogger<ServiceIdentifyTool> _logger;
     private readonly Func<string, int, CancellationToken, Task<DnsSecurityResult>> _dnsProbeAsync;
-    private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
 
     public string Name => "service_identify";
     public string Description => "识别目标 IP 指定端口上运行的服务，通过 Banner 抓取判断服务类型，本机可显示进程信息";
@@ -74,6 +74,7 @@ public class ServiceIdentifyTool : INetworkTargetTool
             var serviceName = PortHelper.GetServiceKey(port) ?? "unknown";
             string? banner;
             DnsSecurityResult? dnsSecurity = null;
+            HttpBannerProbe.Result? httpBanner = null;
 
             if (port == 53)
             {
@@ -82,16 +83,15 @@ public class ServiceIdentifyTool : INetworkTargetTool
                     ? "DNS（版本未公开）"
                     : $"DNS {dnsSecurity.Version}";
             }
+            else if (HttpBannerProbe.IsHttpPort(port))
+            {
+                httpBanner = await HttpBannerProbe.ProbeDetailedAsync(target, port, timeout, cancellationToken);
+                banner = httpBanner.Banner;
+            }
             else
             {
                 // 尝试抓取 Banner（HTTP / SSH / 通用）
                 banner = await GrabBannerAsync(target, port, timeout, cancellationToken);
-            }
-
-            // HTTP 回退：如果是 80/443/8080，尝试 HTTP GET
-            if (banner == null && port is 80 or 443 or 8080 or 8443)
-            {
-                banner = await GrabHttpBannerAsync(target, port, timeout, cancellationToken);
             }
 
             // 本机 → 获取进程信息
@@ -127,7 +127,9 @@ public class ServiceIdentifyTool : INetworkTargetTool
                 process = procInfo,
                 processInfoAvailable,
                 processInfoError,
-                dnsSecurity
+                dnsSecurity,
+                bannerStatus = httpBanner?.Status,
+                bannerReason = httpBanner?.Reason,
             };
 
             _logger.LogInformation("ServiceIdentify 完成: {Target}:{Port} → {Service}",
@@ -374,25 +376,4 @@ public class ServiceIdentifyTool : INetworkTargetTool
         }
     }
 
-    private async Task<string?> GrabHttpBannerAsync(string ip, int port, int timeoutMs, CancellationToken cancellationToken)
-    {
-        try
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var scheme = port is 443 or 8443 ? "https" : "http";
-            using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            cts.CancelAfter(timeoutMs);
-            using var response = await Http.GetAsync($"{scheme}://{ip}:{port}/", cts.Token);
-            var serverHeader = response.Headers.Server?.ToString();
-            return $"HTTP {(int)response.StatusCode} {response.StatusCode}, Server: {serverHeader ?? "unknown"}";
-        }
-        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch
-        {
-            return null;
-        }
-    }
 }
