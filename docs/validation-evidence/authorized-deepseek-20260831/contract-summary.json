@@ -1,0 +1,26 @@
+[
+  {
+    "capture": "initial",
+    "calls": 23,
+    "contractPassed": 23,
+    "percent": 100.0
+  },
+  {
+    "capture": "retry1",
+    "calls": 18,
+    "contractPassed": 17,
+    "percent": 94.44
+  },
+  {
+    "capture": "retry2",
+    "calls": 19,
+    "contractPassed": 18,
+    "percent": 94.74
+  },
+  {
+    "capture": "final",
+    "calls": 17,
+    "contractPassed": 17,
+    "percent": 100.0
+  }
+]
