@@ -208,29 +208,7 @@ internal static class SecurityAnalysisEvidence
                 RegexOptions.None, TimeSpan.FromMilliseconds(100)).Any(claim =>
                 !Regex.IsMatch(claim.Value, "不能|不可|无法|不代表|不等于|不是", RegexOptions.None, TimeSpan.FromMilliseconds(100))))
             conflicts.Add("单次 DNS 响应/请求字节比不能推出放大攻击风险较低；只描述观测值，明确公网可达性和反射能力未验证，不必反复探测");
-        // A real model claimed "未发现 22/RDP" after scanning only 1-1000.
-        // Check negative service assertions against actual scan scope, not openPorts.
-        foreach (var observation in observations.Where(item => item.Success && item.ToolName == "port_scan"))
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(observation.Result);
-                if (!doc.RootElement.TryGetProperty("scannedPortRange", out var range) ||
-                    !LucentMist.Tools.Common.PortHelper.TryParsePorts(range.GetString() ?? "", out var scanned)) continue;
-                foreach (var (name, port) in new[] { ("RDP", 3389), ("SSH", 22), ("Telnet", 23), ("SMB", 445) })
-                {
-                    if (scanned.Contains(port)) continue;
-                    foreach (Match claim in Regex.Matches(answer, $@"(?:未发现|未开放|没有开放|已关闭)[^。；\n]{{0,35}}(?:\b{name}\b|(?<![\d.]){port}(?![\d.]))",
-                                 RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
-                    {
-                        var prefix = answer[..claim.Index].Split(['。', '；', '\n']).Last();
-                        if (!Regex.IsMatch(prefix, "不能|不可|不得|不应|无法", RegexOptions.None, TimeSpan.FromMilliseconds(100)))
-                            conflicts.Add($"{name}({port}) 不在受检范围 {range.GetString()} 内，不能断言未开放；请明确范围外未知，不必扩大扫描");
-                    }
-                }
-            }
-            catch (JsonException) { }
-        }
+        conflicts.AddRange(PortScopeEvidence.FindConflicts(answer, observations));
         var dnsEvidence = ReadDnsEvidence(observations);
         var hasPositiveDns = dnsEvidence.Any(item => item.Positive);
         // A TLS name mismatch is not an acknowledgement of conflicting DNS probes.
