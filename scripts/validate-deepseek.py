@@ -8,6 +8,7 @@ import argparse
 import datetime
 import http.server
 import json
+import locale
 import os
 from pathlib import Path
 import re
@@ -27,6 +28,8 @@ secret = os.environ.get("LMIST_LLM_APIKEY", "")
 if not secret:
     raise SystemExit("Set LMIST_LLM_APIKEY in the process environment first.")
 output = Path(options.output).resolve()
+if output.exists() and any(output.iterdir()):
+    raise SystemExit("Use an empty output directory; do not mix independent verification runs.")
 output.mkdir(parents=True, exist_ok=True)
 root = Path(__file__).resolve().parents[1]
 lock = threading.Lock()
@@ -79,7 +82,7 @@ class Recorder(http.server.BaseHTTPRequestHandler):
             value = step.get("action_input")
             valid_input = (isinstance(value, str) if action == "final_answer" else
                            isinstance(value, dict) or isinstance(value, str) and isinstance(json.loads(value), dict))
-        except (ValueError, KeyError, TypeError):
+        except (ValueError, KeyError, TypeError, AttributeError, IndexError):
             pass
         record("model-responses.jsonl", json.dumps({
             "utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "run": run_label,
@@ -103,24 +106,33 @@ env.update(LMIST_LLM_PROVIDER="deepseek", LMIST_LLM_MODEL="deepseek-chat",
            LMIST_LOG_FILE=str(output / "application.log"), LMIST_INJECT_NETWORK_INFO="true",
            NO_PROXY="localhost,127.0.0.1,192.168.2.1", Logging__LogLevel__Default="Error")
 children = []
+cli_exits = []
 try:
     if options.mode == "cli":
         for label, args, stdin in [
             ("ip", ["看看我的ip"], None),
+            ("local", ["分析 127.0.0.1 的安全风险"], None),
             ("gateway", ["分析 192.168.2.1 的安全风险"], None),
             ("repl", [], "看看我的ip\n分析那个子网的网关\n/exit\n"),
         ]:
             run_label = label
             process = subprocess.Popen(["dotnet", str(root / "src/LucentMist.CLI/bin/Release/net10.0/lmist.dll"), "agent", *args],
                                        cwd=root, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                       stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+                                       stderr=subprocess.STDOUT)
             children.append(process)
             try:
-                stdout, _ = process.communicate(stdin, timeout=600)
+                stdout, _ = process.communicate(stdin.encode("utf-8") if stdin else None, timeout=600)
             except subprocess.TimeoutExpired:
                 process.kill()
                 stdout, _ = process.communicate()
-            record(label + ".txt", stdout)
+            # Input is explicitly UTF-8 in Program.cs; Windows redirected output
+            # still uses the host code page. Preserve readable, unmodified text.
+            try:
+                transcript = stdout.decode("utf-8", errors="strict")
+            except UnicodeDecodeError:
+                transcript = stdout.decode(locale.getpreferredencoding(False), errors="strict")
+            record(label + ".txt", transcript.replace("\r\n", "\n"))
+            cli_exits.append(process.returncode)
             print(f"CLI {label}: exit={process.returncode}; transcript={output / (label + '.txt')}", flush=True)
     else:
         for project, port in [("API", str(options.api_port)), ("Web", str(options.web_port))]:
@@ -148,8 +160,22 @@ finally:
             child.terminate()
             child.wait(timeout=15)
     server.shutdown()
-    # Exact secret is sent through stdin, not a process argument or printed match.
-    scan = subprocess.run(["rg", "--quiet", "--fixed-strings", "--hidden", "--no-ignore", "--glob", "!.git", "-f", "-", str(root)],
-                          input=secret + "\n", text=True, capture_output=True)
-    record("secret-scan.jsonl", json.dumps({"repository": str(root), "exactKeyAbsent": scan.returncode == 1}))
-    print("Repository exact-key check: " + ("ABSENT" if scan.returncode == 1 else "FAILED; inspect privately"), flush=True)
+    scan = subprocess.run([os.sys.executable, "-B", str(root / "scripts/verify-key-absence.py")],
+                          env=env, text=True, encoding="utf-8", capture_output=True)
+    record("secret-scan.jsonl", scan.stdout)
+    print("Exact-key verification: " + clean(scan.stdout.strip()), flush=True)
+    if scan.returncode:
+        raise SystemExit("Exact-key verification failed; inspect privately.")
+
+if options.mode == "cli":
+    records = output / "model-responses.jsonl"
+    rows = [json.loads(line) for line in records.read_text(encoding="utf-8").splitlines()] if records.exists() else []
+    passed = sum(row["httpStatus"] == 200 and row["jsonValid"] and row["actionValid"] and row["inputValid"] for row in rows)
+    gate = {"calls": len(rows), "passed": passed, "minimumCalls": 10, "threshold": .9,
+            "percent": round(100 * passed / len(rows), 2) if rows else 0,
+            "cliExitCodes": cli_exits,
+            "passedGate": len(rows) >= 10 and passed / len(rows) >= .9 and all(code == 0 for code in cli_exits)}
+    record("contract-gate.json", json.dumps(gate))
+    print(json.dumps(gate), flush=True)
+    if not gate["passedGate"]:
+        raise SystemExit("Real contract gate failed; fix and rerun. Semantic review is also required.")
