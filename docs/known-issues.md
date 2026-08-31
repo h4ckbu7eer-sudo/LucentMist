@@ -19,6 +19,8 @@ Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SE
 
 ## Product Limitations
 
+- The self-use walkthrough found that the HTML overall-risk card still said safe for zero CVEs despite partial coverage and TLS trust errors. Current local source fixes that card with eight regression cases (516 total local tests); see [self-use-walkthrough.md](self-use-walkthrough.md). These new commits are not claimed pushed or CI-verified. Missing current environment credentials blocked the two fresh DeepSeek checks; prior model validation remains historical evidence.
+
 - Current main validation and exact matching/source boundaries are recorded in
   [agent-real-validation.md](agent-real-validation.md) and [cve-matching-sources.md](cve-matching-sources.md).
   Real DeepSeek CLI, redirected-input REPL and browser Web dialogues were exercised on 2026-08-31.
@@ -112,7 +114,7 @@ Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SE
 
 ## Testing
 
-- Current main CI and hourly both run the complete 508-test suite without an External filter.
+- Main CI and hourly use the full suite without an External filter. Last remote evidence covered 508 tests; current local source has 516 after the self-use report regression fix. Do not confuse local test success with a new remote run.
 - Former external TLS tests use generated loopback certificates. Real cloud/model/gateway checks are separate opt-in validations, not a claim that the unit suite exercises external services.
 - See [testing-strategy.md](testing-strategy.md) and [self-use-walkthrough.md](self-use-walkthrough.md) for current execution boundaries.
 
