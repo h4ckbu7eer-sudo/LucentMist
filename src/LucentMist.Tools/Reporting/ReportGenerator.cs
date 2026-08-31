@@ -27,7 +27,16 @@ public class ReportGenerator
         public List<SslEntry> SslInfo { get; set; } = new();
         public VulnSummary? VulnInfo { get; set; }
     }
-    public class DeviceEntry { public string Ip { get; set; } = ""; public bool IsAlive { get; set; } public string OsGuess { get; set; } = ""; }
+    public class DeviceEntry
+    {
+        public string Ip { get; set; } = "";
+        public bool IsAlive { get; set; }
+        public string OsGuess { get; set; } = "";
+        public string Name { get; set; } = "未知";
+        public string Vendor { get; set; } = "未知";
+        public string Model { get; set; } = "未知";
+        public string IdentityEvidence { get; set; } = "未获得设备身份证据";
+    }
     public class PortEntry { public string Target { get; set; } = ""; public int Port { get; set; } public string Service { get; set; } = ""; public string State { get; set; } = "open"; }
     public class SslEntry { public string Target { get; set; } = ""; public int Port { get; set; } public string Subject { get; set; } = ""; public string Issuer { get; set; } = ""; public string NotAfter { get; set; } = ""; public int DaysRemaining { get; set; } public bool IsExpired { get; set; } public List<string> TrustErrors { get; set; } = new(); }
     public class ScanScope { public string Discovery { get; set; } = "未记录"; public string TcpPorts { get; set; } = "未记录"; public string VulnerabilityChecks { get; set; } = "未记录"; public string Limitations { get; set; } = "扫描结果不代表穷尽式安全证明"; }
@@ -128,6 +137,10 @@ public class ReportGenerator
             sb.AppendLine(string.Join(",",
                 CsvEscape("补充说明"), CsvEscape(r.Target), "", "", CsvEscape("note"),
                 "", "", "", CsvEscape(note), "", ""));
+        foreach (var device in r.Devices)
+            sb.AppendLine(string.Join(",", CsvEscape("设备"), CsvEscape(device.Ip), "", "", CsvEscape(device.IsAlive ? "在线" : "离线"),
+                "", "", "", CsvEscape($"名称: {device.Name}; 厂商: {device.Vendor}; 型号: {device.Model}; OS线索: {device.OsGuess}"),
+                CsvEscape("设备声明/OUI 为线索，型号与固件需管理端确认"), CsvEscape(device.IdentityEvidence)));
         foreach (var port in r.OpenPorts)
         {
             sb.AppendLine(string.Join(",",
@@ -213,6 +226,14 @@ public class ReportGenerator
             sb.AppendLine();
         }
 
+        if (r.Devices.Count > 0)
+        {
+            sb.AppendLine("## 🖥️ 设备身份线索\n");
+            sb.AppendLine("| IP | 名称 | 厂商 | 型号 | OS线索 | 依据 |\n|---|---|---|---|---|---|");
+            foreach (var device in r.Devices)
+                sb.AppendLine($"| {MdEscape(device.Ip)} | {MdEscape(device.Name)} | {MdEscape(device.Vendor)} | {MdEscape(device.Model)} | {MdEscape(device.OsGuess)} | {MdEscape(device.IdentityEvidence)} |");
+            sb.AppendLine();
+        }
         sb.AppendLine("## 🌐 网络暴露\n");
         if (!IsConclusive(r) && r.OpenPorts.Count == 0)
         {
@@ -480,8 +501,8 @@ details{{margin:.4rem 0}}details summary{{cursor:pointer;padding:.6rem .8rem;bac
     {
         if (r.Devices.Count == 0) return "";
         var rows = string.Join("", r.Devices.Select(d =>
-            $"<tr><td>{E(d.Ip)}</td><td>{(d.IsAlive ? "✅ 在线" : "离线")}</td><td>{E(d.OsGuess)}</td></tr>"));
-        return $"<div class='section'><h2>🖥️ 设备清单</h2><table><thead><tr><th>IP</th><th>状态</th><th>OS</th></tr></thead><tbody>{rows}</tbody></table></div>";
+            $"<tr><td>{E(d.Ip)}</td><td>{(d.IsAlive ? "✅ 在线" : "离线")}</td><td>{E(d.Name)}</td><td>{E(d.Vendor)}</td><td>{E(d.Model)}</td><td>{E(d.OsGuess)}</td><td>{E(d.IdentityEvidence)}</td></tr>"));
+        return $"<div class='section'><h2>🖥️ 设备身份线索</h2><table><thead><tr><th>IP</th><th>状态</th><th>名称</th><th>厂商</th><th>型号</th><th>OS线索</th><th>依据</th></tr></thead><tbody>{rows}</tbody></table></div>";
     }
 
     private static string OpenPortsTable(ScanReport r)

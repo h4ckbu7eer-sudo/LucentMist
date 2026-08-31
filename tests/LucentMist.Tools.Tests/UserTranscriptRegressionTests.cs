@@ -1,0 +1,83 @@
+using System.Text.Json;
+using LucentMist.CLI;
+using LucentMist.Tools.Vulnerability;
+using Spectre.Console;
+
+namespace LucentMist.Tools.Tests;
+
+public class UserTranscriptRegressionTests
+{
+    [Fact]
+    public void ReportPreservesWeakOsEvidenceRatherThanClaimingLinuxAsFact()
+    {
+        var os = JsonSerializer.SerializeToElement(new { osFamily = "Linux", confidence = 30 });
+        var label = CliApp.ReportOsLabel(os);
+        Assert.Contains("30%", label);
+        Assert.Contains("非确认", label);
+        Assert.Contains("启发式", label);
+    }
+
+    [Fact]
+    public void ReplQuestionPanelDoesNotRenderInternalConversationEnvelope()
+    {
+        using var output = new StringWriter();
+        var console = AnsiConsole.Create(new AnsiConsoleSettings { Ansi = AnsiSupport.No, Out = new AnsiConsoleOutput(output) });
+        console.Write(CliApp.CreateAgentQuestionPanel("分析网关"));
+        Assert.Contains("分析网关", output.ToString());
+        Assert.DoesNotContain("以下历史", output.ToString());
+        Assert.DoesNotContain("Role", output.ToString());
+    }
+
+    [Fact]
+    public void DnsNoResponseIsNotRenderedAsNonDisclosure()
+    {
+        var dns = JsonSerializer.SerializeToElement(new
+        {
+            version = (string?)null,
+            versionAssessment = "DNS 版本查询无有效响应，无法判断是否公开版本"
+        });
+        Assert.Contains("无有效响应", CliApp.DnsVersionLabel(dns));
+        Assert.DoesNotContain("未公开", CliApp.DnsVersionLabel(dns));
+    }
+
+    [Theory]
+    [InlineData("220 VMware Authentication Daemon Version 1.10: SSL Required, ServerDaemonProtocol:SOAP", "1.10")]
+    [InlineData("220 VMware Authentication Daemon Version 1.0, ServerDaemonProtocol:SOAP", "1.0")]
+    public void AdvertisedDaemonVersionIsNotLostOrInventedAsVmwareProductVersion(string banner, string version)
+    {
+        var result = BannerGrabber.ParseGenericBanner(banner);
+        Assert.Equal(version, result?.Version);
+        Assert.Equal("VMware Authentication Daemon", result?.Service);
+        Assert.Null(ServiceFingerprint.FromBanner(banner));
+    }
+
+    [Fact]
+    public async Task WindowsGuessCannotInventRpcVersionWhenNothingWasObserved()
+    {
+        var result = await new BannerGrabber().GrabAsync("127.0.0.1", 135, 50, "Windows");
+        Assert.Null(result?.Version);
+    }
+
+    [Fact]
+    public async Task LoopbackHasRealMachineNameWithoutMeaninglessMdnsOrOui()
+    {
+        var identity = await LucentMist.Tools.Discovery.DeviceDiscovery.EnrichAsync("127.0.0.1");
+        Assert.Equal(Environment.MachineName, identity.Name);
+        Assert.Equal("not_applicable", identity.MdnsStatus);
+        Assert.Null(identity.Mac);
+    }
+
+    [Theory]
+    [InlineData(LucentMist.Tools.Reporting.ReportGenerator.Format.Html)]
+    [InlineData(LucentMist.Tools.Reporting.ReportGenerator.Format.Markdown)]
+    [InlineData(LucentMist.Tools.Reporting.ReportGenerator.Format.Csv)]
+    public void DeviceIdentityReachesEveryHumanReportFormat(LucentMist.Tools.Reporting.ReportGenerator.Format format)
+    {
+        var report = new LucentMist.Tools.Reporting.ReportGenerator.ScanReport();
+        report.Devices.Add(new() { Ip = "192.0.2.1", Name = "网页：中兴智能路由器", Vendor = "ZTE", Model = "未知", IdentityEvidence = "网页声明不是固件版本" });
+        var output = new LucentMist.Tools.Reporting.ReportGenerator().Generate(report, format);
+        Assert.Contains("中兴智能路由器", output);
+        Assert.Contains("网页声明不是固件版本", output);
+        Assert.Contains("ZTE", output);
+    }
+}

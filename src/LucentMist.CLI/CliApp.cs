@@ -6,6 +6,7 @@ using LucentMist.Core.Networking;
 using LucentMist.Scanning;
 using LucentMist.Tools;
 using LucentMist.Tools.Common;
+using LucentMist.Tools.Discovery;
 using LucentMist.Tools.Reporting;
 using LucentMist.Tools.Scanning;
 using LucentMist.Tools.Security;
@@ -280,6 +281,7 @@ public class CliApp
     // ========================================
     private async Task<int> ScanCommand(string[] args)
     {
+        using var httpScope = HttpObservationScope.Begin();
         if (args.Length == 0)
         {
             AnsiConsole.MarkupLine("[red]请指定扫描目标[/]");
@@ -349,7 +351,7 @@ public class CliApp
                         return;
                     }
 
-                    RenderPingResult(result.Data);
+                    RenderPingResult(result.Data, includeDetails: isUdp || string.IsNullOrEmpty(tcpPorts));
                     AnsiConsole.MarkupLine($" [grey]耗时: {result.Duration.TotalSeconds:F1}s[/]");
                 });
         }
@@ -525,9 +527,7 @@ public class CliApp
                 if (r.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object)
                 {
                     dnsRows.Add((
-                        dns.TryGetProperty("version", out var versionNode) && versionNode.ValueKind == JsonValueKind.String
-                            ? versionNode.GetString() ?? "未公开"
-                            : "未公开",
+                        DnsVersionLabel(dns),
                         dns.GetProperty("recursionAvailable").GetBoolean(),
                         dns.GetProperty("recursionAssessment").GetString() ?? "未知",
                         dns.GetProperty("amplificationRatio").GetDouble()));
@@ -1187,6 +1187,7 @@ public class CliApp
         CancellationToken cancellationToken)
     {
         var local = new ReportGenerator.ScanReport();
+        DeviceIdentity? identity = null;
         var portTool = new PortScanTool(loggerFactory.CreateLogger<PortScanTool>());
         var portResult = await portTool.ExecuteAsync(new ToolArguments
         {
@@ -1199,6 +1200,8 @@ public class CliApp
             try
             {
                 using var ppd = JsonDocument.Parse(portResult.Data);
+                if (ppd.RootElement.TryGetProperty("device", out var deviceNode))
+                    identity = deviceNode.Deserialize<DeviceIdentity>();
                 if (ppd.RootElement.TryGetProperty("openPorts", out var openPorts))
                 {
                     foreach (var item in openPorts.EnumerateArray())
@@ -1234,12 +1237,13 @@ public class CliApp
             var osResult = await osTool.ExecuteAsync(new ToolArguments
             {
                 ["target"] = ip,
+                ["open_ports"] = string.Join(",", local.OpenPorts.Select(port => port.Port)),
                 ["timeout_ms"] = "2000"
             }, cancellationToken);
             if (osResult.Success)
             {
                 using var osDocument = JsonDocument.Parse(osResult.Data);
-                osGuess = osDocument.RootElement.GetProperty("osFamily").GetString() ?? "";
+                osGuess = ReportOsLabel(osDocument.RootElement);
             }
             else
             {
@@ -1257,7 +1261,16 @@ public class CliApp
         }
 
         return new ReportDeviceScanResult(
-            new ReportGenerator.DeviceEntry { Ip = ip, IsAlive = true, OsGuess = osGuess },
+            new ReportGenerator.DeviceEntry
+            {
+                Ip = ip,
+                IsAlive = true,
+                OsGuess = osGuess,
+                Name = identity?.Name ?? "未知",
+                Vendor = identity?.Vendor ?? "未知",
+                Model = identity?.Model ?? "未知",
+                IdentityEvidence = identity?.IdentityEvidence ?? "未取得设备身份证据"
+            },
             local.OpenPorts,
             local.SslInfo,
             local.Warnings,
@@ -1397,6 +1410,7 @@ public class CliApp
     // ========================================
     private static async Task<int> VulnScanCommand(string[] args)
     {
+        using var httpScope = HttpObservationScope.Begin();
         if (args.Length == 0)
         {
             AnsiConsole.MarkupLine("[red]请指定目标 IP[/]");
@@ -1441,41 +1455,7 @@ public class CliApp
             }
         });
 
-        // OS 检测
-        var cpeMatcher = new CpeMatcher(lf.CreateLogger<CpeMatcher>());
-        var osGuess = await cpeMatcher.DetectOsAsync(target) ?? "未知";
-        AnsiConsole.MarkupLine($"\n[grey]OS 识别: {Escape(osGuess)}[/]");
-
-        // 显示端口扫描结果 + Banner
-        var grabber = new BannerGrabber(useNmap, lf.CreateLogger<BannerGrabber>());
-        if (openPorts.Count > 0)
-        {
-            AnsiConsole.WriteLine();
-            AnsiConsole.MarkupLine("[teal]📡 开放端口 + Banner:[/]");
-            var pt = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("服务").AddColumn("版本").AddColumn("状态").AddColumn("CPE");
-            foreach (var (port, svc) in openPorts)
-            {
-                var banner = await grabber.GrabAsync(target, port, 2000, osGuess);
-                var ver = banner?.Version ?? "未识别";
-                var isNmap = banner?.Source == "nmap";
-                var isOsInherit = banner?.Source == "os-inherit";
-                var verKnown = ver != "未识别" && !string.IsNullOrEmpty(ver);
-                var cpe = cpeMatcher.Match(banner?.Service ?? svc, banner?.Raw ?? (verKnown ? ver : null), osGuess);
-                var status = verKnown
-                    ? (isNmap ? "[green]✅ nmap 识别[/]" : isOsInherit ? "[green]✅ OS 继承[/]" : "[green]✅ 已识别[/]")
-                    : cpe != null ? "[yellow]⚠️ 服务级匹配[/]"
-                    : "[red]❌ 无法识别[/]";
-                var cpeDisplay = cpe != null
-                    ? (cpe.IsVersionUnknown ? $"[yellow]{Escape(cpe.Cpe)}[/]" : $"[green]{Escape(cpe.Cpe)}[/]")
-                    : "[grey]—[/]";
-                var sourceTag = isNmap ? " [grey](nmap)[/]" : isOsInherit ? " [grey](OS继承)[/]" : "";
-                var verDisplay = verKnown ? $"[green]{Escape(ver)}{sourceTag}[/]" : "[grey]未识别[/]";
-                pt.AddRow($"[yellow]{port}[/]", $"[white]{svc}[/]",
-                    verDisplay, status, cpeDisplay);
-            }
-            AnsiConsole.Write(pt);
-        }
-        else { AnsiConsole.MarkupLine("\n[yellow]未发现开放端口（TCP 1-1000 及补充高风险端口）[/]"); }
+        // The tool supplies the exact banner used for matching; do not independently re-probe for display.
 
         AnsiConsole.WriteLine();
         ToolResult? vulnerabilityResult = null;
@@ -1486,6 +1466,7 @@ public class CliApp
             {
                 ["target"] = target,
                 ["timeout_ms"] = "5000",
+                ["use_nmap"] = useNmap ? "true" : "false",
             };
             if (openPorts.Count > 0)
                 vulnerabilityArgs["open_ports"] = string.Join(",", openPorts.Select(item => item.Port));
@@ -1510,6 +1491,16 @@ public class CliApp
             var med = r.GetProperty("mediumCount").GetInt32();
             var low = r.GetProperty("lowCount").GetInt32();
             var total = r.GetProperty("totalFindings").GetInt32();
+
+            if (r.TryGetProperty("checkedServices", out var services))
+            {
+                var table = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("服务").AddColumn("已观测版本/协议").AddColumn("证据");
+                foreach (var service in services.EnumerateArray())
+                    table.AddRow(service.GetProperty("port").ToString(), Escape(service.GetProperty("service").GetString() ?? "?"),
+                        Escape(service.TryGetProperty("version", out var version) ? version.GetString() ?? "未知" : "未知"),
+                        Escape(service.TryGetProperty("versionSource", out var source) ? source.GetString() ?? "banner" : "banner"));
+                AnsiConsole.Write(table);
+            }
 
             AnsiConsole.WriteLine();
 
@@ -1919,10 +1910,7 @@ public class CliApp
         await store.AddMessageAsync(session.Id, "user", userMessage);
 
         // 头部面板
-        AnsiConsole.Write(new Panel(
-            $"[white]{Escape(message)}[/]")
-            .Header("[teal] LucentMist Agent [/]")
-            .BorderColor(Color.Teal));
+        AnsiConsole.Write(CreateAgentQuestionPanel(userMessage));
 
         var providerName = provider == "claude"
             ? "Claude API"
@@ -2163,7 +2151,7 @@ public class CliApp
     // ========================================
     // RENDER HELPERS
     // ========================================
-    private static void RenderPingResult(string json)
+    private static void RenderPingResult(string json, bool includeDetails = true)
     {
         try
         {
@@ -2180,6 +2168,7 @@ public class CliApp
                 .BorderColor(Color.Grey);
             AnsiConsole.Write(table);
 
+            if (!includeDetails) return; // The following port scan renders the enriched device once.
             if (r.TryGetProperty("devices", out var devs))
             {
                 var devices = devs.EnumerateArray().Select(d => d.GetString()).ToList();
@@ -2373,6 +2362,22 @@ public class CliApp
         }
     }
 
+    internal static Panel CreateAgentQuestionPanel(string userMessage) => new Panel(
+        $"[white]{Escape(userMessage)}[/]")
+        .Header("[teal] LucentMist Agent [/]")
+        .BorderColor(Color.Teal);
+
+    internal static string ReportOsLabel(JsonElement os) =>
+        $"{os.GetProperty("osFamily").GetString() ?? "未知"}（启发式线索，" +
+        (os.TryGetProperty("confidence", out var confidence) && confidence.TryGetInt32(out var score)
+            ? $"置信度 {score}%" : "置信度未知") + "，非确认）";
+
+    internal static string DnsVersionLabel(JsonElement dns) =>
+        dns.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String &&
+        !string.IsNullOrWhiteSpace(version.GetString()) ? version.GetString()! :
+        dns.TryGetProperty("versionAssessment", out var assessment) && assessment.ValueKind == JsonValueKind.String
+            ? assessment.GetString()! : "未知（未取得版本证据）";
+
     private static void RenderServiceObs(JsonElement r)
     {
         var target = r.GetProperty("target").GetString() ?? "?";
@@ -2381,11 +2386,15 @@ public class CliApp
 
         AnsiConsole.MarkupLine($"     [grey]目标  {Escape(target)}:{port}[/]");
         AnsiConsole.MarkupLine($"     [green]服务  {Escape(service)}[/]");
+        if (r.TryGetProperty("pageIdentity", out var page) && page.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var (key, label) in new[] { ("title", "网页名称"), ("vendor", "厂商线索"), ("model", "型号线索") })
+                if (page.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String)
+                    AnsiConsole.MarkupLine($"     [grey]{label}  {Escape(value.GetString()!)}（页面声明，非固件版本）[/]");
+        }
         if (r.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object)
         {
-            var version = dns.TryGetProperty("version", out var versionNode) && versionNode.ValueKind == JsonValueKind.String
-                ? versionNode.GetString() ?? "未公开"
-                : "未公开";
+            var version = DnsVersionLabel(dns);
             var recursion = dns.GetProperty("recursionAvailable").GetBoolean();
             var ratio = dns.GetProperty("amplificationRatio").GetDouble();
             var table = new Table().BorderColor(recursion ? Color.Yellow : Color.Green)
@@ -2416,7 +2425,7 @@ public class CliApp
             .AddColumn("项目")
             .AddColumn("值")
             .AddRow("结论", total > 0 ? $"发现 {total} 个候选项（含版本未验证项）" : "未发现漏洞匹配项")
-            .AddRow("风险", Escape(overall))
+            .AddRow("漏洞状态", Escape(overall))
             .AddRow("CVE", total.ToString())
             .AddRow("来源", Escape(sources));
         AnsiConsole.Write(new Panel(summary)
@@ -2454,6 +2463,13 @@ public class CliApp
                 ? reasonNode.GetString()
                 : "当前检查范围内没有匹配项。";
             AnsiConsole.MarkupLine($"[yellow]未发现漏洞匹配项；不代表已确认安全。[/] [grey]{Escape(reason ?? "当前检查范围内没有匹配项。")}[/]");
+
+            if (compact)
+            {
+                if (r.TryGetProperty("checkedServices", out var checks))
+                    AnsiConsole.MarkupLine($"[grey]已分析端口：{Escape(string.Join(", ", checks.EnumerateArray().Select(item => item.GetProperty("port").ToString())))}。逐端口依据保留在会话记录，-v 查看。[/]");
+                return;
+            }
 
             if (r.TryGetProperty("checkedServices", out var checkedNode) &&
                 checkedNode.ValueKind == JsonValueKind.Array && checkedNode.GetArrayLength() > 0)
@@ -2497,6 +2513,11 @@ public class CliApp
             AnsiConsole.MarkupLine($"[yellow]云端检索 {candidates.GetArrayLength()} 条待核实线索；以下按端口展示最可能相关的前 {CloudLeadRanking.PerPortLimit} 条。相关性不是漏洞确认，目标版本未验证；不计入漏洞风险。[/]");
             foreach (var group in CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())))
             {
+                if (group.GetProperty("leads").GetArrayLength() == 0)
+                {
+                    AnsiConsole.MarkupLine($"[grey]端口 {group.GetProperty("port")}：收起 {group.GetProperty("totalCount")} 条无产品证据/历史检索结果，不列为优先核实项。[/]");
+                    continue;
+                }
                 AnsiConsole.Write(new Panel(BuildCloudCandidateTable(group.GetProperty("leads")))
                     .Header($"端口 {group.GetProperty("port")} · {group.GetProperty("totalCount")} 条 / 收起 {group.GetProperty("omittedCount")} 条")
                     .BorderColor(Color.Yellow));
@@ -2520,7 +2541,7 @@ public class CliApp
         if (root.TryGetProperty("cloudCandidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array && candidates.GetArrayLength() > 0)
         {
             var groups = CloudLeadRanking.ForPresentation(CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())));
-            lines.Add($"云端 {candidates.GetArrayLength()} 条线索，跨端口最多展示 {CloudLeadRanking.ModelLeadLimit} 条（版本未验证，非目标漏洞）：");
+            lines.Add($"云端 {candidates.GetArrayLength()} 条检索结果；仅展示有产品证据的相关线索，最多 {CloudLeadRanking.ModelLeadLimit} 条（版本未验证，非目标漏洞）：");
             foreach (var group in groups)
             {
                 var leads = group.GetProperty("leads").EnumerateArray().ToArray();
