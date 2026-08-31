@@ -1,0 +1,50 @@
+[
+  {
+    "capture": "baseline",
+    "calls": 9,
+    "contractPassed": 9,
+    "percent": 100.0
+  },
+  {
+    "capture": "fixed",
+    "calls": 11,
+    "contractPassed": 10,
+    "percent": 90.91
+  },
+  {
+    "capture": "jsonmode",
+    "calls": 10,
+    "contractPassed": 10,
+    "percent": 100.0
+  },
+  {
+    "capture": "trial-cli",
+    "calls": 12,
+    "contractPassed": 12,
+    "percent": 100.0
+  },
+  {
+    "capture": "trial-web",
+    "calls": 5,
+    "contractPassed": 5,
+    "percent": 100.0
+  },
+  {
+    "capture": "acceptance-cli",
+    "calls": 14,
+    "contractPassed": 14,
+    "percent": 100.0
+  },
+  {
+    "capture": "web-dns-failure",
+    "calls": 4,
+    "contractPassed": 4,
+    "percent": 100.0
+  },
+  {
+    "capture": "confirmed-web",
+    "calls": 9,
+    "contractPassed": 9,
+    "percent": 100.0
+  }
+]

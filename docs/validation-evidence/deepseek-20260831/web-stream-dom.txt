@@ -1,0 +1,50 @@
+- navigation:
+  - generic: 🌫️
+  - generic: LucentMist
+  - generic: v0.9.5
+  - link "📊 仪表板":
+    - /url: ""
+    - generic: 📊
+    - text: 仪表板
+  - link "🖥️ 设备列表":
+    - /url: /devices
+    - generic: 🖥️
+    - text: 设备列表
+  - link "🔍 扫描控制":
+    - /url: /scan
+    - generic: 🔍
+    - text: 扫描控制
+  - link "📜 扫描历史":
+    - /url: /scan/history
+    - generic: 📜
+    - text: 扫描历史
+  - link "🤖 Agent 对话（实验性）":
+    - /url: /agent
+    - generic: 🤖
+    - text: Agent 对话（实验性）
+  - link "🔒 SSL 证书":
+    - /url: /ssl-check
+    - generic: 🔒
+    - text: SSL 证书
+  - generic: LucentMist + deepseek
+- main:
+  - heading "🤖 Agent 对话 实验性" [level=2]:
+    - text: 🤖 Agent 对话
+    - generic: 实验性
+  - note:
+    - generic: ⚠️ 实验性功能 — 非专家不建议使用
+    - paragraph:
+      - text: Agent 的模型回答可能不完整或降级为确定性摘要，不能替代扫描证据。 若要获得可复核的自检结论，请使用
+      - link "扫描控制":
+        - /url: /scan
+      - text: 和
+      - link "扫描历史":
+        - /url: /scan/history
+      - text: 。
+  - combobox:
+    - option "新会话"
+  - button "加载会话" [disabled]
+  - textbox "例如：扫描 127.0.0.1 的端口": 分析 192.168.2.1 的安全风险
+  - button "分析中..." [disabled]
+  - strong: 思考
+  - generic: 用户明确要求分析网关 192.168.2.1，上下文已有网关地址，直接分析网关，不扫描整个子网，先扫描端口

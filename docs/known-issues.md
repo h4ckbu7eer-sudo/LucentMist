@@ -20,7 +20,13 @@ Current status as of the verified 0.9.5 release.
 
 - Current main validation and exact matching/source boundaries are recorded in
   [agent-real-validation.md](agent-real-validation.md) and [cve-matching-sources.md](cve-matching-sources.md).
-  The real gateway and free APIs were exercised, but DeepSeek dialogues remain **not run** (no environment key).
+  Real DeepSeek CLI, redirected-input REPL and browser Web dialogues were exercised on 2026-08-31.
+  Raw contract compliance was 73/74 overall, and 54/54 after JSON mode; this is not semantic accuracy.
+  Final CLI/Web runs included DNS/TLS evidence and all discovered 53/80/443 ports, with bounded correction of premature or contradictory conclusions.
+  Web verification used isolated loopback ports 15050/15051 because user processes occupied 5050/5051; it does not validate the existing hosts or a newly published image.
+  Models can still infer unsupported device purpose or call a vendor-issued certificate self-signed. Check raw certificate/scan evidence; the Agent remains experimental.
+  DNS probes can disagree, and no public reachability or unrestricted recursive-resolver claim was verified.
+  The latest inspected main CI had three successful jobs, but Hourly Self-Check failed a live Baidu certificate SAN assertion; see the linked evidence and exact run IDs.
   Protocol-only cloud candidates are shown separately and do not count as target vulnerabilities.
   Offline rules now total 18; MySQL/MongoDB unauthenticated data access checks are still not implemented.
 

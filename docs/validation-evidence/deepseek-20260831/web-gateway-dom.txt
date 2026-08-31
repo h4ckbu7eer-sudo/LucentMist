@@ -1,0 +1,99 @@
+- navigation:
+  - generic: 🌫️
+  - generic: LucentMist
+  - generic: v0.9.5
+  - link "📊 仪表板":
+    - /url: ""
+    - generic: 📊
+    - text: 仪表板
+  - link "🖥️ 设备列表":
+    - /url: /devices
+    - generic: 🖥️
+    - text: 设备列表
+  - link "🔍 扫描控制":
+    - /url: /scan
+    - generic: 🔍
+    - text: 扫描控制
+  - link "📜 扫描历史":
+    - /url: /scan/history
+    - generic: 📜
+    - text: 扫描历史
+  - link "🤖 Agent 对话（实验性）":
+    - /url: /agent
+    - generic: 🤖
+    - text: Agent 对话（实验性）
+  - link "🔒 SSL 证书":
+    - /url: /ssl-check
+    - generic: 🔒
+    - text: SSL 证书
+  - generic: LucentMist + deepseek
+- main:
+  - heading "🤖 Agent 对话 实验性" [level=2]:
+    - text: 🤖 Agent 对话
+    - generic: 实验性
+  - note:
+    - generic: ⚠️ 实验性功能 — 非专家不建议使用
+    - paragraph:
+      - text: Agent 的模型回答可能不完整或降级为确定性摘要，不能替代扫描证据。 若要获得可复核的自检结论，请使用
+      - link "扫描控制":
+        - /url: /scan
+      - text: 和
+      - link "扫描历史":
+        - /url: /scan/history
+      - text: 。
+  - combobox:
+    - option "新会话"
+    - option "分析 192.168.2.1 的安全风险 (17 条)" [selected]
+  - button "加载会话"
+  - textbox "例如：扫描 127.0.0.1 的端口": 分析 192.168.2.1 的安全风险
+  - button "发送"
+  - strong: 思考
+  - generic: 用户明确要求分析网关 192.168.2.1，上下文已有网关地址，直接分析网关，不扫描整个子网，先扫描端口
+  - strong: 动作
+  - generic: "port_scan: {\"target\":\"192.168.2.1\"} 完成"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 动作
+  - generic: "service_identify: {\"target\":\"192.168.2.1\",\"port\":\"53\"} 完成"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 动作
+  - generic: "service_identify: {\"target\":\"192.168.2.1\",\"port\":\"80\"} 完成"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 动作
+  - generic: "service_identify: {\"target\":\"192.168.2.1\",\"port\":\"443\"} 完成"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 动作
+  - generic: "ssl_check: {\"target\":\"192.168.2.1\",\"port\":\"443\"} 完成"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 思考
+  - generic: 用户要求分析网关192.168.2.1的安全风险，已获得端口扫描、服务识别和SSL检查数据。根据错误处理规则，发现开放端口后必须调用vuln_scan，并复用open_ports包含所有开放端口53,80,443。
+  - strong: 动作
+  - generic: "vuln_scan: {\"target\":\"192.168.2.1\",\"open_ports\":\"53,80,443\"} 完成"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 思考
+  - generic: 已完成端口扫描、服务识别、SSL检查和漏洞扫描。数据已足够汇总安全分析报告。
+  - strong: 动作
+  - generic: "analysis_completeness: {} 失败/未确认"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 思考
+  - generic: 分析完成：目标为 ZTE 路由器，开放 53/80/443。DNS 对当前扫描源开放递归存在反射放大风险；HTTPS 证书不信任（链错误/名称不匹配/撤销状态未知）。无版本信息，未发现需进一步工具验证的漏洞。给出安全报告。
+  - strong: 动作
+  - generic: "analysis_completeness: {} 失败/未确认"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 思考
+  - generic: DNS探测结果不一致需进一步确认递归状态，执行udp_scan检查53端口
+  - strong: 动作
+  - generic: "udp_scan: {\"target\":\"192.168.2.1\",\"ports\":\"53\"} 完成"
+  - strong: 观察
+  - generic "展开观察结果"
+  - strong: 思考
+  - generic: DNS 53/UDP 确认开放；443 证书未信任且存在 ChainErrors/NameMismatch/PartialChain/RevocationStatusUnknown 等多重信任错误。所有检查已基本完成，开始汇总安全报告。
+  - strong: 回复
+  - generic: "安全分析报告：192.168.2.1（ZTE 网关/路由器，MAC 7C:7D:21:15:5E:4C） 扫描范围：本机所在子网中用户指定的网关 192.168.2.1，端口扫描 1-1000，共发现 3 个开放 TCP 端口（53、80、443）。 发现设备：1 台（192.168.2.1） 开放端口及服务： - 53/TCP+UDP：DNS（版本未公开） - 80/TCP：HTTP（无 Server 头，版本未知） - 443/TCP：HTTPS（证书异常，见下） 安全评估： 1. DNS(53)：多次探测结果不一致——service_identify 显示 recursionAvailable=false，但 vuln_scan 观察到对当前扫描源开放递归。按较保守结论，该 DNS 疑似开放递归解析。若 53 端口暴露到公网，可能被用于 DNS 反射/放大攻击。当前仅在局域网内，但建议限制递归查询。 2. HTTPS(443)：证书不受信任，trustErrors 包含 ChainErrors、NameMismatch、PartialChain、OfflineRevocation、RevocationStatusUnknown。证书主体为 CN=192.168.1.1（与目标 IP 192.168.2.1 不匹配），自签于 2016 年，有效期至 2031 年。这属于身份/信任风险，需关注，但不能据此断言遭中间人攻击。 3. HTTP(80) 与 HTTPS(443)：服务版本未知，无法确认具体 CVE 漏洞。vuln_scan 未发现版本匹配的漏洞，0 个确认漏洞；但版本未知不等于安全。cloudCandidateGroups 中的 CVE 均为按协议关键词检索的待核实线索，不构成目标漏洞，未计入风险。 风险总结： - 未发现已确认的高危 CVE 漏洞，但三个服务版本均未确认，无法判定完全安全。 - 主要关注点：DNS 疑似开放递归、HTTPS 证书不受信任（链错误+域名不匹配+撤销状态未知）。 - 建议：登录设备管理端确认固件版本，对照 ZTE 安全公告更新；检查是否可关闭 DNS 递归或限制来源；如需使用 HTTPS 管理界面，注意证书不受信任带来的中间人风险。 【工具核验事实（非模型推断）】 192.168.2.1 DNS 核验：未观察到对当前扫描源开放递归（仅当前扫描视角，未验证公网可达性） 192.168.2.1 HTTPS 核验： TLS 结论: 证书检查已完成，但存在信任或有效期风险 HTTPS 信任风险: ChainErrors, NameMismatch, OfflineRevocation, PartialChain, RevocationStatusUnknown 不能可靠确认 HTTPS 服务身份，可能增加中间人风险；不等于已遭攻击。请核对证书名称和完整信任链，不要直接忽略警告。 192.168.2.1 漏洞核验： 漏洞结论: 未发现版本匹配的漏洞 数据来源: CVETodo API + NVD + Shodan API + 内置库 判断依据: 未发现版本匹配的 CVE；部分开放服务未提供可验证版本，因此无法确认其漏洞状态。 端口 53 优先核实（非目标漏洞）：CVE-2026-50980, CVE-2026-80213, CVE-2026-81095 端口 80 优先核实（非目标漏洞）：CVE-2026-47844, CVE-2026-47845, CVE-2026-47874 端口 443 优先核实（非目标漏洞）：CVE-1999-1523, CVE-1999-0415, CVE-1999-1178 下一步：先登录设备管理端确认厂商、型号和固件/服务版本，再对照厂商安全公告与受影响范围；不要仅凭这些关键词线索认定漏洞或执行利用。 端口 53 判断: 对当前扫描源开放递归；若该服务可从公网访问，可能被用于 DNS 反射/放大攻击 端口 80 判断: ⚠️ 版本未知，无法确认漏洞 端口 443 判断: ⚠️ 版本未知，无法确认漏洞 192.168.2.1 DNS 多次探测结果不一致：至少一次观察到递归响应，不能据另一次无响应认定已关闭。请复查 ACL/解析策略，公网可达性未确认。"
