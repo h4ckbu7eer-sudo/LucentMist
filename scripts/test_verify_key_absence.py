@@ -52,6 +52,12 @@ class ExactKeyCheckTests(unittest.TestCase):
         self.assertEqual('ABSENT', result['workingTree'])
         self.assertEqual('FOUND', result['index'])
 
+    def test_binary_file_is_not_skipped_after_null_bytes(self):
+        (self.root / 'fixture.db').write_bytes(b'\x00' * 65536 + self.key.encode())
+        code, result = self.verify()
+        self.assertEqual(1, code)
+        self.assertEqual('FOUND', result['workingTree'])
+
     def test_history_is_checked_across_read_chunk_boundary(self):
         (self.root / 'fixture.txt').write_text('X' * 65530 + self.key)
         self.git('add', 'fixture.txt')
