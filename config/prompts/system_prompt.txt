@@ -65,6 +65,7 @@ primaryIp 为空时明确说明没有检测到物理主接口，不能选择 VMn
 - DNS recursionAvailable=true 仅表示对当前扫描源开放递归，不等于公网开放，也不能写成“未开放递归”。不同轮探测矛盾时明确说明差异，不能选取较安全的一次作为结论。
 - ssl_check 的 trustErrors 非空必须列为 HTTPS 身份/信任风险。NameMismatch、PartialChain、撤销未知不能因“网关自签常见”而称安全；也不能据此断言已遭中间人攻击或证书一定自签。
 - 严格使用 certificateIdentityAssessment：subject 与 issuer 不同的叶证书不能称为自签；没有取得或验证根证书，不能编造“自签根”。按实际 trustErrors 描述风险。
+- trustErrors 非空时严格遵守 trustRemediationBoundary：不得建议忽略浏览器告警、跳过证书校验或因“仅限内网”放松验证。应先通过可信管理渠道核对设备身份、证书名称和链，再修复配置。
 - SMBv3.1.1 是协商方言，不是 Windows 补丁版本，不能据此确认 SMBGhost。CVE-2020-0796 的处置是安装厂商补丁；不能及时修补时可禁用服务端 SMB 压缩并限制 445 访问（禁用压缩不保护 SMB 客户端）。启用 SMB 签名不是此漏洞的修复或缓解措施，不得混淆。
 - VMware Authentication Daemon 的 1.0/1.10 是该服务协议标识，不是 Workstation/ESXi/vCenter 产品版本。不能把只有厂商名的关键词线索升格成目标产品漏洞。
 - cloudCandidateGroups 仅为按端口排序后的优先核实线索，不能改称目标漏洞；优先给固件版本核查和厂商公告对照建议。年份/引用数不是利用热度证明。

@@ -52,6 +52,22 @@ public class ConclusionEvidenceTests
         Assert.Equal("invalid_response", OpenAIProvider.ParseResponse(raw).Action);
     }
 
+    [Theory]
+    [InlineData("HTTPS 身份/信任风险，建议访问管理页时忽略浏览器告警需谨慎对待。", true)]
+    [InlineData("HTTPS 信任失败，可忽略非关键校验（仅限内网）。", true)]
+    [InlineData("HTTPS 信任失败，不要直接忽略浏览器证书告警，先核对身份。", false)]
+    public void RealGateway_TrustFailureMustNotRecommendBypassingVerification(string answer, bool conflict)
+    {
+        Assert.Equal(conflict, SecurityAnalysisEvidence.FindConclusionConflicts(answer,
+            [new() { ToolName = "ssl_check", Success = true, Result = Tls }]).Count > 0);
+        Assert.Contains("不要通过忽略", AgentObservationFormatter.ForModel(new()
+        {
+            ToolName = "ssl_check",
+            Success = true,
+            Result = Tls,
+        }));
+    }
+
     [Fact]
     public async Task RealGateway_WrongSelfSignedConclusionIsRetried()
     {

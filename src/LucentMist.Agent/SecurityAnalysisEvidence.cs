@@ -7,6 +7,9 @@ namespace LucentMist.Agent;
 
 internal static class SecurityAnalysisEvidence
 {
+    internal const string TlsTrustGuidance = "不要通过忽略、关闭或跳过证书校验绕过信任错误，即使目标在内网。" +
+        "应先经可信管理渠道核实设备身份、证书名称和完整链；仅在核实来源后配置信任，不能把忽略告警当成修复。";
+
     internal static IReadOnlyList<string> FindIncompleteChecks(
         string userQuery,
         IReadOnlyCollection<ReActObservation> observations)
@@ -120,6 +123,7 @@ internal static class SecurityAnalysisEvidence
         {
             sb.AppendLine($"  HTTPS 信任风险: {string.Join(", ", errors.EnumerateArray().Select(item => item.GetString()))}");
             sb.AppendLine("  不能可靠确认 HTTPS 服务身份，可能增加中间人风险；不等于已遭攻击。请核对证书名称和完整信任链，不要直接忽略警告。");
+            sb.AppendLine($"  处置边界: {TlsTrustGuidance}");
         }
     }
 
@@ -161,10 +165,24 @@ internal static class SecurityAnalysisEvidence
                 if (observation.ToolName == "ssl_check" && TlsIdentityAssessment(root) is { } identity &&
                     ClaimsSelfSigned(answer))
                     conflicts.Add(identity + "请删除没有证据的自签断言，按主体、签发者及实际 trustErrors 描述。");
+                if (observation.ToolName == "ssl_check" && root.TryGetProperty("trustErrors", out var trustErrors) &&
+                    trustErrors.ValueKind == JsonValueKind.Array && trustErrors.GetArrayLength() > 0 && ClaimsVerificationBypass(answer))
+                    conflicts.Add(TlsTrustGuidance);
             }
             catch (JsonException) { }
         }
         return conflicts.Distinct().ToArray();
+    }
+
+    private static bool ClaimsVerificationBypass(string answer)
+    {
+        foreach (Match match in Regex.Matches(answer, @"(?:忽略|跳过|关闭|禁用)[^。；\n]{0,20}(?:告警|警告|证书|信任|校验)",
+                     RegexOptions.None, TimeSpan.FromMilliseconds(100)))
+        {
+            var clause = answer[..match.Index].Split(['。', '；', ';', '，', ',', '\n']).Last();
+            if (!new[] { "不要", "不能", "不应", "不得", "不可", "不建议", "禁止", "避免", "勿", "不支持" }.Any(clause.Contains)) return true;
+        }
+        return false;
     }
 
     private static bool ClaimsSelfSigned(string answer)
