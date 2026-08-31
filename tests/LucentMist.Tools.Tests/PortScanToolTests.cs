@@ -40,6 +40,9 @@ public class PortScanToolTests
         Assert.Contains("target", r.Data);
         Assert.Contains("totalScanned", r.Data);
         Assert.Contains("openPorts", r.Data);
+        using var document = System.Text.Json.JsonDocument.Parse(r.Data!);
+        Assert.Equal("80,443", document.RootElement.GetProperty("scannedPortRange").GetString());
+        Assert.Contains("范围外", document.RootElement.GetProperty("scopeNote").GetString());
     }
 
     [Fact]

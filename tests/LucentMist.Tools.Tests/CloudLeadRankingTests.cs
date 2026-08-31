@@ -6,6 +6,38 @@ namespace LucentMist.Tools.Tests;
 public class CloudLeadRankingTests
 {
     [Fact]
+    public void RealGateway_CliCompactViewBoundsAllPortsAndRetainsFailureAndHistoricalCounts()
+    {
+        var candidates = Enumerable.Range(0, 50).Select(i => new
+        {
+            port = i % 3 == 0 ? 53 : i % 3 == 1 ? 80 : 443,
+            cve = i < 20 ? $"CVE-1999-{1000 + i}" : $"CVE-2024-{1000 + i}",
+            name = "HTTP DNS",
+            cvss = i < 20 ? 0.0 : 7.5,
+            source = "NVD",
+            versionStatus = "unverified",
+        });
+        var data = JsonSerializer.SerializeToElement(new
+        {
+            cloudCandidates = candidates,
+            cloudNotice = "覆盖不完整",
+            sourceChecks = new[] { new { source = "Shodan API", status = "http_error" } },
+        });
+        var output = LucentMist.CLI.CliApp.BuildCompactCloudSummary(data);
+        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(output, "CVE-").Count);
+        Assert.DoesNotContain("CVE-1999", output);
+        Assert.Contains("53:", output);
+        Assert.Contains("80:", output);
+        Assert.Contains("443:", output);
+        Assert.Contains("覆盖不完整", output);
+        Assert.Contains("http_error", output);
+        Assert.Contains("非目标漏洞", output);
+        Assert.Contains("厂商公告", output);
+        Assert.True(output.Length < 750);
+        Assert.Equal(50, data.GetProperty("cloudCandidates").GetArrayLength());
+    }
+
+    [Fact]
     public void AncientKeywordLeadsAreRetainedButNotPromoted_EvenWithManyReferences()
     {
         var items = new[]
