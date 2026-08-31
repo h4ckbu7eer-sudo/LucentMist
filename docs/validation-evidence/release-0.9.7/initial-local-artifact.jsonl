@@ -1,0 +1,2 @@
+{"image": "ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:9eb19f0ea1c199af9e5f5127b3aebb27b5206c7b63afc7bced2b3222f0f2e0d3", "container": "lmist-validation-aa3ed8cbe0a1", "scenario": "local", "localCodeMounted": false, "targetScope": "container loopback"}
+{"container": "lmist-validation-aa3ed8cbe0a1", "credentialInDockerConfig": false}

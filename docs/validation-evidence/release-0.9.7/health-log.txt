@@ -1,0 +1,224 @@
+$ gh run view 33407072736 --log
+Pull, run, and check health	Set up job	﻿2026-08-31T15:12:12.6110929Z Current runner version: '2.336.0'
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6169223Z ##[group]Runner Image Provisioner
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6170608Z Hosted Compute Agent
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6171675Z Version: 20260819.586
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6172698Z Commit: 3cc4a88dfa507ef76119ad1bb3eccc6378bb2b76
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6173918Z Build Date: 2026-08-18T23:20:18Z
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6175029Z Worker ID: {324071e9-9ac9-40e6-af42-1061f9eccefa}
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6176484Z Azure Region: eastus2
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6177470Z ##[endgroup]
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6181281Z ##[group]Operating System
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6182328Z Ubuntu
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6183170Z 24.04.4
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6183889Z LTS
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6184656Z ##[endgroup]
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6185963Z ##[group]Runner Image
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6186943Z Image: ubuntu-24.04
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6187870Z Version: 20260823.283.1
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6189494Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260823.283/images/ubuntu/Ubuntu2404-Readme.md
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6192349Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260823.283
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6193953Z ##[endgroup]
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6195944Z ##[group]GITHUB_TOKEN Permissions
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6199447Z Contents: read
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6200333Z Metadata: read
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6201762Z Packages: read
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6202727Z ##[endgroup]
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6206853Z Secret source: Actions
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.6209029Z Prepare workflow directory
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.7007980Z Prepare all required actions
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.7148803Z Getting action download info
+Pull, run, and check health	Set up job	2026-08-31T15:12:12.9753742Z Download action repository 'docker/login-action@v3' (SHA:c94ce9fb468520275223c153574b00df6fe4bcc9)
+Pull, run, and check health	Set up job	2026-08-31T15:12:13.4295387Z Complete job name: Pull, run, and check health
+Pull, run, and check health	Log in to GHCR	﻿2026-08-31T15:12:13.5203279Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.5212960Z ##[group]Run docker/login-action@v3
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.5213738Z with:
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.5214166Z   registry: ghcr.io
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.5214650Z   username: h4ckbu7eer-sudo
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.5219281Z   password: ***
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.5219753Z   logout: true
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.5220518Z ##[endgroup]
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.9126533Z Logging into ghcr.io...
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.9148776Z (node:1897) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:13.9152553Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Pull, run, and check health	Log in to GHCR	2026-08-31T15:12:14.7838077Z Login Succeeded!
+Pull, run, and check health	Pull published image	﻿2026-08-31T15:12:14.8310472Z ##[group]Run docker pull "$IMAGE"
+Pull, run, and check health	Pull published image	2026-08-31T15:12:14.8311318Z ^[[36;1mdocker pull "$IMAGE"^[[0m
+Pull, run, and check health	Pull published image	2026-08-31T15:12:14.8358138Z shell: /usr/bin/bash -e {0}
+Pull, run, and check health	Pull published image	2026-08-31T15:12:14.8358846Z env:
+Pull, run, and check health	Pull published image	2026-08-31T15:12:14.8359495Z   IMAGE: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
+Pull, run, and check health	Pull published image	2026-08-31T15:12:14.8360199Z ##[endgroup]
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7534821Z 0.9.7: Pulling from h4ckbu7eer-sudo/lucentmist
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7540264Z 0926a8eb0e60: Already exists
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7566443Z fec4a809307e: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7576150Z 0473cde9c78f: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7579096Z b54d236794e5: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7580604Z 7c3556d7c0e3: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7582016Z 7bcbe6840c89: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7583411Z 6efb5682adc9: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7584930Z 60ed4e4f5957: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7586711Z 68d9b1b3d2e2: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7588300Z ace4e2161a6b: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7590186Z a573317c77f3: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7591911Z 99153e6bc61b: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7593349Z 8b2c051173c9: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7595647Z a4546083c1c9: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7597205Z 363a9bd16e52: Pulling fs layer
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7598658Z 7c3556d7c0e3: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7600314Z 7bcbe6840c89: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7602146Z 6efb5682adc9: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7603851Z 60ed4e4f5957: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7605858Z 68d9b1b3d2e2: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7607730Z ace4e2161a6b: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7609504Z a573317c77f3: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7611119Z 99153e6bc61b: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7612423Z 8b2c051173c9: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7613737Z a4546083c1c9: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:15.7615066Z 363a9bd16e52: Waiting
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.1047349Z 0473cde9c78f: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.1126251Z 0473cde9c78f: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.2003504Z b54d236794e5: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.2004619Z b54d236794e5: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.3568983Z fec4a809307e: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.3573093Z fec4a809307e: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.4422512Z 7c3556d7c0e3: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.5965668Z 7bcbe6840c89: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.5970683Z 7bcbe6840c89: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.7032397Z 6efb5682adc9: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.7035993Z 6efb5682adc9: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.9172925Z 60ed4e4f5957: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:16.9186137Z 60ed4e4f5957: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.3720828Z 68d9b1b3d2e2: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.3725908Z 68d9b1b3d2e2: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.5210319Z ace4e2161a6b: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.5217587Z ace4e2161a6b: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.7136946Z 99153e6bc61b: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.7140999Z 99153e6bc61b: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.8511664Z 8b2c051173c9: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.8512491Z 8b2c051173c9: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:17.9248580Z fec4a809307e: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.0324857Z 0473cde9c78f: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.0888467Z a4546083c1c9: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.0889469Z a4546083c1c9: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.0937323Z a573317c77f3: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.0938137Z a573317c77f3: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.2018854Z 363a9bd16e52: Verifying Checksum
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.2019753Z 363a9bd16e52: Download complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.7775321Z b54d236794e5: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:18.8194398Z 7c3556d7c0e3: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:19.0590125Z 7bcbe6840c89: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:19.0784695Z 6efb5682adc9: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:19.1983581Z 60ed4e4f5957: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:19.9248625Z 68d9b1b3d2e2: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:20.7844968Z ace4e2161a6b: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:21.6311416Z a573317c77f3: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:21.6472499Z 99153e6bc61b: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:21.6668404Z 8b2c051173c9: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:21.6773913Z a4546083c1c9: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:21.6864714Z 363a9bd16e52: Pull complete
+Pull, run, and check health	Pull published image	2026-08-31T15:12:21.6901119Z Digest: sha256:9eb19f0ea1c199af9e5f5127b3aebb27b5206c7b63afc7bced2b3222f0f2e0d3
+Pull, run, and check health	Pull published image	2026-08-31T15:12:21.6913537Z Status: Downloaded newer image for ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
+Pull, run, and check health	Pull published image	2026-08-31T15:12:21.6923455Z ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
+Pull, run, and check health	Record immutable digest	﻿2026-08-31T15:12:21.6985398Z ##[group]Run repo_digest=$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}')
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6986140Z ^[[36;1mrepo_digest=$(docker image inspect "$IMAGE" --format '{{index .RepoDigests 0}}')^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6986623Z ^[[36;1mactual_manifest_digest="${repo_digest##*@}"^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6987056Z ^[[36;1mif [ "$actual_manifest_digest" != "$EXPECTED_MANIFEST_DIGEST" ]; then^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6987667Z ^[[36;1m  echo "Manifest digest mismatch: expected $EXPECTED_MANIFEST_DIGEST, got $actual_manifest_digest" >&2^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6988176Z ^[[36;1m  exit 1^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6988384Z ^[[36;1mfi^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6988803Z ^[[36;1m^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6989020Z ^[[36;1mecho "Pulled image: $repo_digest"^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6989399Z ^[[36;1mecho "## Release image verification" >> "$GITHUB_STEP_SUMMARY"^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6989818Z ^[[36;1mecho "- Image: \`$IMAGE\`" >> "$GITHUB_STEP_SUMMARY"^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6990296Z ^[[36;1mecho "- Pulled manifest digest: \`$actual_manifest_digest\`" >> "$GITHUB_STEP_SUMMARY"^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.6990933Z ^[[36;1mecho "- Digest comparison: matched the expected release digest" >> "$GITHUB_STEP_SUMMARY"^[[0m
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.7034284Z shell: /usr/bin/bash -e {0}
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.7034552Z env:
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.7034810Z   IMAGE: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.7035638Z   EXPECTED_MANIFEST_DIGEST: sha256:9eb19f0ea1c199af9e5f5127b3aebb27b5206c7b63afc7bced2b3222f0f2e0d3
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.7036133Z ##[endgroup]
+Pull, run, and check health	Record immutable digest	2026-08-31T15:12:21.7259958Z Pulled image: ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:9eb19f0ea1c199af9e5f5127b3aebb27b5206c7b63afc7bced2b3222f0f2e0d3
+Pull, run, and check health	Start published API image	﻿2026-08-31T15:12:21.7311306Z ##[group]Run docker run --detach \
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7311805Z ^[[36;1mdocker run --detach \^[[0m
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7312210Z ^[[36;1m  --name lucentmist-release-verification \^[[0m
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7312788Z ^[[36;1m  --publish 127.0.0.1:5050:5050 \^[[0m
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7313264Z ^[[36;1m  --env LMIST_API_TOKEN=release-verification-token \^[[0m
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7313759Z ^[[36;1m  "$IMAGE"^[[0m
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7357192Z shell: /usr/bin/bash -e {0}
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7357669Z env:
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7358055Z   IMAGE: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7358597Z ##[endgroup]
+Pull, run, and check health	Start published API image	2026-08-31T15:12:21.7733537Z 2225b0b37a7b521ceab19eb482fe16d29996443b0cff88825a591cd70793b05e
+Pull, run, and check health	Wait for health endpoint	﻿2026-08-31T15:12:22.0094113Z ##[group]Run for attempt in $(seq 1 60); do
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0095568Z ^[[36;1mfor attempt in $(seq 1 60); do^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0096746Z ^[[36;1m  if response=$(curl --fail --silent --show-error http://127.0.0.1:5050/api/v1/health); then^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0097858Z ^[[36;1m    echo "Health response: $response"^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0098757Z ^[[36;1m    echo "- Health endpoint: HTTP 200" >> "$GITHUB_STEP_SUMMARY"^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0099778Z ^[[36;1m    echo "- Response: \`$response\`" >> "$GITHUB_STEP_SUMMARY"^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0100532Z ^[[36;1m    exit 0^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0101164Z ^[[36;1m  fi^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0101739Z ^[[36;1m  sleep 2^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0102327Z ^[[36;1mdone^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0102783Z ^[[36;1m^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0103405Z ^[[36;1mecho "Health endpoint did not return HTTP 200 within 120 seconds." >&2^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0104489Z ^[[36;1mdocker logs lucentmist-release-verification >&2 || true^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0105643Z ^[[36;1mexit 1^[[0m
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0166028Z shell: /usr/bin/bash -e {0}
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0166831Z ##[endgroup]
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:22.0476791Z curl: (52) Empty reply from server
+Pull, run, and check health	Wait for health endpoint	2026-08-31T15:12:24.1643681Z Health response: {"status":"healthy","version":"0.9.7","uptime":"0h 0m"}
+Pull, run, and check health	Show container logs	﻿2026-08-31T15:12:24.1698800Z ##[group]Run docker logs lucentmist-release-verification || true
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.1699299Z ^[[36;1mdocker logs lucentmist-release-verification || true^[[0m
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.1774990Z shell: /usr/bin/bash -e {0}
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.1777907Z ##[endgroup]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2119691Z ╔══════════════════════════════════════════╗
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2120414Z ║   LucentMist API v0.9.7                      ║
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2120787Z ║   智能网络分析助手                       ║
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2121145Z ╠══════════════════════════════════════════╣
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2121548Z ║   地址: http://0.0.0.0                 5050║
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2121898Z ║   健康: /api/v1/health                   ║
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2122219Z ║   扫描: /api/v1/scan                     ║
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2122536Z ║   Agent: /api/v1/agent/chat              ║
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2122890Z ╚══════════════════════════════════════════╝
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2123208Z info: LucentMist.Scanning.ScanWorker[0]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2123930Z       ScanWorker 启动，等待扫描任务
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2124269Z info: Microsoft.Hosting.Lifetime[14]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2124575Z       Now listening on: http://0.0.0.0:5050
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2124898Z info: Microsoft.Hosting.Lifetime[0]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2125477Z       Application started. Press Ctrl+C to shut down.
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2125810Z info: Microsoft.Hosting.Lifetime[0]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2126088Z       Hosting environment: Production
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2126373Z info: Microsoft.Hosting.Lifetime[0]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2126644Z       Content root path: /app
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2126948Z info: Microsoft.AspNetCore.Hosting.Diagnostics[1]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2127390Z       Request starting HTTP/1.1 GET http://127.0.0.1:5050/api/v1/health - - -
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2127877Z info: Microsoft.AspNetCore.Routing.EndpointMiddleware[0]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2128255Z       Executing endpoint 'HTTP: GET /api/v1/health'
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2128619Z info: Microsoft.AspNetCore.Http.Result.OkObjectResult[1]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2128973Z       Setting HTTP status code 200.
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2129296Z info: Microsoft.AspNetCore.Http.Result.OkObjectResult[3]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2129688Z       Writing value of type '<>f__AnonymousType11`3' as Json.
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2130088Z info: Microsoft.AspNetCore.Routing.EndpointMiddleware[1]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2130445Z       Executed endpoint 'HTTP: GET /api/v1/health'
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2130786Z info: Microsoft.AspNetCore.Hosting.Diagnostics[2]
+Pull, run, and check health	Show container logs	2026-08-31T15:12:24.2131341Z       Request finished HTTP/1.1 GET http://127.0.0.1:5050/api/v1/health - 200 - application/json;+charset=utf-8 56.1874ms
+Pull, run, and check health	Remove verification container	﻿2026-08-31T15:12:24.2161536Z ##[group]Run docker rm --force lucentmist-release-verification || true
+Pull, run, and check health	Remove verification container	2026-08-31T15:12:24.2162097Z ^[[36;1mdocker rm --force lucentmist-release-verification || true^[[0m
+Pull, run, and check health	Remove verification container	2026-08-31T15:12:24.2202867Z shell: /usr/bin/bash -e {0}
+Pull, run, and check health	Remove verification container	2026-08-31T15:12:24.2203146Z ##[endgroup]
+Pull, run, and check health	Remove verification container	2026-08-31T15:12:24.3767074Z lucentmist-release-verification
+Pull, run, and check health	Post Log in to GHCR	﻿2026-08-31T15:12:24.3895868Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.3897451Z Post job cleanup.
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7231265Z ##[group]Logout from ghcr.io
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7252466Z (node:2185) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7262990Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7326035Z [command]/usr/bin/docker logout ghcr.io
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7536450Z Removing login credentials for ghcr.io
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7606064Z ##[endgroup]
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7606950Z ##[group]Post cache
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7607609Z State not set
+Pull, run, and check health	Post Log in to GHCR	2026-08-31T15:12:24.7609960Z ##[endgroup]
+Pull, run, and check health	Complete job	﻿2026-08-31T15:12:24.7875693Z Cleaning up orphan processes
+Pull, run, and check health	Complete job	2026-08-31T15:12:24.8298844Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: docker/login-action@v3. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+
+exit=0

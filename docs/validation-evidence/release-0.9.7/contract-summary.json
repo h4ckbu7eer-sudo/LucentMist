@@ -1,0 +1,14 @@
+[
+  {
+    "capture": "initial-gateway",
+    "calls": 3,
+    "contractPassed": 3,
+    "percent": 100.0
+  },
+  {
+    "capture": "initial-local",
+    "calls": 3,
+    "contractPassed": 3,
+    "percent": 100.0
+  }
+]

@@ -1,0 +1,6 @@
+$ git push --atomic origin main v0.9.7
+To https://github.com/h4ckbu7eer-sudo/LucentMist.git
+   621708be..689090d1  main -> main
+ * [new tag]           v0.9.7 -> v0.9.7
+
+exit=0

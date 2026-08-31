@@ -1,0 +1,4 @@
+$ docker load --input .tmp/release-0.9.7/published-0.9.7.oci.tar
+Loaded image: ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
+
+exit=0

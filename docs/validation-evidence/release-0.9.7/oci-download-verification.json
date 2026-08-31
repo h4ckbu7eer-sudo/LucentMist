@@ -1,0 +1,10 @@
+{
+  "source": "https://ghcr.io/v2/h4ckbu7eer-sudo/lucentmist",
+  "manifestDigest": "sha256:9eb19f0ea1c199af9e5f5127b3aebb27b5206c7b63afc7bced2b3222f0f2e0d3",
+  "revision": "689090d1926372614dd0f21afc3469203c9d271b",
+  "layerCount": 15,
+  "allBlobDigestsVerified": true,
+  "localBuildUsed": false,
+  "downloadProxy": "http://127.0.0.1:7897",
+  "credentialSource": "existing Docker GHCR credential helper; memory only"
+}

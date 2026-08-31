@@ -1,0 +1,4 @@
+$ docker image inspect ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7 --format {{json .RepoDigests}} {{index .Config.Labels "org.opencontainers.image.revision"}} {{index .Config.Labels "org.opencontainers.image.version"}}
+["ghcr.io/h4ckbu7eer-sudo/lucentmist@sha256:9eb19f0ea1c199af9e5f5127b3aebb27b5206c7b63afc7bced2b3222f0f2e0d3"] 689090d1926372614dd0f21afc3469203c9d271b 0.9.7
+
+exit=0

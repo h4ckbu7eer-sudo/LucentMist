@@ -1,0 +1,4 @@
+$ docker manifest inspect --verbose ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
+Get "https://ghcr.io/v2/h4ckbu7eer-sudo/lucentmist/manifests/0.9.7": Get "https://ghcr.io/token?account=h4ckbu7eer-sudo&scope=repository%3Ah4ckbu7eer-sudo%2Flucentmist%3Apull&service=ghcr.io": net/http: TLS handshake timeout
+
+exit=1

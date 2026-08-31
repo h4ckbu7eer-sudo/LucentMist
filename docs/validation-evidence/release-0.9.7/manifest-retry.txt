@@ -1,0 +1,102 @@
+$ docker manifest inspect --verbose ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7
+{
+	"Ref": "ghcr.io/h4ckbu7eer-sudo/lucentmist:0.9.7",
+	"Descriptor": {
+		"mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+		"digest": "sha256:9eb19f0ea1c199af9e5f5127b3aebb27b5206c7b63afc7bced2b3222f0f2e0d3",
+		"size": 3462,
+		"platform": {
+			"architecture": "amd64",
+			"os": "linux"
+		}
+	},
+	"Raw": "ewogICAic2NoZW1hVmVyc2lvbiI6IDIsCiAgICJtZWRpYVR5cGUiOiAiYXBwbGljYXRpb24vdm5kLmRvY2tlci5kaXN0cmlidXRpb24ubWFuaWZlc3QudjIranNvbiIsCiAgICJjb25maWciOiB7CiAgICAgICJtZWRpYVR5cGUiOiAiYXBwbGljYXRpb24vdm5kLmRvY2tlci5jb250YWluZXIuaW1hZ2UudjEranNvbiIsCiAgICAgICJzaXplIjogNzE2NywKICAgICAgImRpZ2VzdCI6ICJzaGEyNTY6NWQ1NDhmMWFlM2QzOTI2MGJkNGY1YzdhNTIwOWIwNGViOTliYjZmYTBhOGI4NDQxZWE1MTFjZWUyZWQ2MDZjMiIKICAgfSwKICAgImxheWVycyI6IFsKICAgICAgewogICAgICAgICAibWVkaWFUeXBlIjogImFwcGxpY2F0aW9uL3ZuZC5kb2NrZXIuaW1hZ2Uucm9vdGZzLmRpZmYudGFyLmd6aXAiLAogICAgICAgICAic2l6ZSI6IDI5NzUyODA3LAogICAgICAgICAiZGlnZXN0IjogInNoYTI1NjowOTI2YThlYjBlNjA4YTVjNjg4OGQxY2Q1NTk0MTg0YmRmM2VkM2FhMzExZGJhNWI0MmE1NDdjYWVmZGM2ZjJlIgogICAgICB9LAogICAgICB7CiAgICAgICAgICJtZWRpYVR5cGUiOiAiYXBwbGljYXRpb24vdm5kLmRvY2tlci5pbWFnZS5yb290ZnMuZGlmZi50YXIuZ3ppcCIsCiAgICAgICAgICJzaXplIjogMTY3Nzg5ODgsCiAgICAgICAgICJkaWdlc3QiOiAic2hhMjU2OmZlYzRhODA5MzA3ZTdiZGE5MGZmMWM2NzQ4ZGIzNjQ0NDliMTE0YzhlMTc3YzQ3OWJhYjY3NzhhMDFkN2Y0ODciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgIm1lZGlhVHlwZSI6ICJhcHBsaWNhdGlvbi92bmQuZG9ja2VyLmltYWdlLnJvb3Rmcy5kaWZmLnRhci5nemlwIiwKICAgICAgICAgInNpemUiOiAzNTY5LAogICAgICAgICAiZGlnZXN0IjogInNoYTI1NjowNDczY2RlOWM3OGY1MGI5NTI0NGRhNDQ0MTJjMDk1MzE5MDY3NGFmZWJiYWNjM2IwOWQzZGZlMzM3NDIxYTI2IgogICAgICB9LAogICAgICB7CiAgICAgICAgICJtZWRpYVR5cGUiOiAiYXBwbGljYXRpb24vdm5kLmRvY2tlci5pbWFnZS5yb290ZnMuZGlmZi50YXIuZ3ppcCIsCiAgICAgICAgICJzaXplIjogMzY2MDE3NTMsCiAgICAgICAgICJkaWdlc3QiOiAic2hhMjU2OmI1NGQyMzY3OTRlNTVlY2JjZjc2NGJiMjY0MTY5Y2M5MjI3ZTBjZTk4NTg2Yzk4NjI2NzZkZGJhMmQ3MjNjNTQiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgIm1lZGlhVHlwZSI6ICJhcHBsaWNhdGlvbi92bmQuZG9ja2VyLmltYWdlLnJvb3Rmcy5kaWZmLnRhci5nemlwIiwKICAgICAgICAgInNpemUiOiAxNTUsCiAgICAgICAgICJkaWdlc3QiOiAic2hhMjU2OjdjMzU1NmQ3YzBlMzkzMjZkNDg2MGI3N2Q4Njc1MTg2OGRiMzMzZGFkYzI0NTY4MzZlMTAxMjhmZGUzZGExNmQiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgIm1lZGlhVHlwZSI6ICJhcHBsaWNhdGlvbi92bmQuZG9ja2VyLmltYWdlLnJvb3Rmcy5kaWZmLnRhci5nemlwIiwKICAgICAgICAgInNpemUiOiAxMjczMTY5NiwKICAgICAgICAgImRpZ2VzdCI6ICJzaGEyNTY6N2JjYmU2ODQwYzg5NWRjMjEwNDE4NzJiNjk3YjJkYTY2ZTc3ZTllNzJhODkwNTU4N2NlZTk3NjU0NzU5N2M2MSIKICAgICAgfSwKICAgICAgewogICAgICAgICAibWVkaWFUeXBlIjogImFwcGxpY2F0aW9uL3ZuZC5kb2NrZXIuaW1hZ2Uucm9vdGZzLmRpZmYudGFyLmd6aXAiLAogICAgICAgICAic2l6ZSI6IDkzLAogICAgICAgICAiZGlnZXN0IjogInNoYTI1Njo2ZWZiNTY4MmFkYzk2MDdiMzc1ODdmNDNjMzcyNWIyYTZhNDY1MzY4OTNjNDAwMDUyMzE4ZDJiNGE5ZjFmY2NkIgogICAgICB9LAogICAgICB7CiAgICAgICAgICJtZWRpYVR5cGUiOiAiYXBwbGljYXRpb24vdm5kLmRvY2tlci5pbWFnZS5yb290ZnMuZGlmZi50YXIuZ3ppcCIsCiAgICAgICAgICJzaXplIjogMjcxNjk0MywKICAgICAgICAgImRpZ2VzdCI6ICJzaGEyNTY6NjBlZDRlNGY1OTU3ZDhlZDE4YTVjZDk2MGI3ZGY1YjQ2YTRhYThjNzM1ZDhkZThmYTJmNTJiMzg1ZTkxMTk3NCIKICAgICAgfSwKICAgICAgewogICAgICAgICAibWVkaWFUeXBlIjogImFwcGxpY2F0aW9uL3ZuZC5kb2NrZXIuaW1hZ2Uucm9vdGZzLmRpZmYudGFyLmd6aXAiLAogICAgICAgICAic2l6ZSI6IDM5NTc2MTc4LAogICAgICAgICAiZGlnZXN0IjogInNoYTI1Njo2OGQ5YjFiM2QyZTJlNmNmYjRhMjVlMTFjMGRhYThmZDk1NDdiOTk0Nzc4MmMwYjcxZmIyNzYzYzE4NWQ0YzNiIgogICAgICB9LAogICAgICB7CiAgICAgICAgICJtZWRpYVR5cGUiOiAiYXBwbGljYXRpb24vdm5kLmRvY2tlci5pbWFnZS5yb290ZnMuZGlmZi50YXIuZ3ppcCIsCiAgICAgICAgICJzaXplIjogNDEwMTE2NjQsCiAgICAgICAgICJkaWdlc3QiOiAic2hhMjU2OmFjZTRlMjE2MWE2YjdiZjc2ZjQwMjA4MzAzNGQ4MmQxOGM3NGU3NTg5YTcyNTBmZTdkN2QzMmQyYWY0YzVmMjgiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgIm1lZGlhVHlwZSI6ICJhcHBsaWNhdGlvbi92bmQuZG9ja2VyLmltYWdlLnJvb3Rmcy5kaWZmLnRhci5nemlwIiwKICAgICAgICAgInNpemUiOiA0MDU5NTQ5NSwKICAgICAgICAgImRpZ2VzdCI6ICJzaGEyNTY6YTU3MzMxN2M3N2YzMGFhZGM3MDc5OTYxMjBmOTk0YThiODE3YzUzNzk1MmIzYTMxN2E3YzEyMjgyNzg3MTljZSIKICAgICAgfSwKICAgICAgewogICAgICAgICAibWVkaWFUeXBlIjogImFwcGxpY2F0aW9uL3ZuZC5kb2NrZXIuaW1hZ2Uucm9vdGZzLmRpZmYudGFyLmd6aXAiLAogICAgICAgICAic2l6ZSI6IDU0ODIsCiAgICAgICAgICJkaWdlc3QiOiAic2hhMjU2Ojk5MTUzZTZiYzYxYjc1NmQyM2M5NWMxZjBjOGM5M2FmMWVlYjNiODRkMDQ2MTg0MTgzZjViMmEzYWMwYmU3YjgiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgIm1lZGlhVHlwZSI6ICJhcHBsaWNhdGlvbi92bmQuZG9ja2VyLmltYWdlLnJvb3Rmcy5kaWZmLnRhci5nemlwIiwKICAgICAgICAgInNpemUiOiA3NTIsCiAgICAgICAgICJkaWdlc3QiOiAic2hhMjU2OjhiMmMwNTExNzNjOTIzZjdmZDIyYzUyYmRlMTlmMzQ3MjllYmY1NjNkOWFmNmQ5YmEyMmExNDQwNmZkYWQ2NDciCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgIm1lZGlhVHlwZSI6ICJhcHBsaWNhdGlvbi92bmQuZG9ja2VyLmltYWdlLnJvb3Rmcy5kaWZmLnRhci5nemlwIiwKICAgICAgICAgInNpemUiOiA3NDksCiAgICAgICAgICJkaWdlc3QiOiAic2hhMjU2OmE0NTQ2MDgzYzFjOWU4YTY1NjUwNWM1NDcxNDRhYmFkN2E3NzllNzcyOWIzMGI3YmQ1OTFmYjExZDIyYmM1ZTkiCiAgICAgIH0sCiAgICAgIHsKICAgICAgICAgIm1lZGlhVHlwZSI6ICJhcHBsaWNhdGlvbi92bmQuZG9ja2VyLmltYWdlLnJvb3Rmcy5kaWZmLnRhci5nemlwIiwKICAgICAgICAgInNpemUiOiAxMzQsCiAgICAgICAgICJkaWdlc3QiOiAic2hhMjU2OjM2M2E5YmQxNmU1MjFiNTU4NjdkOGE2NmU0MjM2Yjc1MmZiMGU4NDZlZWY5ZjI5Zjk2OWFlMzYyY2I5MGVlOTYiCiAgICAgIH0KICAgXQp9",
+	"SchemaV2Manifest": {
+		"schemaVersion": 2,
+		"mediaType": "application/vnd.docker.distribution.manifest.v2+json",
+		"config": {
+			"mediaType": "application/vnd.docker.container.image.v1+json",
+			"size": 7167,
+			"digest": "sha256:5d548f1ae3d39260bd4f5c7a5209b04eb99bb6fa0a8b8441ea511cee2ed606c2"
+		},
+		"layers": [
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 29752807,
+				"digest": "sha256:0926a8eb0e608a5c6888d1cd5594184bdf3ed3aa311dba5b42a547caefdc6f2e"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 16778988,
+				"digest": "sha256:fec4a809307e7bda90ff1c6748db364449b114c8e177c479bab6778a01d7f487"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 3569,
+				"digest": "sha256:0473cde9c78f50b95244da44412c0953190674afebbacc3b09d3dfe337421a26"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 36601753,
+				"digest": "sha256:b54d236794e55ecbcf764bb264169cc9227e0ce98586c9862676ddba2d723c54"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 155,
+				"digest": "sha256:7c3556d7c0e39326d4860b77d86751868db333dadc2456836e10128fde3da16d"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 12731696,
+				"digest": "sha256:7bcbe6840c895dc21041872b697b2da66e77e9e72a8905587cee976547597c61"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 93,
+				"digest": "sha256:6efb5682adc9607b37587f43c3725b2a6a46536893c400052318d2b4a9f1fccd"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 2716943,
+				"digest": "sha256:60ed4e4f5957d8ed18a5cd960b7df5b46a4aa8c735d8de8fa2f52b385e911974"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 39576178,
+				"digest": "sha256:68d9b1b3d2e2e6cfb4a25e11c0daa8fd9547b9947782c0b71fb2763c185d4c3b"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 41011664,
+				"digest": "sha256:ace4e2161a6b7bf76f402083034d82d18c74e7589a7250fe7d7d32d2af4c5f28"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 40595495,
+				"digest": "sha256:a573317c77f30aadc707996120f994a8b817c537952b3a317a7c1228278719ce"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 5482,
+				"digest": "sha256:99153e6bc61b756d23c95c1f0c8c93af1eeb3b84d046184183f5b2a3ac0be7b8"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 752,
+				"digest": "sha256:8b2c051173c923f7fd22c52bde19f34729ebf563d9af6d9ba22a14406fdad647"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 749,
+				"digest": "sha256:a4546083c1c9e8a656505c547144abad7a779e7729b30b7bd591fb11d22bc5e9"
+			},
+			{
+				"mediaType": "application/vnd.docker.image.rootfs.diff.tar.gzip",
+				"size": 134,
+				"digest": "sha256:363a9bd16e521b55867d8a66e4236b752fb0e846eef9f29f969ae362cb90ee96"
+			}
+		]
+	}
+}
+
+exit=0

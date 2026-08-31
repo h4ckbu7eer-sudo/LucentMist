@@ -1,0 +1,4 @@
+$ git ls-remote --tags origin v0.9.7
+039f53d822ce0d66fbd8b73b32835049d8a4ee2a	refs/tags/v0.9.7
+
+exit=0
