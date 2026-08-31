@@ -46,8 +46,8 @@
       "lucentmist.agent": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Core": "[0.9.7, )",
-          "LucentMist.Tools": "[0.9.7, )"
+          "LucentMist.Core": "[0.9.8, )",
+          "LucentMist.Tools": "[0.9.8, )"
         }
       },
       "lucentmist.core": {
@@ -56,14 +56,14 @@
       "lucentmist.scanning": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Tools": "[0.9.7, )",
+          "LucentMist.Tools": "[0.9.8, )",
           "Microsoft.Data.Sqlite": "[10.0.11, )"
         }
       },
       "lucentmist.tools": {
         "type": "Project",
         "dependencies": {
-          "LucentMist.Core": "[0.9.7, )",
+          "LucentMist.Core": "[0.9.8, )",
           "System.ServiceProcess.ServiceController": "[10.0.10, )"
         }
       },

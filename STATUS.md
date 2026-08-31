@@ -2,7 +2,7 @@
 
 > 最后更新：2026-08-31
 
-0.9.7 发布准备：578 个 .NET 测试与 14 个 Python 测试通过，通用范围检查已补齐；当前尚待本次 CI / GHCR / 产物对话核验，见 [发布说明](docs/RELEASE_0.9.7.md)。
+0.9.8 修正版发布准备：590 个 .NET 测试通过。0.9.7 CI/镜像health虽通过，实际镜像对话发现证书年份和已扫端口误述，已补12个回归；等待新版本产物复验，见 [发布说明](docs/RELEASE_0.9.8.md) 和 [0.9.7失败证据](docs/release-artifact-validation-0.9.7.md)。
 真实 DeepSeek 四轮复现/复验共14次调用，最终提交版4轮收敛、0次完成度补查；修复越界端口断言、DNS无依据评级与呈现冗余。
 [真实对话与边界](docs/gateway-deepseek-reproduction-20260831.md)；此前[脚本化 Provider 证据](docs/gateway-convergence-validation.md)保留为历史记录，不混称真实模型验证。
 下列 0.9.6 CI/镜像信息仍是已发布版本的历史证据，不代表本地新增修复已发布。
