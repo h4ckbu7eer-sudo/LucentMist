@@ -74,4 +74,13 @@ public class GatewayConvergenceTests
     {
         Assert.Contains("尚未检查目标端口暴露面", SecurityAnalysisEvidence.FindIncompleteChecks("分析 192.168.99.1 安全", []));
     }
+
+    [Fact]
+    public void FailedDiscoveryRemainsVisibleWithoutDemandingEndlessRetry()
+    {
+        var observations = new[] { new ReActObservation { ToolName = "port_scan", Success = false, Result = "网络不可达" } };
+        Assert.NotEmpty(SecurityAnalysisEvidence.FindIncompleteChecks("分析 192.168.99.1 安全", observations));
+        Assert.Empty(SecurityAnalysisEvidence.FindIncompleteChecks("分析 192.168.99.1 安全", observations, includeFailedAttempts: false));
+        Assert.Contains("网络不可达", SecurityAnalysisEvidence.LimitedAssessment("分析 192.168.99.1 安全", observations));
+    }
 }
