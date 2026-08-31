@@ -6,6 +6,22 @@ namespace LucentMist.Agent.Tests;
 
 public class AgentObservationFormatterTests
 {
+    [Theory]
+    [InlineData("service_identify")]
+    [InlineData("vuln_scan")]
+    public void DnsNonResponseAndSizeRatioGuidancePrecedesFinalAnswer(string tool)
+    {
+        var observation = new ReActObservation { ToolName = tool, Success = true, Result = """{"dnsSecurity":{"amplificationRatio":2.1,"versionAssessment":"DNS 版本查询无有效响应，无法判断是否公开版本"}}""" };
+        var formatted = AgentObservationFormatter.ForModel(observation);
+        Assert.Contains("不能据此称低风险", formatted);
+        Assert.Contains("不能说版本被隐藏或未公开", formatted);
+        Assert.Contains("2.1", formatted);
+        Assert.DoesNotContain("interpretation", observation.Result);
+        Assert.Contains(SecurityAnalysisEvidence.FindConclusionConflicts("DNS 版本未公开", [observation]),
+            item => item.Contains("无有效响应"));
+        Assert.Empty(SecurityAnalysisEvidence.FindConclusionConflicts("DNS 版本未知，查询无有效响应，不能断言是否隐藏。", [observation]));
+    }
+
     [Fact]
     public void ModelGetsPortGroupsAndNextSteps_NotFortyUnsortedLeads()
     {

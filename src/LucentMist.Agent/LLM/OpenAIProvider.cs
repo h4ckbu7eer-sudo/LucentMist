@@ -74,21 +74,29 @@ public class OpenAIProvider : ILLMProvider
 {userQuery}
 {obsText}
 
-请返回 JSON 格式的下一步行动：
-{{""thought"": ""推理"", ""action"": ""工具名或final_answer"", ""action_input"": ""参数""}}";
+只返回一个严格 JSON 对象，且只有 thought、action、action_input 三个字段，每个字段只出现一次。
+工具调用示例（名称须在可用工具内，参数须来自实际授权目标）：
+{{""thought"":""检查证书"",""action"":""ssl_check"",""action_input"":{{""target"":""目标"",""port"":443}}}}
+最终回答示例：
+{{""thought"":""证据已足够给出有限结论"",""action"":""final_answer"",""action_input"":""暴露面：已检查范围；风险：证据；未知项：限制；下一步：建议。""}}
+action_input 在工具调用时必须是 JSON 对象，在 final_answer 时必须是非空字符串。
+字符串不要使用实际换行（需要换行时必须写成 \n 转义）；不要 Markdown 代码围栏，不要末尾分号、重复字段或 JSON 以外的说明。";
 
-        var body = new
+        var body = new Dictionary<string, object>
         {
-            model = _model,
-            max_tokens = 4096,
-            stream = false,
-            response_format = new { type = "json_object" },
-            messages = new[]
+            ["model"] = _model,
+            ["max_tokens"] = 4096,
+            ["stream"] = false,
+            ["response_format"] = new { type = "json_object" },
+            ["messages"] = new[]
             {
                 new { role = "system", content = systemPrompt },
                 new { role = "user", content = prompt },
             },
         };
+        // Constrain DeepSeek sampling for the tool contract; do not send an
+        // unsupported temperature option to unrelated reasoning providers.
+        if (_model.StartsWith("deepseek", StringComparison.OrdinalIgnoreCase)) body["temperature"] = 0;
 
         var reply = await SendRequestAsync(body, ct);
         return ParseResponse(reply);
@@ -129,6 +137,8 @@ public class OpenAIProvider : ILLMProvider
             using var doc = JsonDocument.Parse(reply);
             var root = doc.RootElement;
             if (root.ValueKind == JsonValueKind.Object &&
+                root.EnumerateObject().Count() == 3 &&
+                root.EnumerateObject().Select(property => property.Name).Distinct(StringComparer.Ordinal).Count() == 3 &&
                 root.TryGetProperty("thought", out var thought) && thought.ValueKind == JsonValueKind.String &&
                 root.TryGetProperty("action", out var action) && action.ValueKind == JsonValueKind.String &&
                 root.TryGetProperty("action_input", out var ai))

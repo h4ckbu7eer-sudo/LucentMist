@@ -47,6 +47,10 @@ public sealed class OpenAIProviderTests
         var step = await provider.ReActAsync("Return JSON", "check", [], "- ssl_check: TLS");
         using var body = JsonDocument.Parse(handler.Body!);
         Assert.Equal("json_object", body.RootElement.GetProperty("response_format").GetProperty("type").GetString());
+        Assert.Equal(0, body.RootElement.GetProperty("temperature").GetInt32());
+        var prompt = body.RootElement.GetProperty("messages")[1].GetProperty("content").GetString();
+        Assert.Contains("每个字段只出现一次", prompt);
+        Assert.Contains("工具调用时必须是 JSON 对象", prompt);
         Assert.Equal("ssl_check", step.Action);
         Assert.Contains("192.168.99.1", step.ActionInput);
         Assert.DoesNotContain("fake-test-secret", handler.Body);
@@ -56,6 +60,8 @@ public sealed class OpenAIProviderTests
     [InlineData("{\"thought\":\"done\",\"action\":\"final_answer\",\"action_input\":\"first\nsecond\"}")]
     [InlineData("{\"thought\":\"done\",\"action\":\"ssl_check\",\"action_input\":[443]}")]
     [InlineData("")]
+    [InlineData("{\"thought\":\"done\",\"action\":\"final_answer\",\"action_input\":\"ok\",\"action\":\"port_scan\"}")]
+    [InlineData("{\"thought\":\"done\",\"action\":\"final_answer\",\"action_input\":\"ok\"};")]
     public void InvalidModelOutputIsNotPresentedAsAnAnswer(string raw)
     {
         var parsed = OpenAIProvider.ParseResponse(raw);

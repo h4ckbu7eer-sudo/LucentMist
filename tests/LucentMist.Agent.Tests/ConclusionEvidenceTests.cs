@@ -6,6 +6,15 @@ namespace LucentMist.Agent.Tests;
 
 public class ConclusionEvidenceTests
 {
+    [Theory]
+    [InlineData("HTTPS 证书不可信，名称不匹配且链不完整，请核实身份与完整链；不能据此断言被攻击。")]
+    [InlineData("HTTPS 身份校验风险：名称不匹配、链不完整；勿跳过验证。")]
+    public void FriendlyTrustWordingDoesNotRequireLiteralTrustKeyword(string answer)
+    {
+        Assert.Empty(SecurityAnalysisEvidence.FindConclusionConflicts(answer,
+            [new() { ToolName = "ssl_check", Success = true, Result = Tls }]));
+    }
+
     [Fact]
     public void CompactTlsFactsMustStillDiscloseExpiration()
     {
