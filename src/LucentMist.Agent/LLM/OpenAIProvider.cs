@@ -82,6 +82,7 @@ public class OpenAIProvider : ILLMProvider
             model = _model,
             max_tokens = 4096,
             stream = false,
+            response_format = new { type = "json_object" },
             messages = new[]
             {
                 new { role = "system", content = systemPrompt },
@@ -121,43 +122,36 @@ public class OpenAIProvider : ILLMProvider
         return text;
     }
 
-    private ReActStep ParseResponse(string reply)
+    internal static ReActStep ParseResponse(string reply)
     {
         try
         {
-            var jsonStart = reply.IndexOf('{');
-            var jsonEnd = reply.LastIndexOf('}');
-            if (jsonStart >= 0 && jsonEnd > jsonStart)
+            using var doc = JsonDocument.Parse(reply);
+            var root = doc.RootElement;
+            if (root.ValueKind == JsonValueKind.Object &&
+                root.TryGetProperty("thought", out var thought) && thought.ValueKind == JsonValueKind.String &&
+                root.TryGetProperty("action", out var action) && action.ValueKind == JsonValueKind.String &&
+                root.TryGetProperty("action_input", out var ai))
             {
-                var json = reply[jsonStart..(jsonEnd + 1)];
-                var doc = JsonDocument.Parse(json);
-                var actionInput = doc.RootElement.TryGetProperty("action_input", out var ai)
-                    ? ai.ValueKind switch
-                    {
-                        JsonValueKind.String => ai.GetString() ?? "",
-                        JsonValueKind.Object => ai.GetRawText(),
-                        _ => ai.ToString()
-                    }
-                    : "";
-
-                return new ReActStep
+                var final = action.GetString() == "final_answer";
+                var input = ai.ValueKind == JsonValueKind.String ? ai.GetString() ?? "" : ai.GetRawText();
+                var validInput = final ? ai.ValueKind == JsonValueKind.String : ai.ValueKind == JsonValueKind.Object;
+                if (!final && ai.ValueKind == JsonValueKind.String)
                 {
-                    Thought = doc.RootElement.GetProperty("thought").GetString() ?? "",
-                    Action = doc.RootElement.GetProperty("action").GetString() ?? "final_answer",
-                    ActionInput = actionInput
-                };
+                    using var arguments = JsonDocument.Parse(input);
+                    validInput = arguments.RootElement.ValueKind == JsonValueKind.Object;
+                }
+                if (validInput && !string.IsNullOrWhiteSpace(action.GetString()))
+                    return new ReActStep { Thought = thought.GetString() ?? "", Action = action.GetString()!, ActionInput = input };
             }
         }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Failed to parse OpenAI response");
-        }
+        catch (JsonException) { }
 
         return new ReActStep
         {
-            Thought = "解析失败",
-            Action = "final_answer",
-            ActionInput = reply
+            Thought = "模型输出不符合 ReAct JSON 契约，需重新生成",
+            Action = "invalid_response",
+            ActionInput = "请输出合法 JSON 对象 {thought, action, action_input}；工具参数须为对象，最终答案须为字符串；字符串内换行必须转义。"
         };
     }
 

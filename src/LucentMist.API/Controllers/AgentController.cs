@@ -98,7 +98,7 @@ public class AgentController : ControllerBase
                 new SqliteNetworkAuditSink(_scanStore, auditInitiator),
                 auditInitiator)
             {
-                MaxRounds = 5,
+                MaxRounds = 8,
                 Progress = (update, token) => updates.Writer.WriteAsync(update, token).AsTask(),
             };
 

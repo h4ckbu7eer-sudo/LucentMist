@@ -100,7 +100,11 @@ public class ReActEngine
             if (step.IsFinal)
             {
                 var incompleteChecks = SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations)
-                    .Concat(SecurityAnalysisEvidence.FindConclusionConflicts(step.ActionInput, Observations)).ToArray();
+                    .Concat(SecurityAnalysisEvidence.FindConclusionConflicts(step.ActionInput, Observations))
+                    .Concat(_toolRegistry.Get("get_my_ip") != null &&
+                            System.Text.RegularExpressions.Regex.IsMatch(userQuery, @"我的\s*ip[？?。！!\s]*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
+                            !Observations.Any(item => item.ToolName == "get_my_ip" && item.Success)
+                        ? new[] { "请先调用 get_my_ip 核实最新主接口，不仅依据注入快照回答" } : []).ToArray();
                 if (incompleteChecks.Length > 0)
                 {
                     if (completionDeferrals < MaxCompletionDeferrals)
@@ -112,14 +116,14 @@ public class ReActEngine
                             ToolName = "analysis_completeness",
                             Input = "{}",
                             Result = "尚不能给出安全结论：" + string.Join("；", incompleteChecks) +
-                                     "。请继续执行缺失检查；若检查仍失败，最终结论必须明确标为未确认。",
+                                     "。缺失检查请继续执行；仅结论与已有证据冲突时，请说明差异并直接修正 final_answer，不要重复已完成的检查。检查仍失败则明确标为未确认。",
                             Success = false,
                         }, ct);
                         continue;
                     }
 
                     return ReActResult.Ok(
-                        SummarizeObservations(Observations),
+                        SummarizeCurrentAnalysis(userQuery),
                         ThoughtLog,
                         Observations);
                 }
@@ -129,11 +133,35 @@ public class ReActEngine
             // 检测整个会话中的重复操作，而不只是上一条。JSON 属性顺序或数字/字符串
             // 表示不同也会归一化，避免 LLM 绕一轮后再次执行相同扫描。
             var operationKey = OperationKey(step.Action, step.ActionInput);
+            if (step.Action == "invalid_response")
+            {
+                await AddObservationAsync(new ReActObservation
+                {
+                    Step = round,
+                    ToolName = "response_contract",
+                    Input = "{}",
+                    Success = false,
+                    Result = step.ActionInput,
+                }, ct);
+                continue;
+            }
             if (Observations.Any(obs => obs.Success && OperationKey(obs.ToolName, obs.Input) == operationKey))
             {
+                if ((completionDeferrals > 0 || SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations).Count > 0) && round < MaxRounds)
+                {
+                    await AddObservationAsync(new ReActObservation
+                    {
+                        Step = round,
+                        ToolName = "analysis_completeness",
+                        Input = "{}",
+                        Success = false,
+                        Result = "该工具已完成，未重复执行。请依据已有证据直接修正最终结论，并说明未确认项或探测差异。",
+                    }, ct);
+                    continue;
+                }
                 _logger.LogWarning("检测到重复操作: {Action}({Input})，终止循环", step.Action, step.ActionInput);
                 // 汇总所有已完成的观察结果作为最终结论
-                var summary = SummarizeObservations(Observations);
+                var summary = SummarizeCurrentAnalysis(userQuery);
                 return ReActResult.Ok(summary, ThoughtLog, Observations);
             }
 
@@ -259,8 +287,15 @@ public class ReActEngine
         // 达到最大轮次，强制总结
         _logger.LogWarning("ReAct 达到最大轮次 {Max}，强制终止", MaxRounds);
         return ReActResult.Ok(
-            SummarizeObservations(Observations),
+            SummarizeCurrentAnalysis(userQuery),
             ThoughtLog, Observations);
+    }
+
+    private string SummarizeCurrentAnalysis(string query)
+    {
+        var missing = SecurityAnalysisEvidence.FindIncompleteChecks(query, Observations);
+        var summary = SummarizeObservations(Observations);
+        return missing.Count == 0 ? summary : summary + "\n尚未确认（不能判安全）：" + string.Join("；", missing);
     }
 
     internal static void PromoteNetworkTargetAlias(ToolArguments args)
@@ -460,10 +495,6 @@ public class ReActEngine
 
     private void ReuseDiscoveredOpenPorts(ToolArguments args)
     {
-        if (!string.IsNullOrWhiteSpace(args.GetOrDefault("open_ports")) ||
-            !string.IsNullOrWhiteSpace(args.GetOrDefault("ports")))
-            return;
-
         var target = args.GetOrDefault("target");
         foreach (var observation in Observations.AsEnumerable().Reverse())
         {
@@ -652,6 +683,8 @@ public class ReActEngine
             sb.AppendLine();
         }
 
+        var dnsNote = SecurityAnalysisEvidence.DnsDisagreementNote(observations);
+        if (dnsNote.Length > 0) sb.AppendLine(dnsNote);
         return sb.ToString().TrimEnd();
     }
 

@@ -619,8 +619,10 @@ public class ReActEngineTests
         ssl.VerifyAll();
     }
 
-    [Fact]
-    public async Task RunAsync_PortScan_PassesEveryActualOpenPortToVulnerabilityScan()
+    [Theory]
+    [InlineData("{\"target\":\"192.168.1.1\"}")]
+    [InlineData("{\"target\":\"192.168.1.1\",\"open_ports\":\"53\"}")]
+    public async Task RunAsync_PortScan_PassesEveryActualOpenPortToVulnerabilityScan(string vulnerabilityInput)
     {
         var portScan = new Mock<ITool>();
         portScan.SetupGet(tool => tool.Name).Returns("port_scan");
@@ -647,7 +649,7 @@ public class ReActEngineTests
         var registry = new ToolRegistry().Register(portScan.Object).Register(vulnerabilities.Object);
         var llm = CreateMockLLM(
             new ReActStep { Action = "port_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
-            new ReActStep { Action = "vuln_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
+            new ReActStep { Action = "vuln_scan", ActionInput = vulnerabilityInput },
             new ReActStep { Action = "final_answer", ActionInput = "done" });
         var engine = new ReActEngine(llm.Object, registry, "prompt", NullLogger<ReActEngine>.Instance);
 

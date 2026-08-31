@@ -9,6 +9,38 @@ public class ConclusionEvidenceTests
     private const string Tls = """{"target":"192.168.99.1","port":443,"isTrusted":false,"isExpired":false,"trustErrors":["NameMismatch","PartialChain","RevocationStatusUnknown"]}""";
 
     [Fact]
+    public async Task InvalidContractIsFedBackInsteadOfDisplayedAsFinal()
+    {
+        var llm = new Mock<ILLMProvider>();
+        llm.SetupSequence(item => item.ReActAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<ReActObservation>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OpenAIProvider.ParseResponse("broken JSON"))
+            .ReturnsAsync(new ReActStep { Thought = "corrected", Action = "final_answer", ActionInput = "correct answer" });
+        var result = await new ReActEngine(llm.Object, new ToolRegistry(), "prompt").RunAsync("hello");
+        Assert.Equal("correct answer", result.Answer);
+        Assert.Contains(result.Observations, item => item.ToolName == "response_contract" && !item.Success);
+        Assert.DoesNotContain("broken JSON", result.Answer);
+    }
+
+    [Fact]
+    public async Task MyIpFinalMustUseCurrentTool_NotJustInjectedSnapshot()
+    {
+        var tool = new Mock<ITool>();
+        tool.SetupGet(item => item.Name).Returns("get_my_ip");
+        tool.SetupGet(item => item.Description).Returns("local interfaces");
+        tool.SetupGet(item => item.Parameters).Returns([]);
+        tool.Setup(item => item.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok("""{"primaryIp":"192.168.99.9"}""", TimeSpan.Zero));
+        var llm = new Mock<ILLMProvider>();
+        llm.SetupSequence(item => item.ReActAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<List<ReActObservation>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReActStep { Action = "final_answer", ActionInput = "192.168.12.1" })
+            .ReturnsAsync(new ReActStep { Action = "get_my_ip", ActionInput = "{}" })
+            .ReturnsAsync(new ReActStep { Action = "final_answer", ActionInput = "192.168.99.9" });
+        var result = await new ReActEngine(llm.Object, new ToolRegistry().Register(tool.Object), "prompt").RunAsync("看看我的ip");
+        Assert.Equal("192.168.99.9", result.Answer);
+        Assert.Contains(result.Observations, item => item.ToolName == "get_my_ip" && item.Success);
+    }
+
+    [Fact]
     public async Task TrustErrors_ReachObservationAndFinalEvenWhenModelOmitsThem()
     {
         var tool = new Mock<ITool>();
@@ -54,6 +86,45 @@ public class ConclusionEvidenceTests
         Assert.NotEmpty(SecurityAnalysisEvidence.FindConclusionConflicts("证书链不受信任，属正常", [new()
         {
             ToolName = "ssl_check", Success = true, Result = Tls,
+        }]));
+    }
+
+    [Fact]
+    public void InconsistentDnsObservationsAreExplicit_NotCherryPickedAsSafe()
+    {
+        var observations = new ReActObservation[]
+        {
+            new() { ToolName = "service_identify", Success = true, Result = """{"target":"192.168.99.1","dnsSecurity":{"recursionAvailable":false}}""" },
+            new() { ToolName = "vuln_scan", Success = true, Result = """{"target":"192.168.99.1","checkedServices":[{"port":53,"reason":"对当前扫描源开放递归"}]}""" },
+        };
+        Assert.NotEmpty(SecurityAnalysisEvidence.FindConclusionConflicts("未开放递归", observations));
+        Assert.Contains("不一致", SecurityAnalysisEvidence.WithVerifiedFacts("分析网关", "待核查", observations));
+        Assert.Contains("不一致", ReActEngine.SummarizeObservations(observations.ToList()));
+    }
+
+    [Fact]
+    public void RealWebAnswer_TlsNameMismatchDoesNotAcknowledgeDnsDisagreement()
+    {
+        var observations = new ReActObservation[]
+        {
+            new() { ToolName = "service_identify", Success = true, Result = """{"target":"192.168.99.1","dnsSecurity":{"recursionAvailable":false}}""" },
+            new() { ToolName = "vuln_scan", Success = true, Result = """{"target":"192.168.99.1","checkedServices":[{"port":53,"reason":"对当前扫描源开放递归"}]}""" },
+        };
+        Assert.NotEmpty(SecurityAnalysisEvidence.FindConclusionConflicts(
+            "53/DNS：未观察到对当前扫描源开放递归。HTTPS 证书身份与访问网关不一致。", observations));
+        Assert.Empty(SecurityAnalysisEvidence.FindConclusionConflicts(
+            "DNS 探测结果不一致：service_identify 未观察到对当前扫描源开放递归，vuln_scan 观察到递归。不能认定已关闭。", observations));
+    }
+
+    [Theory]
+    [InlineData("对扫描源开放递归，不能断言公网开放或“未开放递归”。")]
+    [InlineData("对扫描源开放递归，不应说成未开放递归。")]
+    public void NegatedSafetyClaimsDoNotTriggerFalseConflicts(string answer)
+    {
+        Assert.Empty(SecurityAnalysisEvidence.FindConclusionConflicts(answer, [new()
+        {
+            ToolName = "service_identify", Success = true,
+            Result = """{"target":"192.168.99.1","dnsSecurity":{"recursionAvailable":true}}""",
         }]));
     }
 }

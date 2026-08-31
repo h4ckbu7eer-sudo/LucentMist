@@ -86,6 +86,13 @@ internal static class SecurityAnalysisEvidence
         }
         if (total == 0 && root.TryGetProperty("noMatchReason", out var reasonNode))
             sb.AppendLine($"  判断依据: {reasonNode.GetString()}");
+        if (root.TryGetProperty("cloudCandidateGroups", out var groups) && groups.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var group in groups.EnumerateArray())
+                sb.AppendLine($"  端口 {group.GetProperty("port")} 优先核实（非目标漏洞）：" +
+                    string.Join(", ", group.GetProperty("leads").EnumerateArray().Select(lead => lead.GetProperty("cve").GetString())));
+            if (root.TryGetProperty("cloudNextStep", out var next)) sb.AppendLine($"  下一步：{next.GetString()}");
+        }
         if (root.TryGetProperty("checkedServices", out var checkedNode) &&
             checkedNode.ValueKind == JsonValueKind.Array)
         {
@@ -117,6 +124,17 @@ internal static class SecurityAnalysisEvidence
     internal static IReadOnlyList<string> FindConclusionConflicts(string answer, IReadOnlyCollection<ReActObservation> observations)
     {
         var conflicts = new List<string>();
+        var dnsEvidence = ReadDnsEvidence(observations);
+        var hasPositiveDns = dnsEvidence.Any(item => item.Positive);
+        // A TLS name mismatch is not an acknowledgement of conflicting DNS probes.
+        // An explicit DNS disagreement may quote both positive and negative readings.
+        var describesDnsDifference = Regex.IsMatch(answer,
+            @"(?:DNS|递归)[^。\n]{0,120}(?:不一致|波动|差异|矛盾)",
+            RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100));
+        if (hasPositiveDns && ClaimsNoRecursion(answer) && !describesDnsDifference)
+            conflicts.Add("至少一次 DNS 探测观察到对当前扫描源开放递归，不能断言未开放；不同探测结果须说明差异");
+        if (DnsDisagreements(dnsEvidence).Count > 0 && !describesDnsDifference)
+            conflicts.Add("同一目标多次 DNS 探测结果不一致，必须说明差异；未观察到响应不等于关闭递归");
         foreach (var observation in observations.Where(item => item.Success && item.ToolName is "ssl_check" or "service_identify"))
         {
             try
@@ -128,15 +146,21 @@ internal static class SecurityAnalysisEvidence
                     (!answer.Contains("信任", StringComparison.OrdinalIgnoreCase) || Regex.IsMatch(answer,
                         @"(?:证书|TLS|HTTPS)[^。\n]{0,150}(?:属正常|无风险|无需关注)", RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100))))
                     conflicts.Add("HTTPS 信任校验有错误：必须说明身份校验/中间人风险，不得因自签常见就称为正常或无风险");
-                if (root.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object &&
-                    dns.TryGetProperty("recursionAvailable", out var recursion) && recursion.ValueKind == JsonValueKind.True &&
-                    Regex.IsMatch(answer, @"未(?:对[^。\n]{0,20})?开放递归|未(?:对[^。\n]{0,20})?开启递归|递归[^。\n]{0,20}(?:未开放|未开启)",
-                        RegexOptions.None, TimeSpan.FromMilliseconds(100)))
-                    conflicts.Add("DNS 工具已观察到对当前扫描源开放递归，不能总结为未开放；公网可达性尚未检查");
             }
             catch (JsonException) { }
         }
         return conflicts.Distinct().ToArray();
+    }
+
+    private static bool ClaimsNoRecursion(string answer)
+    {
+        foreach (Match match in Regex.Matches(answer, @"未观察到[^。\n]{0,40}开放递归|未(?:对[^。\n]{0,20})?开放递归|未(?:对[^。\n]{0,20})?开启递归|递归[^。\n]{0,20}(?:未开放|未开启)",
+                     RegexOptions.None, TimeSpan.FromMilliseconds(100)))
+        {
+            var prefix = answer[..match.Index].Split(['。', '；', '\n']).Last() + match.Value;
+            if (!new[] { "不能", "不可", "不得", "不应", "并非", "不代表", "不等于" }.Any(prefix.Contains)) return true;
+        }
+        return false;
     }
 
     internal static string WithVerifiedFacts(string query, string answer, IReadOnlyCollection<ReActObservation> observations)
@@ -162,18 +186,47 @@ internal static class SecurityAnalysisEvidence
                 {
                     facts.AppendLine($"{target} 漏洞核验：");
                     AppendVulnerabilitySummary(facts, root);
-                    if (root.TryGetProperty("cloudCandidateGroups", out var groups))
-                    {
-                        foreach (var group in groups.EnumerateArray())
-                            facts.AppendLine($"  端口 {group.GetProperty("port")} 优先核实（非目标漏洞）：" +
-                                string.Join(", ", group.GetProperty("leads").EnumerateArray().Select(lead => lead.GetProperty("cve").GetString())));
-                        if (root.TryGetProperty("cloudNextStep", out var next)) facts.AppendLine($"  下一步：{next.GetString()}");
-                    }
                 }
             }
             catch (JsonException) { }
         }
+        foreach (var target in DnsDisagreements(ReadDnsEvidence(observations)))
+            facts.AppendLine($"{target} DNS 多次探测结果不一致：至少一次观察到递归响应，不能据另一次无响应认定已关闭。请复查 ACL/解析策略，公网可达性未确认。");
         return facts.Length == 0 ? answer : answer + "\n\n【工具核验事实（非模型推断）】\n" + facts.ToString().TrimEnd();
+    }
+
+    internal static string DnsDisagreementNote(IReadOnlyCollection<ReActObservation> observations) =>
+        string.Join("\n", DnsDisagreements(ReadDnsEvidence(observations)).Select(target =>
+            $"{target} DNS 多次探测结果不一致；至少一次观察到递归响应，不能断言递归已关闭。公网可达性未确认。"));
+
+    private static List<string> DnsDisagreements(List<(string Target, bool Positive)> evidence) => evidence.GroupBy(item => item.Target)
+        .Where(group => group.Select(item => item.Positive).Distinct().Count() > 1).Select(group => group.Key).ToList();
+
+    private static List<(string Target, bool Positive)> ReadDnsEvidence(IReadOnlyCollection<ReActObservation> observations)
+    {
+        var evidence = new List<(string, bool)>();
+        foreach (var observation in observations.Where(item => item.Success && item.ToolName is "service_identify" or "vuln_scan"))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(observation.Result);
+                var root = doc.RootElement;
+                var target = root.TryGetProperty("target", out var t) ? t.GetString() ?? "" : "";
+                if (root.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object &&
+                    dns.TryGetProperty("recursionAvailable", out var recursion) && recursion.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                    evidence.Add((target, recursion.GetBoolean()));
+                if (root.TryGetProperty("checkedServices", out var services))
+                    foreach (var service in services.EnumerateArray())
+                        if (service.TryGetProperty("port", out var port) && port.GetInt32() == 53 && service.TryGetProperty("reason", out var reason))
+                        {
+                            var text = reason.GetString() ?? "";
+                            if (text.StartsWith("对当前扫描源开放递归", StringComparison.Ordinal)) evidence.Add((target, true));
+                            else if (text.StartsWith("未观察到对当前扫描源开放递归", StringComparison.Ordinal)) evidence.Add((target, false));
+                        }
+            }
+            catch (JsonException) { }
+        }
+        return evidence;
     }
 
     private static bool RequiresSecurityConclusion(string query) =>
