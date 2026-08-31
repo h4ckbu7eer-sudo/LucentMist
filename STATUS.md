@@ -2,6 +2,10 @@
 
 > 最后更新：2026-08-31
 
+当前本地有 0.9.6 发布后的网关收敛修复，尚未推送/发布：551 个 .NET 测试与 14 个 Python 测试通过。
+真实网关工具链使用脚本化 Provider 复验，未调用 DeepSeek；[证据与边界](docs/gateway-convergence-validation.md)。
+下列 0.9.6 CI/镜像信息仍是已发布版本的历史证据，不代表本地新增修复已发布。
+
 ## 当前版本：0.9.6（已发布，远端核验通过）
 
 本地真实验证已完成；本次 main/tag CI 的 Windows、Ubuntu、GHCR 三 job 全部成功。
