@@ -99,8 +99,14 @@ public class ReActEngine
             // 2. 检查是否是最终答案
             if (step.IsFinal)
             {
-                var incompleteChecks = SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations)
+                bool CanCheck(string missing) => missing != "尚未检查目标端口暴露面" ||
+                    _toolRegistry.Get("port_scan") != null || _toolRegistry.Get("vuln_scan") != null;
+                var limitations = SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations).Where(CanCheck).ToArray();
+                var incompleteChecks = SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations, includeFailedAttempts: false)
+                    .Where(CanCheck)
                     .Concat(SecurityAnalysisEvidence.FindConclusionConflicts(step.ActionInput, Observations))
+                    .Concat(limitations.Length > 0 && step.ActionInput.Contains("已确认安全", StringComparison.Ordinal)
+                        ? new[] { "存在未检查或失败项，不能声称已确认安全；请给出有限评估和下一步" } : [])
                     .Concat(_toolRegistry.Get("get_my_ip") != null &&
                             System.Text.RegularExpressions.Regex.IsMatch(userQuery, @"我的\s*ip[？?。！!\s]*$", System.Text.RegularExpressions.RegexOptions.IgnoreCase) &&
                             !Observations.Any(item => item.ToolName == "get_my_ip" && item.Success)
@@ -115,8 +121,8 @@ public class ReActEngine
                             Step = round,
                             ToolName = "analysis_completeness",
                             Input = "{}",
-                            Result = "尚不能给出安全结论：" + string.Join("；", incompleteChecks) +
-                                     "。缺失检查请继续执行；仅结论与已有证据冲突时，请说明差异并直接修正 final_answer，不要重复已完成的检查。检查仍失败则明确标为未确认。",
+                            Result = "需要补查或修正：" + string.Join("；", incompleteChecks) +
+                                     "。未做的检查请执行一次；已失败、版本未知或 DNS 不一致可以给出有限评估，不必反复探测。final_answer 应包含暴露面、TLS 风险、未知项与下一步；不能把失败当安全。",
                             Success = false,
                         }, ct);
                         continue;
@@ -127,7 +133,9 @@ public class ReActEngine
                         ThoughtLog,
                         Observations);
                 }
-                return ReActResult.Ok(SecurityAnalysisEvidence.WithVerifiedFacts(userQuery, step.ActionInput, Observations), ThoughtLog, Observations);
+                return ReActResult.Ok(limitations.Length > 0
+                    ? SecurityAnalysisEvidence.LimitedAssessment(userQuery, Observations)
+                    : SecurityAnalysisEvidence.WithVerifiedFacts(userQuery, step.ActionInput, Observations), ThoughtLog, Observations);
             }
 
             // 检测整个会话中的重复操作，而不只是上一条。JSON 属性顺序或数字/字符串
@@ -147,8 +155,10 @@ public class ReActEngine
             }
             if (Observations.Any(obs => obs.Success && OperationKey(obs.ToolName, obs.Input) == operationKey))
             {
-                if ((completionDeferrals > 0 || SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations).Count > 0) && round < MaxRounds)
+                if ((completionDeferrals > 0 || SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations).Count > 0) &&
+                    completionDeferrals < MaxCompletionDeferrals && round < MaxRounds)
                 {
+                    completionDeferrals++;
                     await AddObservationAsync(new ReActObservation
                     {
                         Step = round,
@@ -293,6 +303,8 @@ public class ReActEngine
 
     private string SummarizeCurrentAnalysis(string query)
     {
+        if (SecurityAnalysisEvidence.RequiresSecurityConclusion(query))
+            return SecurityAnalysisEvidence.LimitedAssessment(query, Observations);
         var missing = SecurityAnalysisEvidence.FindIncompleteChecks(query, Observations);
         var summary = SummarizeObservations(Observations);
         return missing.Count == 0 ? summary : summary + "\n尚未确认（不能判安全）：" + string.Join("；", missing);
