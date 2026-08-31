@@ -31,6 +31,17 @@ The follow-up is now in 0.9.8: limited actionable assessments, shared HTTP HEAD/
 
 ## Product Limitations
 
+- Device-identification changes after 0.9.8 were validated on Windows CLI with a real DeepSeek/gateway run;
+  see [device-id-deepseek-final.md](device-id-deepseek-final.md). The final committed runtime converged in
+  three model calls, but intermediate JSON/wording failures remain in the evidence. This is not a new GHCR release.
+  OS fingerprints are TTL/port heuristics: they influence review order, never hard-exclude another OS's CVEs.
+  The offline OUI fallback now has 20 prefixes (16 vendor labels), not complete vendor coverage.
+  Targeted mDNS has a 1.2-second/eight-query bound; silence is not proof of absent broadcasts. No DHCP capture
+  or DHCP Option decoding is implemented. DNS hostname/SOA data is identity/zone evidence, not software version.
+  The real gateway supplied no version/hostname/SOA response; HTTP GET returned complete headers without public
+  software fields. Device model and firmware therefore remain unknown. Generic TCP non-open results do not
+  distinguish closed, filtered and unreachable; TLS chain errors have precise user-facing explanations.
+
 - The self-use walkthrough found that the HTML overall-risk card said safe for zero CVEs despite partial coverage and TLS trust errors. The fix and its eight regressions are included in 0.9.6; the initial 516-test/credential-blocked checkpoint is historical. Subsequent authorized validation and this release's remote CI evidence supersede that checkpoint; see [self-use-walkthrough.md](self-use-walkthrough.md) and [authorized validation](deepseek-authorized-validation-20260831.md). Incomplete checks must still not be interpreted as safety.
 
 - Current main validation and exact matching/source boundaries are recorded in
