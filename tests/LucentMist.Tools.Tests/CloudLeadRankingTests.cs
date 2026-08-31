@@ -6,6 +6,34 @@ namespace LucentMist.Tools.Tests;
 public class CloudLeadRankingTests
 {
     [Fact]
+    public void AncientKeywordLeadsAreRetainedButNotPromoted_EvenWithManyReferences()
+    {
+        var items = new[]
+        {
+            JsonSerializer.SerializeToElement(new { port = 53, cve = "CVE-1999-0010", name = "DNS port 53", source = "NVD", cvss = 0.0, referenceCount = 1000, versionStatus = "unverified" }),
+            JsonSerializer.SerializeToElement(new { port = 53, cve = "CVE-2024-1000", name = "DNS", source = "NVD", cvss = 7.5, referenceCount = 1, versionStatus = "unverified" }),
+        };
+        var ranked = CloudLeadRanking.Rank(items);
+        Assert.Equal("CVE-2024-1000", ranked[0].GetProperty("cve").GetString());
+        Assert.Equal(2, ranked.Length);
+        var group = Assert.Single(CloudLeadRanking.Group(ranked));
+        Assert.Equal(1, group.GetProperty("historicalCount").GetInt32());
+        Assert.Equal(1, group.GetProperty("omittedCount").GetInt32());
+        Assert.Single(group.GetProperty("leads").EnumerateArray());
+        Assert.DoesNotContain("1999", group.GetProperty("leads").GetRawText());
+    }
+
+    [Fact]
+    public void OldVersionVerifiedEvidenceIsNotHiddenBecauseOfAge()
+    {
+        var ranked = CloudLeadRanking.Rank([JsonSerializer.SerializeToElement(new
+        {
+            port = 53, cve = "CVE-1999-0010", name = "DNS", source = "version-aware", versionStatus = "verified",
+        })]);
+        Assert.Single(Assert.Single(CloudLeadRanking.Group(ranked)).GetProperty("leads").EnumerateArray());
+    }
+
+    [Fact]
     public void FortyLeads_RelevanceWinsOverRecencyAndGroupsAreBounded()
     {
         var candidates = Enumerable.Range(0, 40).Select(index => JsonSerializer.SerializeToElement(new

@@ -9,12 +9,15 @@ namespace LucentMist.Tools.Security;
 public static class CloudLeadRanking
 {
     public const int PerPortLimit = 3;
+    public const int ModelLeadLimit = 5;
     public const string NextStep = "先登录设备管理端确认厂商、型号和固件/服务版本，再对照厂商安全公告与受影响范围；不要仅凭这些关键词线索认定漏洞或执行利用。";
 
     public static JsonElement[] Rank(IEnumerable<JsonElement> candidates) => candidates.Select(Annotate)
-        .OrderByDescending(item => item["relevanceScore"]!.GetValue<int>())
-        .ThenByDescending(item => item["referenceCount"]!.GetValue<int>())
+        .OrderBy(item => item["historicalUnverified"]!.GetValue<bool>())
+        .ThenByDescending(item => item["relevanceScore"]!.GetValue<int>())
+        .ThenByDescending(item => item["hasCvss"]!.GetValue<bool>())
         .ThenByDescending(item => item["cveYear"]!.GetValue<int>())
+        .ThenByDescending(item => item["referenceCount"]!.GetValue<int>())
         .ThenByDescending(item => SourcePriority(item["source"]?.GetValue<string>() ?? ""))
         .ThenBy(item => item["cve"]?.GetValue<string>(), StringComparer.Ordinal)
         .Select(item => JsonSerializer.SerializeToElement(item)).ToArray();
@@ -25,8 +28,9 @@ public static class CloudLeadRanking
         {
             port = group.Key,
             totalCount = group.Count(),
-            omittedCount = Math.Max(0, group.Count() - PerPortLimit),
-            leads = group.Take(PerPortLimit).ToArray(),
+            omittedCount = group.Count() - Math.Min(PerPortLimit, group.Count(item => !item.GetProperty("historicalUnverified").GetBoolean())),
+            historicalCount = group.Count(item => item.GetProperty("historicalUnverified").GetBoolean()),
+            leads = group.Where(item => !item.GetProperty("historicalUnverified").GetBoolean()).Take(PerPortLimit).ToArray(),
             nextStep = NextStep,
             limitation = "按可观察相关性排序，均为待核实线索，不是目标漏洞；年份/引用数仅用于同相关性排序，不代表正在被利用。",
         })).ToArray();
@@ -71,6 +75,9 @@ public static class CloudLeadRanking
         item["relevanceScore"] = score;
         item["relevanceReason"] = reasons.Count == 0 ? "仅云源搜索命中，未找到额外目标相关证据" : string.Join("；", reasons);
         item["cveYear"] = year;
+        item["historicalUnverified"] = year is > 0 and < 2005 &&
+            item["versionStatus"]?.GetValue<string>() != "verified" && item["versionVerified"]?.GetValue<bool>() != true;
+        item["hasCvss"] = item["cvss"] is JsonValue value && value.TryGetValue<double>(out var cvss) && cvss > 0;
         item["referenceCount"] = Math.Clamp(item["referenceCount"]?.GetValue<int>() ?? 0, 0, 1000);
         return item;
     }

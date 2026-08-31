@@ -27,8 +27,10 @@ public class AgentObservationFormatterTests
         Assert.False(doc.RootElement.TryGetProperty("cloudCandidates", out _));
         Assert.Equal(40, doc.RootElement.GetProperty("cloudCandidateCount").GetInt32());
         Assert.Equal(2, doc.RootElement.GetProperty("cloudCandidateGroups").GetArrayLength());
+        Assert.Equal(5, doc.RootElement.GetProperty("cloudCandidateGroups").EnumerateArray().Sum(group => group.GetProperty("leads").GetArrayLength()));
         Assert.Contains("固件", formatted);
         Assert.Contains("cloudCandidates", observation.Result);
+        Assert.Equal(6, JsonDocument.Parse(observation.Result).RootElement.GetProperty("cloudCandidateGroups").EnumerateArray().Sum(group => group.GetProperty("leads").GetArrayLength()));
     }
 
     [Fact]
