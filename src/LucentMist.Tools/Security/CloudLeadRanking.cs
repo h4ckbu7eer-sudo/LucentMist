@@ -28,9 +28,10 @@ public static class CloudLeadRanking
         {
             port = group.Key,
             totalCount = group.Count(),
-            omittedCount = group.Count() - Math.Min(PerPortLimit, group.Count(item => !item.GetProperty("historicalUnverified").GetBoolean())),
+            omittedCount = group.Count() - Math.Min(PerPortLimit, group.Count(IsRelevantForPresentation)),
             historicalCount = group.Count(item => item.GetProperty("historicalUnverified").GetBoolean()),
-            leads = group.Where(item => !item.GetProperty("historicalUnverified").GetBoolean()).Take(PerPortLimit).ToArray(),
+            withoutProductEvidenceCount = group.Count(item => !item.GetProperty("productEvidence").GetBoolean()),
+            leads = group.Where(IsRelevantForPresentation).Take(PerPortLimit).ToArray(),
             nextStep = NextStep,
             limitation = "按可观察相关性排序，均为待核实线索，不是目标漏洞；年份/引用数仅用于同相关性排序，不代表正在被利用。",
         })).ToArray();
@@ -72,7 +73,8 @@ public static class CloudLeadRanking
                 reasons.Add("公告与 OS 推测一致（仅排序，不证明适用或排除其它平台）");
             }
         }
-        if (product != null && ContainsToken(description, product))
+        var productMatch = product != null && ContainsToken(description, product);
+        if (productMatch)
         {
             score += 100;
             reasons.Add("公告提及已识别产品（版本仍未验证）");
@@ -100,6 +102,7 @@ public static class CloudLeadRanking
         var cve = item["cve"]?.GetValue<string>() ?? "";
         var year = cve.Length >= 9 && int.TryParse(cve.AsSpan(4, 4), out var parsed) && parsed <= DateTime.UtcNow.Year ? parsed : 0;
         item["relevanceScore"] = score;
+        item["productEvidence"] = productMatch || item["versionStatus"]?.GetValue<string>() == "verified" || item["versionVerified"]?.GetValue<bool>() == true;
         item["relevanceReason"] = reasons.Count == 0 ? "仅云源搜索命中，未找到额外目标相关证据" : string.Join("；", reasons);
         item["cveYear"] = year;
         item["historicalUnverified"] = year is > 0 and < 2005 &&
@@ -112,6 +115,9 @@ public static class CloudLeadRanking
     private static bool ContainsToken(string text, string token) => Regex.IsMatch(text,
         $@"(?<![a-z0-9]){Regex.Escape(token)}(?![a-z0-9])", RegexOptions.IgnoreCase | RegexOptions.CultureInvariant,
         TimeSpan.FromMilliseconds(100));
+
+    private static bool IsRelevantForPresentation(JsonElement item) =>
+        !item.GetProperty("historicalUnverified").GetBoolean() && item.GetProperty("productEvidence").GetBoolean();
 
     private static int SourcePriority(string source) => source.Contains("NVD", StringComparison.OrdinalIgnoreCase) ? 3
         : source.Contains("Shodan", StringComparison.OrdinalIgnoreCase) ? 2 : 1;

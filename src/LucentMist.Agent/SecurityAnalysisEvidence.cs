@@ -232,9 +232,7 @@ internal static class SecurityAnalysisEvidence
                 if (root.TryGetProperty("dnsSecurity", out var versionDns) && versionDns.ValueKind == JsonValueKind.Object &&
                     versionDns.TryGetProperty("versionAssessment", out var versionAssessment) &&
                     (versionAssessment.GetString() ?? "").Contains("无有效响应", StringComparison.Ordinal) &&
-                    Regex.Matches(answer, @"DNS[^。\n]{0,35}版本[^。\n]{0,8}(?:隐藏|未公开|未披露)",
-                        RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)).Cast<Match>().Any(match =>
-                        !Regex.IsMatch(match.Value, "不能|无法|不代表|是否", RegexOptions.None, TimeSpan.FromMilliseconds(100))))
+                    ClaimsDnsVersionWithheld(answer))
                     conflicts.Add("DNS 版本查询无有效响应，只能说版本未知，不能断言目标隐藏/未公开版本；请修正文字，无需重复探测");
                 if (observation.ToolName == "ssl_check" && root.TryGetProperty("trustErrors", out var errors) &&
                     errors.ValueKind == JsonValueKind.Array && errors.GetArrayLength() > 0 &&
@@ -251,6 +249,21 @@ internal static class SecurityAnalysisEvidence
             catch (JsonException) { }
         }
         return conflicts.Distinct().ToArray();
+    }
+
+    private static bool ClaimsDnsVersionWithheld(string answer)
+    {
+        // A blanket claim includes DNS too: "服务版本均未公开（HTTP 无 Server 头、DNS 版本未知）".
+        // Keep negation in the same clause so an accurate limitation is not rejected.
+        foreach (Match match in Regex.Matches(answer,
+                     @"(?:DNS[^。；\n]{0,35}版本[^。；\n]{0,8}|(?:所有|全部|各)?服务版本(?:均|都|全部|一律))[^。；\n]{0,4}(?:隐藏|未公开|未披露)",
+                     RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(100)))
+        {
+            var prefix = answer[..match.Index].Split(['。', '；', ';', '，', ',', '\n']).Last();
+            if (!Regex.IsMatch(prefix + match.Value, "不能|不可|无法|不代表|不等于|是否|并非|不应|不是",
+                    RegexOptions.None, TimeSpan.FromMilliseconds(100))) return true;
+        }
+        return false;
     }
 
     private static bool ClaimsVerificationBypass(string answer)

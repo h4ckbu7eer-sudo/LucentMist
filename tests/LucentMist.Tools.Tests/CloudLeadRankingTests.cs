@@ -15,7 +15,7 @@ public class CloudLeadRankingTests
         Assert.Equal("Linux HTTP", ranked[0].GetProperty("name").GetString());
         Assert.All(ranked, r => Assert.Equal("unverified", r.GetProperty("versionStatus").GetString()));
         var visible = CloudLeadRanking.ForPresentation(CloudLeadRanking.Group(ranked));
-        Assert.Equal("Linux HTTP", visible[0].GetProperty("leads")[0].GetProperty("name").GetString());
+        Assert.Empty(visible[0].GetProperty("leads").EnumerateArray()); // OS/protocol is not product evidence.
     }
 
     [Fact]
@@ -37,7 +37,7 @@ public class CloudLeadRankingTests
             sourceChecks = new[] { new { source = "Shodan API", status = "http_error" } },
         });
         var output = LucentMist.CLI.CliApp.BuildCompactCloudSummary(data);
-        Assert.Equal(5, System.Text.RegularExpressions.Regex.Matches(output, "CVE-").Count);
+        Assert.Empty(System.Text.RegularExpressions.Regex.Matches(output, "CVE-"));
         Assert.DoesNotContain("CVE-1999", output);
         Assert.Contains("53:", output);
         Assert.Contains("80:", output);
@@ -63,8 +63,8 @@ public class CloudLeadRankingTests
         Assert.Equal(2, ranked.Length);
         var group = Assert.Single(CloudLeadRanking.Group(ranked));
         Assert.Equal(1, group.GetProperty("historicalCount").GetInt32());
-        Assert.Equal(1, group.GetProperty("omittedCount").GetInt32());
-        Assert.Single(group.GetProperty("leads").EnumerateArray());
+        Assert.Equal(2, group.GetProperty("omittedCount").GetInt32());
+        Assert.Empty(group.GetProperty("leads").EnumerateArray());
         Assert.DoesNotContain("1999", group.GetProperty("leads").GetRawText());
     }
 
@@ -85,7 +85,8 @@ public class CloudLeadRankingTests
         {
             port = i < 3 ? 53 : i < 6 ? 80 : 443,
             cve = $"CVE-2024-{1000 + i}",
-            name = i < 6 ? "unrelated" : "HTTPS port 443",
+            name = i < 6 ? "nginx" : "nginx HTTPS port 443",
+            banner = "HTTP Server: nginx/1.20.0",
             source = "NVD",
             cvss = 7.0,
         }));
@@ -126,12 +127,9 @@ public class CloudLeadRankingTests
         Assert.Equal("unverified", ranked[0].GetProperty("versionStatus").GetString());
         var groups = CloudLeadRanking.Group(ranked);
         Assert.Equal(new[] { 53, 80, 443 }, groups.Select(group => group.GetProperty("port").GetInt32()));
-        Assert.All(groups, group =>
-        {
-            Assert.Equal(3, group.GetProperty("leads").GetArrayLength());
-            Assert.Contains("固件", group.GetProperty("nextStep").GetString());
-        });
-        Assert.Equal(31, groups.Sum(group => group.GetProperty("omittedCount").GetInt32()));
+        Assert.Single(groups.SelectMany(group => group.GetProperty("leads").EnumerateArray()));
+        Assert.All(groups, group => Assert.Contains("固件", group.GetProperty("nextStep").GetString()));
+        Assert.Equal(39, groups.Sum(group => group.GetProperty("omittedCount").GetInt32()));
     }
 
     [Fact]

@@ -7,6 +7,18 @@ namespace LucentMist.Agent.Tests;
 public class AgentObservationFormatterTests
 {
     [Theory]
+    [InlineData("服务版本均未公开（HTTP 无 Server 头、DNS版本未知）", true)]
+    [InlineData("所有服务版本都未公开", true)]
+    [InlineData("不能断言服务版本均未公开；HTTP 未披露版本，DNS 查询无响应。", false)]
+    [InlineData("HTTP 未公开版本；DNS 版本未知，无法判断是否隐藏。", false)]
+    [InlineData("不能说 DNS 版本未公开。", false)]
+    public void DnsNonResponseDoesNotProveBlanketVersionNondisclosure(string answer, bool conflict)
+    {
+        var observation = new ReActObservation { ToolName = "vuln_scan", Success = true, Result = """{"dnsSecurity":{"versionAssessment":"DNS 版本查询无有效响应，无法判断是否公开版本"}}""" };
+        Assert.Equal(conflict, SecurityAnalysisEvidence.FindConclusionConflicts(answer, [observation]).Count > 0);
+    }
+
+    [Theory]
     [InlineData("service_identify")]
     [InlineData("vuln_scan")]
     public void DnsNonResponseAndSizeRatioGuidancePrecedesFinalAnswer(string tool)
@@ -43,10 +55,10 @@ public class AgentObservationFormatterTests
         Assert.False(doc.RootElement.TryGetProperty("cloudCandidates", out _));
         Assert.Equal(40, doc.RootElement.GetProperty("cloudCandidateCount").GetInt32());
         Assert.Equal(2, doc.RootElement.GetProperty("cloudCandidateGroups").GetArrayLength());
-        Assert.Equal(5, doc.RootElement.GetProperty("cloudCandidateGroups").EnumerateArray().Sum(group => group.GetProperty("leads").GetArrayLength()));
+        Assert.Empty(doc.RootElement.GetProperty("cloudCandidateGroups").EnumerateArray().SelectMany(group => group.GetProperty("leads").EnumerateArray()));
         Assert.Contains("固件", formatted);
         Assert.Contains("cloudCandidates", observation.Result);
-        Assert.Equal(6, JsonDocument.Parse(observation.Result).RootElement.GetProperty("cloudCandidateGroups").EnumerateArray().Sum(group => group.GetProperty("leads").GetArrayLength()));
+        Assert.Equal(40, JsonDocument.Parse(observation.Result).RootElement.GetProperty("cloudCandidates").GetArrayLength());
     }
 
     [Fact]
