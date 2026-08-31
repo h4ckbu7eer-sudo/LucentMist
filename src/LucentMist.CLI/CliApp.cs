@@ -1958,7 +1958,7 @@ public class CliApp
             lf.CreateLogger<ReActEngine>(),
             new SqliteNetworkAuditSink(CreateScanStore(), "cli-agent"),
             "cli-agent")
-        { MaxRounds = 5 };
+        { MaxRounds = 8 };
 
         try
         {
