@@ -245,19 +245,11 @@ public class SslCertificateTool : INetworkTargetTool
             var sanExt = cert.Extensions["2.5.29.17"];
             if (sanExt != null)
             {
-                var asn = new AsnEncodedData(sanExt.Oid, sanExt.RawData);
-                var formatted = asn.Format(true); // multi-line: "DNS Name=example.com\nDNS Name=*.example.com"
-
-                foreach (var line in formatted.Split('\n', StringSplitOptions.RemoveEmptyEntries))
-                {
-                    var trimmed = line.Trim();
-                    if (trimmed.StartsWith("DNS Name="))
-                        names.Add(trimmed["DNS Name=".Length..]);
-                    else if (trimmed.StartsWith("IP Address="))
-                        names.Add(trimmed["IP Address=".Length..]);
-                    else if (trimmed.StartsWith("IPAddress="))
-                        names.Add(trimmed["IPAddress=".Length..]);
-                }
+                // Parse the encoded SAN, not OS/localized display strings. Windows
+                // and OpenSSL format labels, separators and IPv6 differently.
+                var san = new X509SubjectAlternativeNameExtension(sanExt.RawData, sanExt.Critical);
+                names.AddRange(san.EnumerateDnsNames());
+                names.AddRange(san.EnumerateIPAddresses().Select(address => address.ToString()));
             }
         }
         catch (Exception ex)

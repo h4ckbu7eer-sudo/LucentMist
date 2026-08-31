@@ -45,7 +45,9 @@ jobs:
 
       - name: Run tests
         id: test
-        run: dotnet test -c Release --no-build --verbosity normal --filter "Category!=External" --logger "trx;LogFileName=test-results.trx"
+        # Like hourly auto-check, run the complete deterministic suite. Live
+        # DeepSeek/gateway checks are explicit scripts, not release-gating tests.
+        run: dotnet test -c Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx"
 
       - name: Upload test results
         if: always()

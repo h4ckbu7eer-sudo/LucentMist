@@ -120,11 +120,11 @@ public class SslCertificateToolTests
     }
 
     [Fact]
-    public async Task ExecuteAsync_WithNonexistentDomain_ReturnsFailure()
+    public async Task ExecuteAsync_WithInvalidTarget_ReturnsFailureWithoutDns()
     {
         var args = new ToolArguments
         {
-            ["target"] = "does-not-exist.example.invalid",
+            ["target"] = "not a hostname",
             ["timeout_ms"] = "2000"
         };
 
@@ -134,42 +134,26 @@ public class SslCertificateToolTests
     }
 
     // ============================
-    // 真实 SSL 测试（依赖网络）
+    // 真实 TLS 握手，使用本机随机端口和生成证书，不依赖外网证书/CA/服务状态。
     // ============================
 
     [Fact]
-    [Trait("Category", "External")]
-    public async Task ExecuteAsync_WithBaiduDotCom_ReturnsSuccess()
+    public async Task ExecuteAsync_WithLoopbackTls_ReturnsSuccess()
     {
-        var args = new ToolArguments
-        {
-            ["target"] = "baidu.com",
-            ["port"] = "443",
-            ["timeout_ms"] = "8000"
-        };
-
-        var result = await _tool.ExecuteAsync(args);
+        var result = await ExecuteAgainstSelfSignedServerAsync(includeLoopbackSan: true);
 
         Assert.True(result.Success, result.Error ?? "Expected success");
 
         using var doc = JsonDocument.Parse(result.Data);
         var root = doc.RootElement;
-        Assert.Equal("baidu.com", root.GetProperty("target").GetString());
-        Assert.Equal(443, root.GetProperty("port").GetInt32());
+        Assert.Equal("127.0.0.1", root.GetProperty("target").GetString());
+        Assert.InRange(root.GetProperty("port").GetInt32(), 1, 65535);
     }
 
     [Fact]
-    [Trait("Category", "External")]
     public async Task ExecuteAsync_ResultContainsAllRequiredFields()
     {
-        var args = new ToolArguments
-        {
-            ["target"] = "baidu.com",
-            ["port"] = "443",
-            ["timeout_ms"] = "8000"
-        };
-
-        var result = await _tool.ExecuteAsync(args);
+        var result = await ExecuteAgainstSelfSignedServerAsync(includeLoopbackSan: true);
 
         Assert.True(result.Success, result.Error ?? "Expected success");
         Assert.True(result.Duration > TimeSpan.Zero);
@@ -196,17 +180,9 @@ public class SslCertificateToolTests
     }
 
     [Fact]
-    [Trait("Category", "External")]
     public async Task ExecuteAsync_CertificateFieldsHaveValues()
     {
-        var args = new ToolArguments
-        {
-            ["target"] = "baidu.com",
-            ["port"] = "443",
-            ["timeout_ms"] = "8000"
-        };
-
-        var result = await _tool.ExecuteAsync(args);
+        var result = await ExecuteAgainstSelfSignedServerAsync(includeLoopbackSan: true);
 
         Assert.True(result.Success, result.Error ?? "Expected success");
 
@@ -235,22 +211,14 @@ public class SslCertificateToolTests
         Assert.NotNull(thumbSha256);
         Assert.Equal(64, thumbSha256!.Length);
 
-        // isExpired should be false for baidu.com
+        // The generated certificate is valid for 30 days, independently of any public site.
         Assert.False(root.GetProperty("isExpired").GetBoolean());
     }
 
     [Fact]
-    [Trait("Category", "External")]
-    public async Task ExecuteAsync_SanContainsBaiduDomains()
+    public async Task ExecuteAsync_SanContainsExactGeneratedDnsAndIpNames()
     {
-        var args = new ToolArguments
-        {
-            ["target"] = "baidu.com",
-            ["port"] = "443",
-            ["timeout_ms"] = "8000"
-        };
-
-        var result = await _tool.ExecuteAsync(args);
+        var result = await ExecuteAgainstSelfSignedServerAsync(includeLoopbackSan: true);
 
         Assert.True(result.Success, result.Error ?? "Expected success");
 
@@ -259,22 +227,13 @@ public class SslCertificateToolTests
 
         Assert.Equal(JsonValueKind.Array, san.ValueKind);
         var names = san.EnumerateArray().Select(e => e.GetString()).ToList();
-        // 应包括至少一个 google 域名
-        Assert.Contains(names, n => n != null && n.Contains("baidu"));
+        Assert.Equal(new[] { "127.0.0.1", "::1", "validation.invalid" }, names.Order(StringComparer.Ordinal));
     }
 
     [Fact]
-    [Trait("Category", "External")]
-    public async Task ExecuteAsync_ChainHasMultipleCertificates()
+    public async Task ExecuteAsync_ChainMatchesKnownSelfSignedCertificate()
     {
-        var args = new ToolArguments
-        {
-            ["target"] = "baidu.com",
-            ["port"] = "443",
-            ["timeout_ms"] = "8000"
-        };
-
-        var result = await _tool.ExecuteAsync(args);
+        var result = await ExecuteAgainstSelfSignedServerAsync(includeLoopbackSan: true);
 
         Assert.True(result.Success, result.Error ?? "Expected success");
 
@@ -282,9 +241,10 @@ public class SslCertificateToolTests
         var chain = doc.RootElement.GetProperty("chain");
 
         Assert.Equal(JsonValueKind.Array, chain.ValueKind);
-        // 证书链通常有 2+ 个证书
-        Assert.True(chain.GetArrayLength() >= 2,
-            $"Expected chain >= 2, got {chain.GetArrayLength()}");
+        // No root is installed in the machine/user store: this known chain has one element.
+        var leaf = Assert.Single(chain.EnumerateArray());
+        Assert.Equal(doc.RootElement.GetProperty("thumbprint").GetString(), leaf.GetProperty("thumbprint").GetString());
+        Assert.Equal("CN=validation.invalid", leaf.GetProperty("subject").GetString());
     }
 
     // ============================
@@ -292,18 +252,10 @@ public class SslCertificateToolTests
     // ============================
 
     [Fact]
-    [Trait("Category", "External")]
     public async Task ExecuteAsync_WithNonSslPort_ReturnsError()
     {
-        // Connect to baidu.com:80 (HTTP, not HTTPS) — SSL handshake will fail
-        var args = new ToolArguments
-        {
-            ["target"] = "baidu.com",
-            ["port"] = "80",
-            ["timeout_ms"] = "5000"
-        };
-
-        var result = await _tool.ExecuteAsync(args);
+        var result = await ExecuteAgainstServerAsync(async (stream, token) =>
+            await stream.WriteAsync("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n"u8.ToArray(), token));
 
         // Should fail — HTTP port won't complete TLS handshake
         Assert.False(result.Success);
@@ -365,17 +317,9 @@ public class SslCertificateToolTests
     }
 
     [Fact]
-    [Trait("Category", "External")]
     public async Task ExecuteAsync_DaysRemaining_IsPositiveForValidCert()
     {
-        var args = new ToolArguments
-        {
-            ["target"] = "baidu.com",
-            ["port"] = "443",
-            ["timeout_ms"] = "8000"
-        };
-
-        var result = await _tool.ExecuteAsync(args);
+        var result = await ExecuteAgainstSelfSignedServerAsync(includeLoopbackSan: true);
 
         Assert.True(result.Success, result.Error ?? "Expected success");
 
@@ -384,26 +328,20 @@ public class SslCertificateToolTests
         var isExpired = doc.RootElement.GetProperty("isExpired").GetBoolean();
         var daysRemaining = doc.RootElement.GetProperty("daysRemaining").GetInt32();
 
-        if (!isExpired)
-            Assert.True(daysRemaining >= 0, $"daysRemaining={daysRemaining} should be >= 0");
+        Assert.False(isExpired);
+        Assert.InRange(daysRemaining, 29, 30);
     }
 
     [Fact]
-    [Trait("Category", "External")]
-    public async Task ExecuteAsync_WithDefaultPort_Uses443()
+    public void NormalizeEndpoint_WithDefaultPort_Uses443()
     {
         var args = new ToolArguments
         {
-            ["target"] = "baidu.com",
-            ["timeout_ms"] = "8000"
+            ["target"] = "127.0.0.1"
         };
 
-        var result = await _tool.ExecuteAsync(args);
-
-        Assert.True(result.Success, result.Error ?? "Expected success");
-
-        using var doc = JsonDocument.Parse(result.Data);
-        Assert.Equal(443, doc.RootElement.GetProperty("port").GetInt32());
+        // Test the default independently of whether the host already owns port 443.
+        Assert.Equal(443, SslCertificateTool.NormalizeEndpoint(args).Port);
     }
 
     [Fact]
@@ -459,37 +397,49 @@ public class SslCertificateToolTests
             HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1);
         var san = new SubjectAlternativeNameBuilder();
+        san.AddDnsName("validation.invalid");
         if (includeLoopbackSan)
+        {
             san.AddIpAddress(IPAddress.Loopback);
-        else
-            san.AddDnsName("validation.invalid");
+            san.AddIpAddress(IPAddress.IPv6Loopback);
+        }
         request.CertificateExtensions.Add(san.Build());
         var notBefore = expired
             ? DateTimeOffset.UtcNow.AddDays(-2)
             : DateTimeOffset.UtcNow.AddMinutes(-5);
         var notAfter = expired
             ? DateTimeOffset.UtcNow.AddDays(-1)
-            : DateTimeOffset.UtcNow.AddHours(1);
+            : DateTimeOffset.UtcNow.AddDays(30);
         using var generatedCertificate = request.CreateSelfSigned(notBefore, notAfter);
         using var certificate = X509CertificateLoader.LoadPkcs12(
             generatedCertificate.Export(X509ContentType.Pfx),
             password: null,
             X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
 
+        return await ExecuteAgainstServerAsync(async (stream, token) =>
+        {
+            using var tls = new SslStream(stream, leaveInnerStreamOpen: true);
+            await tls.AuthenticateAsServerAsync(new SslServerAuthenticationOptions
+            {
+                ServerCertificate = certificate,
+                ClientCertificateRequired = false,
+                EnabledSslProtocols = SslProtocols.Tls12 | SslProtocols.Tls13,
+                CertificateRevocationCheckMode = X509RevocationMode.NoCheck,
+            }, token);
+        });
+    }
+
+    private async Task<ToolResult> ExecuteAgainstServerAsync(Func<NetworkStream, CancellationToken, Task> serve)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
         var listener = new TcpListener(IPAddress.Loopback, 0);
         listener.Start();
         var port = ((IPEndPoint)listener.LocalEndpoint).Port;
         var serverTask = Task.Run(async () =>
         {
-            using var client = await listener.AcceptTcpClientAsync();
-            using var stream = new SslStream(client.GetStream(), leaveInnerStreamOpen: false);
-            await stream.AuthenticateAsServerAsync(
-                certificate,
-                clientCertificateRequired: false,
-                enabledSslProtocols: SslProtocols.Tls12 | SslProtocols.Tls13,
-                checkCertificateRevocation: false);
+            using var client = await listener.AcceptTcpClientAsync(timeout.Token);
+            await serve(client.GetStream(), timeout.Token);
         });
-
         try
         {
             var result = await _tool.ExecuteAsync(new ToolArguments
@@ -497,13 +447,17 @@ public class SslCertificateToolTests
                 ["target"] = "127.0.0.1",
                 ["port"] = port.ToString(),
                 ["timeout_ms"] = "5000"
-            });
-            await serverTask.WaitAsync(TimeSpan.FromSeconds(5));
+            }, timeout.Token);
+            await serverTask;
             return result;
         }
         finally
         {
+            await timeout.CancelAsync();
             listener.Stop();
+            try { await serverTask; }
+            catch (OperationCanceledException) when (timeout.IsCancellationRequested) { }
+            catch (SocketException) when (timeout.IsCancellationRequested) { }
         }
     }
 }
