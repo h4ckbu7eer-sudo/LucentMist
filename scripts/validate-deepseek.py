@@ -20,6 +20,8 @@ import urllib.request
 parser = argparse.ArgumentParser()
 parser.add_argument("--output", required=True)
 parser.add_argument("--mode", choices=["cli", "web"], default="cli")
+parser.add_argument("--scenario", choices=["all", "gateway"], default="all",
+                    help="gateway is a focused reproduction, not the 10-call contract benchmark")
 parser.add_argument("--recorder-port", type=int, default=8357)
 parser.add_argument("--api-port", type=int, default=5050)
 parser.add_argument("--web-port", type=int, default=5051)
@@ -115,6 +117,8 @@ try:
             ("gateway", ["分析 192.168.99.1 的安全风险"], None),
             ("repl", [], "看看我的ip\n分析那个子网的网关\n/exit\n"),
         ]:
+            if options.scenario != "all" and label != options.scenario:
+                continue
             run_label = label
             process = subprocess.Popen(["dotnet", str(root / "src/LucentMist.CLI/bin/Release/net10.0/lmist.dll"), "agent", *args],
                                        cwd=root, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
@@ -171,10 +175,11 @@ if options.mode == "cli":
     records = output / "model-responses.jsonl"
     rows = [json.loads(line) for line in records.read_text(encoding="utf-8").splitlines()] if records.exists() else []
     passed = sum(row["httpStatus"] == 200 and row["jsonValid"] and row["actionValid"] and row["inputValid"] for row in rows)
-    gate = {"calls": len(rows), "passed": passed, "minimumCalls": 10, "threshold": .9,
+    minimum_calls = 10 if options.scenario == "all" else 1
+    gate = {"scenario": options.scenario, "calls": len(rows), "passed": passed, "minimumCalls": minimum_calls, "threshold": .9,
             "percent": round(100 * passed / len(rows), 2) if rows else 0,
             "cliExitCodes": cli_exits,
-            "passedGate": len(rows) >= 10 and passed / len(rows) >= .9 and all(code == 0 for code in cli_exits)}
+            "passedGate": len(rows) >= minimum_calls and passed / len(rows) >= .9 and all(code == 0 for code in cli_exits)}
     record("contract-gate.json", json.dumps(gate))
     print(json.dumps(gate), flush=True)
     if not gate["passedGate"]:
