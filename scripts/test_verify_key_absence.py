@@ -58,6 +58,13 @@ class ExactKeyCheckTests(unittest.TestCase):
         self.assertEqual(1, code)
         self.assertEqual('FOUND', result['workingTree'])
 
+    def test_git_metadata_is_also_checked(self):
+        # Metadata is not part of cat-file --batch-all-objects.
+        (self.root / '.git' / 'fixture-secret').write_text(self.key)
+        code, result = self.verify()
+        self.assertEqual(1, code)
+        self.assertEqual('FOUND', result['workingTree'])
+
     def test_history_is_checked_across_read_chunk_boundary(self):
         (self.root / 'fixture.txt').write_text('X' * 65530 + self.key)
         self.git('add', 'fixture.txt')
