@@ -1,22 +1,33 @@
 # 可执行指纹的来源与边界
 
-核实日期：2026-09-01。不是导入整个上游库，也不宣称具备 Nmap -A 的覆盖范围。
+核实日期：2026-09-01。已把官方 Recog 的核心服务数据真正转换并嵌入运行时；仍不宣称具备 Nmap -A 的主动探测覆盖范围。
 
 ## HTTP / 服务表
 
-来源：[Rapid7 Recog xml/http_servers.xml](https://github.com/rapid7/recog/blob/main/xml/http_servers.xml)，
-[许可](https://github.com/rapid7/recog/blob/main/LICENSE)：BSD-2-Clause。
-`ServiceFingerprintTable.Rules` 转换 **2 条**：Apache（含 AdvancedExtranetServer）和 Lighttpd。
-保留产品/厂商/版本捕获结构，改用 .NET 命名捕获、100ms 正则预算与版本边界检查。
-Redis INFO 的 `redis_version:` 为独立实现的第 3 条规则，不计入 Recog 转换数。
+来源：[Rapid7 Recog](https://github.com/rapid7/recog/tree/d3d20938da9f5f1e442c2419fe6c30cd651b6878/xml)，
+固定提交 `d3d20938da9f5f1e442c2419fe6c30cd651b6878`，许可 BSD-2-Clause。
+`tools/fingerprint-import/convert_recog.py` 从以下官方文件确定性转换 **950 条**带产品身份的规则：
+`http_servers.xml`、`http_xpoweredby.xml`、`ssh_banners.xml`、`smtp_banners.xml`、
+`pop_banners.xml`、`imap_banners.xml`、`dns_versionbind.xml`、`ftp_banners.xml`、
+`mysql_banners.xml`。生成物为嵌入程序集的
+`Vulnerability/Data/recog-service-fingerprints.json`，运行时由
+`ServiceFingerprintMatcher` 读取并保留原文件、序号、描述、版本捕获位置和 CPE 模板。
+每条 .NET 正则有 100ms 预算；当前 950/950 条均可由 .NET 编译。若未来上游引入
+Oniguruma-only 构造，生成源仍保留该规则且运行时明确计入“导入但不可运行”，两项数量由测试审计。
+Redis INFO 的 `redis_version:` 与 Windows RPC 的证据身份规则为独立实现，不计入 950 条。
 
-运行链路：HTTP HEAD/GET → Server/X-Powered-By → ServiceFingerprintTable / CpeCatalog → CVE 查询。
-SSH、DNS、MySQL 等继续使用已有产品 token 表；SMB 方言仅由 SmbProbe 解码，不能把协议 3.1.1 当 Windows 软件版本。
+运行链路：HTTP HEAD/GET → Server/X-Powered-By/meta generator，以及 SSH/DNS/FTP/SMTP/POP/IMAP/MySQL
+协议 Banner → `ServiceFingerprintMatcher` → `CpeCatalog` 安全兜底 → CVE 查询。
+SMB 方言仍仅由 SmbProbe 解码，不能把协议 3.1.1 当 Windows 软件版本。
 产品词和版本都不存在时，不产生产品 CPE；产品可识别但版本未知时仍不得声称版本匹配。
 Via 单独保存为代理线索，不用代理版本给源站匹配 CVE。
 
-回归测试包含 Recog 形式的 Apache-AdvancedExtranetServer 与 lighttpd、超过 4KiB 的头部、
-SSH/Redis/MySQL/DNS，以及 Apache Tomcat 不能被误识别成 Apache HTTP Server。
+`Microsoft Windows RPC` 属于“服务已观测、版本未公开”的证据：显示 Windows RPC，但不伪造应用 CPE，
+也不把 Windows 产品版本从端口或服务名猜出来。所有类似情况分成 `not_disclosed`（产品已识别）与
+`observed_unparsed`（有 Banner、尚无可靠规则），不再笼统显示“未知”。
+
+回归测试包含 Recog 形式的 nginx/Apache/IIS/Tomcat、OpenSSH/Dropbear、Postfix/Exim、
+Dovecot、BIND、vsFTPd/ProFTPD、MySQL，以及 Windows RPC 无版本/无 CPE 边界。
 版权声明在仓库根目录 `THIRD-PARTY-NOTICES.md`，分发时应一并保留。
 
 ## DNS
@@ -28,7 +39,7 @@ SSH/Redis/MySQL/DNS，以及 Apache Tomcat 不能被误识别成 Apache HTTP Ser
 更不是设备型号。四个小查询并发且各有超时，单次 Agent 分析共享同一 DNS 快照。
 
 返回每个查询的名字、类型、类、RCODE、状态和值：REFUSED、NXDOMAIN、无有效响应不能混称“目标不暴露”。
-只有完整、相关且无截断的响应才作为证据。未实现 DNS TCP 回退，UDP 截断视为未知。
+只有完整、相关的响应才作为证据；UDP 截断会使用同一查询走 DNS-over-TCP 回退，TCP 仍失败才标未知。
 
 ## 设备身份
 
@@ -36,7 +47,7 @@ SSH/Redis/MySQL/DNS，以及 Apache Tomcat 不能被误识别成 Apache HTTP Ser
 只保存公开身份字段，不保存正文、Cookie、会话值，不自动跟随重定向。
 另从 [Recog http_wwwauth.xml](https://github.com/rapid7/recog/blob/d3d20938da9f5f1e442c2419fe6c30cd651b6878/xml/http_wwwauth.xml)
 转换 **3 条** ZTE realm 规则（cpe@zte.com、ZXHN、ZXV），均有可运行回归测试。
-这些是设备声明，不是软件版本规则；总计借鉴 Recog 2 条服务头规则 + 3 条设备 realm 规则。
+这些是设备声明，不是软件版本规则；服务指纹的 950 条转换与这 3 条设备 realm 规则分别计数。
 已拉取的 WhatWeb/Recog/Nmap 版本、许可证和使用边界见 [tools/README.md](../tools/README.md)。
 
 mDNS 采用定向单播 PTR → 服务 PTR → TXT，最多 8 次查询、总预算 1.2 秒。

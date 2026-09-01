@@ -2,11 +2,17 @@
 
 ## Rapid7 Recog
 
-Two HTTP fingerprint rules in `ServiceFingerprintTable.cs` are adapted from
-`rapid7/recog`, `xml/http_servers.xml`: Apache (including
-Apache-AdvancedExtranetServer) and Lighttpd. The adaptation uses named .NET
-captures and stricter version boundaries. The Redis INFO rule is independently
-implemented, not converted from Recog. Consult `docs/fingerprint-sources.md`.
+`Vulnerability/Data/recog-service-fingerprints.json` contains 950 service
+fingerprints deterministically converted from the official `rapid7/recog`
+datasets at commit `d3d20938da9f5f1e442c2419fe6c30cd651b6878`:
+`http_servers.xml`, `http_xpoweredby.xml`, `ssh_banners.xml`,
+`smtp_banners.xml`, `pop_banners.xml`, `imap_banners.xml`,
+`dns_versionbind.xml`, `ftp_banners.xml`, and `mysql_banners.xml`.
+`tools/fingerprint-import/convert_recog.py` is the reproducible converter. Oniguruma-only
+patterns that cannot compile under .NET are retained in the generated source
+for auditability but skipped at runtime. The Redis INFO and Windows RPC
+evidence-only rules are independently implemented, not converted from Recog.
+Consult `docs/fingerprint-sources.md`.
 
 Three device realm rules in `HttpPageIdentity.cs` are adapted from
 `xml/http_wwwauth.xml`: ZTE CPE (`cpe@zte.com`), ZXHN, and ZXV. No WhatWeb or

@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="LucentMist.Tools.Tests" />
+    <EmbeddedResource Include="Vulnerability\Data\recog-service-fingerprints.json" />
     <None Include="..\..\THIRD-PARTY-NOTICES.md" Link="THIRD-PARTY-NOTICES.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 

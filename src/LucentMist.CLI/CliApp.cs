@@ -1497,7 +1497,8 @@ public class CliApp
                 var table = new Table().BorderColor(Color.Grey).AddColumn("端口").AddColumn("服务").AddColumn("已观测版本/协议").AddColumn("证据");
                 foreach (var service in services.EnumerateArray())
                     table.AddRow(service.GetProperty("port").ToString(), Escape(service.GetProperty("service").GetString() ?? "?"),
-                        Escape(service.TryGetProperty("version", out var version) ? version.GetString() ?? "未知" : "未知"),
+                        Escape(service.TryGetProperty("versionLabel", out var label) ? label.GetString() ?? "未知"
+                            : service.TryGetProperty("version", out var version) ? version.GetString() ?? "未知" : "未知"),
                         Escape(service.TryGetProperty("versionSource", out var source) ? source.GetString() ?? "banner" : "banner"));
                 AnsiConsole.Write(table);
             }

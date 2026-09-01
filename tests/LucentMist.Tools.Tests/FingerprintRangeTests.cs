@@ -46,7 +46,7 @@ public class FingerprintRangeTests
         var fingerprint = ServiceFingerprint.FromBanner(banner);
         Assert.Equal(product, fingerprint?.Product);
         Assert.Equal(version, fingerprint?.Version);
-        if (fingerprint != null) Assert.Equal(13, fingerprint.Cpe.Split(':').Length);
+        if (fingerprint != null) Assert.Equal(13, fingerprint.Cpe!.Split(':').Length);
     }
 
     [Theory]

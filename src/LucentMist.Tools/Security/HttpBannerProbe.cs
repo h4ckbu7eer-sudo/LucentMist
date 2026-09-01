@@ -107,6 +107,8 @@ internal static class HttpBannerProbe
                         catch (ArgumentException) { encoding = Encoding.UTF8; }
                         var bodyIdentity = HttpPageIdentity.Read(encoding.GetString(bytes, 0, count), Value("WWW-Authenticate"));
                         identity = bodyIdentity with { Vendor = bodyIdentity.Vendor ?? identity.Vendor, Model = bodyIdentity.Model ?? identity.Model };
+                        if (!string.IsNullOrWhiteSpace(identity.Generator))
+                            best = (best ?? "HTTP (无 Server 头)") + $"; HTTP Generator: {identity.Generator}";
                         bodyStatus = count == bytes.Length ? "bounded_prefix" : "complete";
                     }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
