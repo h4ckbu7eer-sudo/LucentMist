@@ -207,7 +207,8 @@ public class CloudCveTests
         var root = doc.RootElement;
         Assert.Equal(0, root.GetProperty("totalFindings").GetInt32());
         Assert.Equal(0, root.GetProperty("criticalCount").GetInt32());
-        Assert.Equal(1, root.GetProperty("cloudCandidateCount").GetInt32());
+        Assert.Equal(0, root.GetProperty("cloudCandidateCount").GetInt32());
+        Assert.Equal(1, root.GetProperty("cloudRawCandidateCount").GetInt32());
         Assert.Equal("unverified", root.GetProperty("cloudCandidates")[0].GetProperty("versionStatus").GetString());
         Assert.NotEqual("安全", root.GetProperty("overallRisk").GetString());
     }

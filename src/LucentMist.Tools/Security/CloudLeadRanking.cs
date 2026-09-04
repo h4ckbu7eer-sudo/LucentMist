@@ -53,6 +53,9 @@ public static class CloudLeadRanking
         }).ToArray();
     }
 
+    public static int CountForPresentation(IEnumerable<JsonElement> groups) =>
+        ForPresentation(groups).Sum(group => group.GetProperty("leads").GetArrayLength());
+
     private static JsonObject Annotate(JsonElement candidate, OsHint? os)
     {
         var item = JsonNode.Parse(candidate.GetRawText())!.AsObject();

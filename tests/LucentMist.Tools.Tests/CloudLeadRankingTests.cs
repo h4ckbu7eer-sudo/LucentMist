@@ -6,6 +6,26 @@ namespace LucentMist.Tools.Tests;
 public class CloudLeadRankingTests
 {
     [Fact]
+    public void PresentationCount_IsBoundedWhenRawCloudMetadataInflates()
+    {
+        var candidates = Enumerable.Range(0, 40).Select(index => JsonSerializer.SerializeToElement(new
+        {
+            port = index % 2 == 0 ? 80 : 443,
+            cve = $"CVE-2025-{index + 1000}",
+            name = "nginx http server",
+            banner = "HTTP Server: nginx/1.24.0",
+            source = "NVD",
+            cvss = 7.5,
+            versionStatus = "unverified",
+        }));
+
+        var groups = CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates));
+
+        Assert.Equal(40, groups.Sum(group => group.GetProperty("totalCount").GetInt32()));
+        Assert.InRange(CloudLeadRanking.CountForPresentation(groups), 1, CloudLeadRanking.ModelLeadLimit);
+    }
+
+    [Fact]
     public void OsHeuristicsRankButDoNotDiscardOtherPlatforms()
     {
         var candidates = new[] { "Windows", "Linux" }.Select(os => JsonSerializer.SerializeToElement(new

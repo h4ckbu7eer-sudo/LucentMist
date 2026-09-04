@@ -1602,6 +1602,9 @@ public class CliApp
             var cloudLeadCount = r.TryGetProperty("cloudCandidateCount", out var cloudLeadNode)
                 ? cloudLeadNode.GetInt32()
                 : 0;
+            var cloudRawLeadCount = r.TryGetProperty("cloudRawCandidateCount", out var rawCloudLeadNode)
+                ? rawCloudLeadNode.GetInt32()
+                : cloudLeadCount;
             var externalPartial = r.TryGetProperty("externalPartial", out var partialNode) && partialNode.GetBoolean();
 
             if (r.TryGetProperty("checkedServices", out var services))
@@ -1745,7 +1748,8 @@ public class CliApp
                 .AddColumn("K").AddColumn("V")
                 .AddRow("[grey]目标[/]", $"[white]{Escape(target)}[/]")
                 .AddRow("[grey]目标漏洞匹配[/]", $"[white]{total}[/]（不含未验证云端线索）")
-                .AddRow("[grey]云端待核实线索[/]", $"[white]{cloudLeadCount}[/]（外部结果可能随限流/更新变化）")
+                .AddRow("[grey]优先待核实线索[/]", $"[white]{cloudLeadCount}[/]（最多 {CloudLeadRanking.ModelLeadLimit} 条，按产品证据筛选）")
+                .AddRow("[grey]云源原始元数据命中[/]", $"[white]{cloudRawLeadCount}[/]（会随限流/索引更新变化，不代表风险数量）")
                 .AddRow("[grey]风险分布[/]", $"[red]严重 {critical}[/] | [yellow]高危 {high}[/] | [green]中危 {med}[/] | [grey]低危 {low}[/]")
                 .AddRow("[grey]数据来源[/]", $"[teal]{Escape(sourceStr)}[/]")
                 .AddRow("[grey]云源覆盖[/]", externalPartial
@@ -2648,7 +2652,10 @@ public class CliApp
             AnsiConsole.MarkupLine($"[yellow]{Escape(notice.GetString() ?? "")}[/]");
         if (r.TryGetProperty("cloudCandidates", out var candidates) && candidates.GetArrayLength() > 0)
         {
-            AnsiConsole.MarkupLine($"[yellow]云端检索 {candidates.GetArrayLength()} 条待核实线索；以下按端口展示最可能相关的前 {CloudLeadRanking.PerPortLimit} 条。相关性不是漏洞确认，目标版本未验证；不计入漏洞风险。[/]");
+            var presented = r.TryGetProperty("cloudCandidateCount", out var presentedNode)
+                ? presentedNode.GetInt32()
+                : CloudLeadRanking.CountForPresentation(CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())));
+            AnsiConsole.MarkupLine($"[yellow]云源原始命中 {candidates.GetArrayLength()} 条元数据；筛出 {presented} 条优先待核实线索。原始数量会随外部索引/限流变化，不代表目标风险增加。相关性不是漏洞确认。[/]");
             foreach (var group in CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())))
             {
                 if (group.GetProperty("leads").GetArrayLength() == 0)
