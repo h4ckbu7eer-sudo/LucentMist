@@ -1,6 +1,7 @@
 using System.Net.NetworkInformation;
 using System.Text.Json;
 using LucentMist.Tools.Scanning;
+using LucentMist.Tools.Security;
 
 namespace LucentMist.Tools.Tests;
 
@@ -123,6 +124,16 @@ public class PingScanToolTests
     public void ShouldFallbackToTcp_NonReachabilityFailure_DoesNotFallback()
     {
         Assert.False(PingScanTool.ShouldFallbackToTcp(IPStatus.BadOption));
+    }
+
+    [Fact]
+    public void TcpFallbackPorts_CoverDeclaredHighRiskDiscoveryPorts()
+    {
+        foreach (var port in VulnerabilityScanTool.DefaultScanPorts)
+            Assert.Contains(port, PingScanTool.TcpFallbackPorts);
+        Assert.Contains(53, PingScanTool.TcpFallbackPorts);
+        Assert.Contains(3389, PingScanTool.TcpFallbackPorts);
+        Assert.Contains(27017, PingScanTool.TcpFallbackPorts);
     }
 
     private static PingScanTool CreateTool() =>

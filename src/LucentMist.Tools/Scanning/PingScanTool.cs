@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using LucentMist.Core.Networking;
 using LucentMist.Tools.Discovery;
+using LucentMist.Tools.Security;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Scanning;
@@ -322,7 +323,7 @@ public class PingScanTool : INetworkTargetTool
         if ((reasons & IcmpNoResponse) != 0) descriptions.Add("ICMP 无响应");
         if ((reasons & IcmpRejected) != 0) descriptions.Add("ICMP 被拒绝");
         if ((reasons & IcmpUnavailable) != 0) descriptions.Add("ICMP 不可用");
-        return $"{string.Join("；", descriptions)}，已使用 TCP 端口探测（80/443/22/445）";
+        return $"{string.Join("；", descriptions)}，已使用 TCP 高风险端口探测（{string.Join('/', TcpFallbackPorts)}）";
     }
 
     private static async Task<IPStatus> SendIcmpAsync(
@@ -339,7 +340,7 @@ public class PingScanTool : INetworkTargetTool
     {
         using var probeCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         probeCts.CancelAfter(Math.Min(timeoutMs, 1500));
-        var tasks = new[] { 80, 443, 22, 445 }
+        var tasks = TcpFallbackPorts
             .Select(port => ProbeTcpPortAsync(ip, port, probeCts.Token))
             .ToList();
 
@@ -394,4 +395,7 @@ public class PingScanTool : INetworkTargetTool
         IPStatus.DestinationProtocolUnreachable or
         IPStatus.DestinationPortUnreachable or
         IPStatus.DestinationNetworkUnreachable;
+
+    internal static IReadOnlyList<int> TcpFallbackPorts { get; } =
+        VulnerabilityScanTool.DefaultScanPorts;
 }

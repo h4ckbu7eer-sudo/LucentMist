@@ -86,6 +86,17 @@ public class UserTranscriptRegressionTests
         Assert.Null(identity.Mac);
     }
 
+    [Fact]
+    public void PublicIpIdentity_DoesNotPretendAsnOrServiceBannerIsHardwareVendor()
+    {
+        var identity = LucentMist.Tools.Discovery.DeviceDiscovery
+            .BuildPublicIdentityWithoutLayer2Evidence("198.44.84.219");
+
+        Assert.Contains("无二层 MAC", identity.Vendor);
+        Assert.Contains("未执行局域网 mDNS", identity.Name);
+        Assert.Contains("未使用归属运营商冒充设备厂商", identity.IdentityEvidence);
+    }
+
     [Theory]
     [InlineData(LucentMist.Tools.Reporting.ReportGenerator.Format.Html)]
     [InlineData(LucentMist.Tools.Reporting.ReportGenerator.Format.Markdown)]
