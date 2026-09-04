@@ -1,11 +1,87 @@
 using LucentMist.CLI;
+using LucentMist.Tools.Common;
 using LucentMist.Tools.Reporting;
+using LucentMist.Tools.Security;
 using Xunit.Abstractions;
 
 namespace LucentMist.Tools.Tests;
 
 public sealed class ReportDeviceCollectorTests(ITestOutputHelper output)
 {
+    [Fact]
+    public void ReportTcpPortSelection_CoversBaseRangeAndSupplementalRiskPortsOnce()
+    {
+        Assert.True(PortHelper.TryParsePorts(CliApp.ReportTcpPortSelection, out var ports));
+        Assert.Contains(1, ports);
+        Assert.Contains(1000, ports);
+        foreach (var port in VulnerabilityScanTool.DefaultScanPorts)
+            Assert.Contains(port, ports);
+        Assert.Equal(ports.Count, ports.Distinct().Count());
+    }
+
+    [Fact]
+    public void BuildReportVulnerabilityArguments_PreservesSucceededEmptyAndObservedStates()
+    {
+        var empty = new ReportDeviceScanResult(
+            new ReportGenerator.DeviceEntry { Ip = "192.168.1.10" }, [], [], [], []);
+        var observed = new ReportDeviceScanResult(
+            new ReportGenerator.DeviceEntry { Ip = "192.168.1.11" },
+            [
+                new ReportGenerator.PortEntry { Target = "192.168.1.11", Port = 443 },
+                new ReportGenerator.PortEntry { Target = "192.168.1.11", Port = 53 },
+            ], [], [], []);
+
+        var emptyArgs = CliApp.BuildReportVulnerabilityArguments(empty);
+        var observedArgs = CliApp.BuildReportVulnerabilityArguments(observed);
+
+        Assert.True(emptyArgs.ContainsKey("open_ports"));
+        Assert.Equal("", emptyArgs["open_ports"]);
+        Assert.Equal("succeeded", emptyArgs["port_scan_status"]);
+        Assert.Equal("443,53", observedArgs["open_ports"]);
+        Assert.Equal("succeeded", observedArgs["port_scan_status"]);
+        Assert.False(emptyArgs.ContainsKey("ports"));
+        Assert.False(observedArgs.ContainsKey("ports"));
+    }
+
+    [Fact]
+    public async Task BuildReportVulnerabilityArguments_FailedScanCannotBecomeEmptySuccess()
+    {
+        var failed = new ReportDeviceScanResult(
+            new ReportGenerator.DeviceEntry { Ip = "192.168.1.12" },
+            [], [], ["端口扫描失败"], [],
+            PortScanEvidenceStatus.Failed,
+            "连接资源耗尽");
+
+        var arguments = CliApp.BuildReportVulnerabilityArguments(failed);
+
+        Assert.Equal("failed", arguments["port_scan_status"]);
+        Assert.Equal("连接资源耗尽", arguments["port_scan_error"]);
+        Assert.False(arguments.ContainsKey("open_ports"));
+
+        var result = await new VulnerabilityScanTool().ExecuteAsync(arguments);
+        Assert.False(result.Success);
+        Assert.Contains("前置端口扫描失败", result.Error);
+        Assert.DoesNotContain("未观测到开放服务", result.Error);
+    }
+
+    [Fact]
+    public void ApplyPortScanEvidence_NotRunOmitsOpenPortsSoDiscoveryRemainsUnknown()
+    {
+        var arguments = new ToolArguments { ["open_ports"] = "" };
+
+        CliApp.ApplyPortScanEvidence(arguments, PortScanEvidenceStatus.NotRun, []);
+
+        Assert.Equal("not_run", arguments["port_scan_status"]);
+        Assert.False(arguments.ContainsKey("open_ports"));
+    }
+
+    [Fact]
+    public async Task ResolveExplicitReportTarget_InconclusiveDiscoveryContinuesOnlyForSingleTarget()
+    {
+        Assert.Equal("127.0.0.1", await CliApp.ResolveExplicitReportTargetAsync("127.0.0.1"));
+        Assert.Null(await CliApp.ResolveExplicitReportTargetAsync("127.0.0.0/24"));
+    }
+
     [Fact]
     public async Task CollectAsync_TenDevices_UsesBoundedParallelismAndPreservesOrder()
     {

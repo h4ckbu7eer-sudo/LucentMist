@@ -41,4 +41,13 @@ internal sealed record ReportDeviceScanResult(
     IReadOnlyList<ReportGenerator.PortEntry> OpenPorts,
     IReadOnlyList<ReportGenerator.SslEntry> SslInfo,
     IReadOnlyList<string> Warnings,
-    IReadOnlyList<string> Notes);
+    IReadOnlyList<string> Notes,
+    PortScanEvidenceStatus PortScanStatus = PortScanEvidenceStatus.Succeeded,
+    string? PortScanError = null);
+
+internal enum PortScanEvidenceStatus
+{
+    NotRun,
+    Succeeded,
+    Failed,
+}

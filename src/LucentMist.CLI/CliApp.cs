@@ -1053,6 +1053,22 @@ public class CliApp
                     if (pr.TryGetProperty("devices", out var devs))
                         foreach (var d in devs.EnumerateArray()) devices.Add(d.GetString()!);
 
+                    var livenessConfirmed = devices.ToHashSet(StringComparer.OrdinalIgnoreCase);
+                    if (devices.Count == 0)
+                    {
+                        // A user-selected single target must not be discarded just
+                        // because ICMP and the small liveness probe set were silent.
+                        // Resolve once and pin the address, then let the bounded TCP
+                        // scan determine whether the declared report scope is exposed.
+                        var resolved = await ResolveExplicitReportTargetAsync(target);
+                        if (resolved != null)
+                        {
+                            devices.Add(resolved);
+                            report.Warnings.Add(
+                                $"{target}: 存活探测无响应；仍继续对明确指定的单个目标执行有界 TCP 扫描，不把无响应当作离线或安全");
+                        }
+                    }
+
                     if (devices.Count == 0)
                     {
                         report.ScanStatus = "no_targets";
@@ -1063,7 +1079,12 @@ public class CliApp
                     // 2. 对在线设备做有界并行端口、TLS 和 OS 采集。
                     var deviceResults = await ReportDeviceCollector.CollectAsync(
                         devices,
-                        (ip, ct) => ScanReportDeviceAsync(ip, lf, sslTool, ct),
+                        (ip, ct) => ScanReportDeviceAsync(
+                            ip,
+                            lf,
+                            sslTool,
+                            livenessConfirmed.Contains(ip),
+                            ct),
                         GetReportConcurrency());
                     foreach (var deviceResult in deviceResults)
                     {
@@ -1073,11 +1094,12 @@ public class CliApp
                         report.Warnings.AddRange(deviceResult.Warnings);
                         report.Notes.AddRange(deviceResult.Notes);
                     }
+                    report.OnlineDevices = deviceResults.Count(result => result.Device.IsAlive);
 
                     // 3. 对所有在线设备做有界并行漏洞候选检测。
                     if (devices.Count > 0)
                     {
-                        report.VulnInfo = await CollectVulnerabilityInfoAsync(report, devices);
+                        report.VulnInfo = await CollectVulnerabilityInfoAsync(report, deviceResults);
                         ReportGenerator.ApplyCompletionStatus(report, devices.Count);
                     }
                 }
@@ -1184,15 +1206,18 @@ public class CliApp
         string ip,
         ILoggerFactory loggerFactory,
         SslCertificateTool sslTool,
+        bool livenessConfirmed,
         CancellationToken cancellationToken)
     {
         var local = new ReportGenerator.ScanReport();
         DeviceIdentity? identity = null;
+        var portScanStatus = PortScanEvidenceStatus.Succeeded;
+        string? portScanError = null;
         var portTool = new PortScanTool(loggerFactory.CreateLogger<PortScanTool>());
         var portResult = await portTool.ExecuteAsync(new ToolArguments
         {
             ["target"] = ip,
-            ["ports"] = "1-1000",
+            ["ports"] = ReportTcpPortSelection,
             ["timeout_ms"] = "2000"
         }, cancellationToken);
         if (portResult.Success)
@@ -1220,12 +1245,16 @@ public class CliApp
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 Logger.LogWarning(ex, "Failed to parse port scan result for report");
-                local.Warnings.Add($"{ip}: 端口扫描结果无法解析");
+                portScanStatus = PortScanEvidenceStatus.Failed;
+                portScanError = "端口扫描结果无法解析";
+                local.Warnings.Add($"{ip}: {portScanError}");
             }
         }
         else
         {
-            local.Warnings.Add($"{ip}: 端口扫描失败（{portResult.Error ?? "未知错误"}）");
+            portScanStatus = PortScanEvidenceStatus.Failed;
+            portScanError = portResult.Error ?? "未知错误";
+            local.Warnings.Add($"{ip}: 端口扫描失败（{portScanError}）");
         }
 
         await CollectSslInfoAsync(local, ip, sslTool, cancellationToken);
@@ -1264,7 +1293,7 @@ public class CliApp
             new ReportGenerator.DeviceEntry
             {
                 Ip = ip,
-                IsAlive = true,
+                IsAlive = livenessConfirmed || local.OpenPorts.Count > 0,
                 OsGuess = osGuess,
                 Name = identity?.Name ?? "未知",
                 Vendor = identity?.Vendor ?? "未知",
@@ -1274,7 +1303,9 @@ public class CliApp
             local.OpenPorts,
             local.SslInfo,
             local.Warnings,
-            local.Notes);
+            local.Notes,
+            portScanStatus,
+            portScanError);
     }
 
     private static int GetReportConcurrency() =>
@@ -1282,26 +1313,32 @@ public class CliApp
             ? Math.Clamp(configured, 1, 8)
             : 4;
 
+    internal static string ReportTcpPortSelection { get; } =
+        "1-1000," + string.Join(",", VulnerabilityScanTool.DefaultScanPorts.Where(port => port > 1000));
+
+    internal static Task<string?> ResolveExplicitReportTargetAsync(
+        string target,
+        CancellationToken cancellationToken = default) =>
+        target.Contains('/')
+            ? Task.FromResult<string?>(null)
+            : TargetGuard.ResolveSingleTargetAsync(target, cancellationToken);
+
     private static async Task<ReportGenerator.VulnSummary?> CollectVulnerabilityInfoAsync(
         ReportGenerator.ScanReport report,
-        IReadOnlyCollection<string> targets)
+        IReadOnlyCollection<ReportDeviceScanResult> deviceResults)
     {
         var results = new System.Collections.Concurrent.ConcurrentBag<(string Target, ToolResult Result)>();
         await Parallel.ForEachAsync(
-            targets,
+            deviceResults,
             new ParallelOptions
             {
-                MaxDegreeOfParallelism = Math.Min(3, Math.Max(1, targets.Count))
+                MaxDegreeOfParallelism = Math.Min(3, Math.Max(1, deviceResults.Count))
             },
-            async (target, cancellationToken) =>
+            async (deviceResult, cancellationToken) =>
             {
                 var tool = new VulnerabilityScanTool();
-                var result = await tool.ExecuteAsync(new ToolArguments
-                {
-                    ["target"] = target,
-                    ["timeout_ms"] = "5000"
-                }, cancellationToken);
-                results.Add((target, result));
+                var result = await tool.ExecuteAsync(BuildReportVulnerabilityArguments(deviceResult), cancellationToken);
+                results.Add((deviceResult.Device.Ip, result));
             });
 
         var findings = new List<ReportGenerator.VulnFinding>();
@@ -1340,6 +1377,43 @@ public class CliApp
             ? ReportGenerator.BuildVulnerabilitySummary(findings)
             : null;
     }
+
+    internal static ToolArguments BuildReportVulnerabilityArguments(ReportDeviceScanResult deviceResult)
+    {
+        var arguments = new ToolArguments
+        {
+            ["target"] = deviceResult.Device.Ip,
+            ["timeout_ms"] = "5000"
+        };
+        ApplyPortScanEvidence(
+            arguments,
+            deviceResult.PortScanStatus,
+            deviceResult.OpenPorts.Select(port => port.Port),
+            deviceResult.PortScanError);
+        return arguments;
+    }
+
+    internal static void ApplyPortScanEvidence(
+        ToolArguments arguments,
+        PortScanEvidenceStatus status,
+        IEnumerable<int> openPorts,
+        string? error = null)
+    {
+        arguments["port_scan_status"] = PortScanStatusValue(status);
+        arguments.Remove("open_ports");
+        arguments.Remove("port_scan_error");
+        if (status == PortScanEvidenceStatus.Succeeded)
+            arguments["open_ports"] = string.Join(",", openPorts.Distinct());
+        else if (status == PortScanEvidenceStatus.Failed && !string.IsNullOrWhiteSpace(error))
+            arguments["port_scan_error"] = error;
+    }
+
+    private static string PortScanStatusValue(PortScanEvidenceStatus status) => status switch
+    {
+        PortScanEvidenceStatus.Succeeded => "succeeded",
+        PortScanEvidenceStatus.Failed => "failed",
+        _ => "not_run",
+    };
 
     // ========================================
     // OS-FINGERPRINT
@@ -1420,14 +1494,17 @@ public class CliApp
         if (string.IsNullOrWhiteSpace(target))
             return CliError("请指定目标 IP");
         if (!await ConfirmTargetAuthorizationAsync(target, args)) return 1;
-        var showAll = args.Any(a => a == "--all");
-        var useNmap = args.Any(a => a == "--use-nmap");
+        var showAll = args.Any(IsShowAllFlag);
+        var nmapMode = args.Any(a => a == "--no-nmap") ? "false" :
+            args.Any(a => a == "--use-nmap") ? "true" : null;
 
         AnsiConsole.Write(new Rule($"[teal]漏洞扫描: {Escape(target)}[/]"));
 
         // 第一步：端口扫描
         using var lf = CreateCliLoggerFactory();
         var openPorts = new List<(int Port, string Service)>();
+        var portScanStatus = PortScanEvidenceStatus.Failed;
+        var portScanError = "端口扫描未返回结果";
         var discoveryPorts = "1-1000," + string.Join(",", VulnerabilityScanTool.DefaultScanPorts.Where(port => port > 1000));
 
         await AnsiConsole.Status().Spinner(Spinner.Known.Dots).StartAsync("端口扫描中...", async _ =>
@@ -1439,20 +1516,27 @@ public class CliApp
                 try
                 {
                     using var pd = JsonDocument.Parse(psResult.Data);
-                    if (pd.RootElement.TryGetProperty("openPorts", out var ops))
+                    if (pd.RootElement.TryGetProperty("openPorts", out var ops) && ops.ValueKind == JsonValueKind.Array)
                     {
                         foreach (var p in ops.EnumerateArray())
                         {
                             var port = p.GetInt32();
                             openPorts.Add((port, PortHelper.GetServiceName(port) ?? "?"));
                         }
+                        portScanStatus = PortScanEvidenceStatus.Succeeded;
+                        portScanError = null;
                     }
+                    else
+                        portScanError = "端口扫描结果缺少 openPorts 证据";
                 }
                 catch (Exception ex)
                 {
                     Logger.LogWarning(ex, "Failed to parse port scan result for vulnerability detail");
+                    portScanError = "端口扫描结果无法解析";
                 }
             }
+            else
+                portScanError = psResult.Error ?? "未知错误";
         });
 
         // The tool supplies the exact banner used for matching; do not independently re-probe for display.
@@ -1466,12 +1550,17 @@ public class CliApp
             {
                 ["target"] = target,
                 ["timeout_ms"] = "5000",
-                ["use_nmap"] = useNmap ? "true" : "false",
             };
-            if (openPorts.Count > 0)
-                vulnerabilityArgs["open_ports"] = string.Join(",", openPorts.Select(item => item.Port));
-            else
-                vulnerabilityArgs["ports"] = discoveryPorts;
+            if (nmapMode != null)
+                vulnerabilityArgs["use_nmap"] = nmapMode;
+            // Preserve all three states. A successful empty scan is evidence;
+            // a failed scan is an error; a caller that did not scan omits the
+            // evidence and lets vuln_scan perform its own bounded discovery.
+            ApplyPortScanEvidence(
+                vulnerabilityArgs,
+                portScanStatus,
+                openPorts.Select(item => item.Port),
+                portScanError);
             vulnerabilityResult = await tool.ExecuteAsync(vulnerabilityArgs);
         });
 
@@ -2025,6 +2114,11 @@ public class CliApp
 
         return 0;
     }
+
+    internal static bool IsShowAllFlag(string value) =>
+        value.Equals("--all", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("-all", StringComparison.OrdinalIgnoreCase) ||
+        value.Equals("-a", StringComparison.OrdinalIgnoreCase);
 
     private async Task<int> RunInteractiveAgentAsync(AgentSessionStore store)
     {
