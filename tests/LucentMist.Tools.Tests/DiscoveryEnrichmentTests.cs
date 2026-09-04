@@ -17,6 +17,7 @@ public class DiscoveryEnrichmentTests
     [InlineData("7C:7D:21:00:11:22", "ZTE")]
     [InlineData("00:1E:10:00:11:22", "Huawei")]
     [InlineData("18:D6:C7:00:11:22", "TP-Link")]
+    [InlineData("98:59:7A:00:11:22", "Intel")]
     public void BuiltInPrefixesCoverGatewayVendors(string mac, string vendor)
     {
         Assert.Contains(vendor, new OuiDatabase().Lookup(mac), StringComparison.OrdinalIgnoreCase);
@@ -47,6 +48,25 @@ public class DiscoveryEnrichmentTests
         database.LoadNmapPrefixes(["A8CDEF Example Network Devices"]);
 
         Assert.Equal("Example Network Devices", database.Lookup("A8:CD:EF:01:02:03"));
+    }
+
+    [Fact]
+    public void OuiDatabaseCandidatePaths_ContainOnlyConfiguredOrStandardLocations()
+    {
+        var paths = OuiDatabase.CandidatePaths("custom-oui.csv")
+            .Where(path => !string.IsNullOrWhiteSpace(path))
+            .ToArray();
+
+        Assert.Contains("custom-oui.csv", paths);
+        Assert.DoesNotContain(paths, path =>
+            path!.Contains("1tools", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Fact]
+    public void HardwareIdentity_DropsFirmwarePlaceholdersButKeepsRealInventory()
+    {
+        Assert.Equal((null, null), DeviceDiscovery.CleanHardwareIdentity("To Be Filled By O.E.M.", "System Product Name"));
+        Assert.Equal(("Generic PC Vendor", "MODEL-0001"), DeviceDiscovery.CleanHardwareIdentity(" Generic PC Vendor ", " MODEL-0001 "));
     }
 
     [Fact]

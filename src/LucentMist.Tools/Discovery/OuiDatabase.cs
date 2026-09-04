@@ -24,6 +24,7 @@ public sealed class OuiDatabase
         ["5CC5D4"] = "Intel Corporate",
         ["7C7D21"] = "ZTE Corporation",
         ["7C10C9"] = "Cisco Systems, Inc",
+        ["98597A"] = "Intel Corporate",
         ["B827EB"] = "Raspberry Pi Foundation",
         ["D850E6"] = "ASUSTek COMPUTER INC.",
         ["E45F01"] = "Raspberry Pi Trading Ltd",
@@ -32,17 +33,7 @@ public sealed class OuiDatabase
 
     public OuiDatabase(string? csvPath = null)
     {
-        var candidates = new[]
-        {
-            csvPath,
-            Environment.GetEnvironmentVariable("LMIST_OUI_DB_PATH"),
-            Path.Combine(AppContext.BaseDirectory, "data", "oui.csv"),
-            Path.Combine(AppContext.BaseDirectory, "data", "nmap-mac-prefixes"),
-            OperatingSystem.IsWindows()
-                ? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Nmap", "nmap-mac-prefixes")
-                : "/usr/share/nmap/nmap-mac-prefixes",
-        };
-        var path = candidates.FirstOrDefault(candidate =>
+        var path = CandidatePaths(csvPath).FirstOrDefault(candidate =>
             !string.IsNullOrWhiteSpace(candidate) && File.Exists(candidate));
         if (path == null) return;
         var lines = File.ReadLines(path);
@@ -50,6 +41,32 @@ public sealed class OuiDatabase
             LoadNmapPrefixes(lines);
         else
             LoadCsv(lines);
+    }
+
+    internal static IEnumerable<string?> CandidatePaths(string? explicitPath = null)
+    {
+        var configuredNmap = Environment.GetEnvironmentVariable("NMAP_PATH");
+        yield return explicitPath;
+        yield return Environment.GetEnvironmentVariable("LMIST_OUI_DB_PATH");
+        yield return Path.Combine(AppContext.BaseDirectory, "data", "oui.csv");
+        yield return Path.Combine(AppContext.BaseDirectory, "data", "nmap-mac-prefixes");
+        if (!string.IsNullOrWhiteSpace(configuredNmap))
+            yield return Path.Combine(Path.GetDirectoryName(configuredNmap) ?? string.Empty, "nmap-mac-prefixes");
+
+        if (OperatingSystem.IsWindows())
+        {
+            yield return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                "Nmap", "nmap-mac-prefixes");
+            yield return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                "Nmap", "nmap-mac-prefixes");
+            yield break;
+        }
+
+        yield return "/usr/share/nmap/nmap-mac-prefixes";
+        yield return "/usr/local/share/nmap/nmap-mac-prefixes";
+        yield return "/opt/homebrew/share/nmap/nmap-mac-prefixes";
     }
 
     internal void LoadNmapPrefixes(IEnumerable<string> lines)

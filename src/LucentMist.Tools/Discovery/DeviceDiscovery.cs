@@ -1,6 +1,9 @@
 using System.Net;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Text.Json.Serialization;
 using LucentMist.Tools.Security;
+using Microsoft.Win32;
 
 namespace LucentMist.Tools.Discovery;
 
@@ -14,13 +17,38 @@ public static class DeviceDiscovery
         if (IPAddress.TryParse(target, out var address) && IPAddress.IsLoopback(address))
             return new DeviceIdentity(target, null, "不适用（回环地址）", Environment.MachineName, "本机（硬件型号未读取）")
             { MdnsStatus = "not_applicable", IdentityEvidence = "本机名称来自操作系统；回环地址没有对应的物理 MAC/OUI。未推断硬件型号。" };
+        if (address != null && TryGetLocalInterface(address, out var localNic, out var localMac))
+        {
+            var nic = localNic!;
+            var nicVendor = Oui.Value.Lookup(localMac);
+            var hardware = ReadLocalHardwareIdentity();
+            return new DeviceIdentity(
+                target,
+                localMac,
+                hardware.Manufacturer ?? (nicVendor == null
+                    ? localMac == null ? "未知（本机接口没有可用 MAC）" : "未知（OUI 库无此前缀）"
+                    : $"未知（网卡厂商：{nicVendor}）"),
+                Environment.MachineName,
+                hardware.Model ?? $"未知（网卡：{nic.Description}；整机型号未读取）")
+            {
+                MdnsStatus = "not_applicable_local_interface",
+                IdentityEvidence = "目标 IP 与本机启用的 IPv4 接口精确匹配；名称来自操作系统，MAC 来自该接口。" +
+                    (hardware.Model != null
+                        ? "厂商/型号来自本机 DMI/BIOS 清单；"
+                        : "整机 DMI/BIOS 未提供可用厂商型号；") +
+                    $"网卡描述为 {nic.Description}，网卡 OUI 厂商为 {nicVendor ?? "未知"}。网卡厂商不冒充整机厂商。",
+            };
+        }
         var neighbors = await NeighborTable.ReadAsync([target], ct);
         neighbors.TryGetValue(target, out var mac);
-        var mdns = IsPrivateAddress(target) ? await MdnsProbe.ProbeAsync(target, ct) : null;
+        var isPrivate = IsPrivateAddress(target);
+        var mdns = isPrivate ? await MdnsProbe.ProbeAsync(target, ct) : null;
+        if (!isPrivate && string.IsNullOrWhiteSpace(mac))
+            return BuildPublicIdentityWithoutLayer2Evidence(target);
         return new DeviceIdentity(
             target,
             mac,
-            Oui.Value.Lookup(mac) ?? "未知",
+            Oui.Value.Lookup(mac) ?? (mac == null ? "未知（邻居表无 MAC，无法查询 OUI）" : "未知（OUI 库无此前缀）"),
             mdns?.Name ?? "未知（未获得有效名称响应）",
             mdns?.Model ?? "未知（需服务指纹或管理接口确认）")
         {
@@ -28,6 +56,18 @@ public static class DeviceDiscovery
             IdentityEvidence = "厂商来自离线 OUI，名称/型号来自未经认证的定向 mDNS 响应（可能为代理公告），均需管理端确认。无响应不代表未广播。邻居表无 DHCP Option，未采集 DHCP。",
         };
     }
+
+    internal static DeviceIdentity BuildPublicIdentityWithoutLayer2Evidence(string target) => new(
+        target,
+        null,
+        "未知（公网 IP 无二层 MAC/OUI 证据）",
+        "未知（公网目标未执行局域网 mDNS）",
+        "未知（服务 Banner 未提供硬件型号）")
+    {
+        MdnsStatus = "not_applicable_public_target",
+        IdentityEvidence = "公网路由不会传递目标网卡 MAC，mDNS 也不跨公网；" +
+            "SSH/HTTP 服务版本不能可靠推出硬件厂商或型号。未使用归属运营商冒充设备厂商。",
+    };
 
     internal static async Task<DeviceIdentity> EnrichServicesAsync(DeviceIdentity device, IEnumerable<int> openPorts, CancellationToken ct)
     {
@@ -55,6 +95,76 @@ public static class DeviceDiscovery
                 bytes[0] == 192 && bytes[1] == 168 ||
                 bytes[0] == 172 && bytes[1] is >= 16 and <= 31 ||
                 bytes[0] == 169 && bytes[1] == 254);
+    }
+
+    internal static bool TryGetLocalInterface(
+        IPAddress address,
+        out NetworkInterface? networkInterface,
+        out string? mac)
+    {
+        networkInterface = null;
+        mac = null;
+        if (address.AddressFamily != AddressFamily.InterNetwork) return false;
+        try
+        {
+            networkInterface = NetworkInterface.GetAllNetworkInterfaces()
+                .Where(nic => nic.OperationalStatus == OperationalStatus.Up)
+                .FirstOrDefault(nic => nic.GetIPProperties().UnicastAddresses.Any(item =>
+                    item.Address.AddressFamily == AddressFamily.InterNetwork && item.Address.Equals(address)));
+            if (networkInterface == null) return false;
+            var bytes = networkInterface.GetPhysicalAddress().GetAddressBytes();
+            mac = bytes.Length >= 6
+                ? string.Join(":", bytes.Select(value => value.ToString("X2")))
+                : null;
+            return true;
+        }
+        catch (NetworkInformationException)
+        {
+            return false;
+        }
+    }
+
+    internal static (string? Manufacturer, string? Model) ReadLocalHardwareIdentity()
+    {
+        try
+        {
+            if (OperatingSystem.IsWindows())
+            {
+                using var key = Registry.LocalMachine.OpenSubKey(@"HARDWARE\DESCRIPTION\System\BIOS", writable: false);
+                return CleanHardwareIdentity(
+                    key?.GetValue("SystemManufacturer") as string,
+                    key?.GetValue("SystemProductName") as string);
+            }
+            if (OperatingSystem.IsLinux())
+            {
+                var manufacturerPath = "/sys/class/dmi/id/sys_vendor";
+                var modelPath = "/sys/class/dmi/id/product_name";
+                return CleanHardwareIdentity(
+                    File.Exists(manufacturerPath) ? File.ReadAllText(manufacturerPath) : null,
+                    File.Exists(modelPath) ? File.ReadAllText(modelPath) : null);
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+        {
+            // Hardware inventory is optional evidence; keep the boundary honest.
+        }
+        return (null, null);
+    }
+
+    internal static (string? Manufacturer, string? Model) CleanHardwareIdentity(string? manufacturer, string? model)
+    {
+        static string? Clean(string? value)
+        {
+            var text = value?.Trim();
+            return string.IsNullOrWhiteSpace(text) ||
+                   text.Equals("To Be Filled By O.E.M.", StringComparison.OrdinalIgnoreCase) ||
+                   text.Equals("System Product Name", StringComparison.OrdinalIgnoreCase) ||
+                   text.Equals("Not Applicable", StringComparison.OrdinalIgnoreCase) ||
+                   text.Equals("Default string", StringComparison.OrdinalIgnoreCase)
+                ? null
+                : text;
+        }
+        return (Clean(manufacturer), Clean(model));
     }
 }
 
