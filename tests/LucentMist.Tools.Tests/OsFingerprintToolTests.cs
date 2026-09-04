@@ -53,6 +53,10 @@ public class OsFingerprintToolTests
         Assert.Equal("local_runtime", d.GetProperty("evidenceType").GetString());
         Assert.Equal(100, d.GetProperty("confidence").GetInt32());
         Assert.False(string.IsNullOrWhiteSpace(d.GetProperty("osVersion").GetString()));
+        var device = d.GetProperty("device");
+        Assert.False(string.IsNullOrWhiteSpace(device.GetProperty("name").GetString()));
+        Assert.True(device.TryGetProperty("vendor", out _));
+        Assert.True(device.TryGetProperty("model", out _));
     }
 
     [Fact]

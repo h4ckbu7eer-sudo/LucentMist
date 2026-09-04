@@ -1478,6 +1478,13 @@ public class CliApp
                 .AddRow("TTL", ttl > 0 ? $"{ttl}" : "—")
                 .AddRow("延迟", pingMs > 0 ? $"{pingMs}ms" : "—");
 
+            if (r.TryGetProperty("device", out var device) && device.ValueKind == JsonValueKind.Object)
+            {
+                table.AddRow("设备名称", Escape(device.TryGetProperty("name", out var name) ? name.GetString() ?? "未知" : "未知"));
+                table.AddRow("设备厂商", Escape(device.TryGetProperty("vendor", out var vendor) ? vendor.GetString() ?? "未知" : "未知"));
+                table.AddRow("设备型号", Escape(device.TryGetProperty("model", out var model) ? model.GetString() ?? "未知" : "未知"));
+            }
+
             AnsiConsole.Write(table);
 
             AnsiConsole.WriteLine();

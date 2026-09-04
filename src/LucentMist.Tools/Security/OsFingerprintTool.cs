@@ -6,6 +6,7 @@ using System.Runtime.InteropServices;
 using System.Text.Json;
 using LucentMist.Core.Networking;
 using LucentMist.Tools.Common;
+using LucentMist.Tools.Discovery;
 using LucentMist.Tools.Vulnerability;
 using Microsoft.Extensions.Logging;
 
@@ -74,6 +75,7 @@ public class OsFingerprintTool : INetworkTargetTool
 
             if (IsLocalTarget(target))
             {
+                var device = await DeviceDiscovery.EnrichAsync(target, cancellationToken);
                 var localFamily = OperatingSystem.IsWindows() ? "Windows" :
                     OperatingSystem.IsLinux() ? "Linux" :
                     OperatingSystem.IsMacOS() ? "macOS" :
@@ -85,6 +87,7 @@ public class OsFingerprintTool : INetworkTargetTool
                     icmpReachable = true,
                     osFamily = localFamily,
                     osVersion = RuntimeInformation.OSDescription,
+                    device,
                     confidence = 100,
                     evidenceType = "local_runtime",
                     limitation = "目标与本机接口精确匹配；这是本机运行时证据。它不能替代远程主机的主动 OS 指纹。",
