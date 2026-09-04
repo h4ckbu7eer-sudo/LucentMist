@@ -152,6 +152,23 @@ public class CloudCveTests
     }
 
     [Fact]
+    public async Task ShodanUnknownProduct404_IsAValidEmptyResult_NotCoverageFailure()
+    {
+        using var http = new HttpClient(new Handler((request, _) => Task.FromResult(
+            request.RequestUri!.Host == "cvedb.shodan.io"
+                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                : Json(request.RequestUri.Host == "cvetodo.com"
+                    ? """{"data":[]}"""
+                    : """{"vulnerabilities":[]}"""))));
+
+        var report = await CveApiClient.QueryWithStatusAsync(
+            "HTTP 已响应（未公开 Server 头版本）", 80, http, true, CancellationToken.None);
+
+        Assert.Contains(report.Sources, source => source.Source == "Shodan API" && source.Status == "ok");
+        Assert.False(report.IsPartial);
+    }
+
+    [Fact]
     public async Task OptOut_MakesNoRequests_AndCancellationPropagates()
     {
         using var http = new HttpClient(new Handler((_, _) => throw new InvalidOperationException("must not query")));

@@ -246,6 +246,9 @@ public class CveApiClient
         {
             var url = cpe == null ? $"https://cvedb.shodan.io/cves?product={Uri.EscapeDataString(svcKey)}&limit=10" : $"https://cvedb.shodan.io/cves?cpe23={Uri.EscapeDataString(cpe)}&limit=10";
             using var response = await http.GetAsync(url, ct);
+            // CVEDB uses 404 for an unknown product/CPE search. That is a valid
+            // empty lookup, not a transport failure or evidence of lost coverage.
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return [];
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(ct);
