@@ -51,4 +51,21 @@ public class GeneralScopeEvidenceTests
         Assert.NotEmpty(SecurityAnalysisEvidence.FindConclusionConflicts($"DNS 放大比 {ratio}，风险较低", [observation]));
         Assert.Empty(SecurityAnalysisEvidence.FindConclusionConflicts($"DNS 放大比 {ratio}，不能据此断言风险较低", [observation]));
     }
+
+    [Fact]
+    public void UdpUnprobeablePort_IsNotMisreportedAsOutsideTcpScope()
+    {
+        var udp = new ReActObservation
+        {
+            ToolName = "udp_scan",
+            Success = true,
+            Result = """{"target":"192.168.99.7","ports":[{"port":5353,"service":"mdns","state":"unprobeable","detail":"无可靠协议探测"}]}""",
+        };
+        var conflicts = PortScopeEvidence.FindConflicts(
+            "192.168.99.7 的 5353 mDNS 未开放",
+            [Scan("192.168.99.7", "1-1000"), udp]).ToArray();
+
+        Assert.Contains(conflicts, item => item.Contains("UDP 5353") && item.Contains("不能断言未开放"));
+        Assert.DoesNotContain(conflicts, item => item.Contains("TCP 受检范围"));
+    }
 }

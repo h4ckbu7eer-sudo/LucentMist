@@ -13,6 +13,7 @@ internal static class PortScopeEvidence
     internal static IEnumerable<string> FindConflicts(string answer, IReadOnlyCollection<ReActObservation> observations)
     {
         var scopes = new Dictionary<string, HashSet<int>>(StringComparer.OrdinalIgnoreCase);
+        var udpStates = new Dictionary<string, Dictionary<int, string>>(StringComparer.OrdinalIgnoreCase);
         foreach (var observation in observations.Where(item => item.Success && item.ToolName == "port_scan"))
         {
             try
@@ -24,6 +25,22 @@ internal static class PortScopeEvidence
                 var key = target.GetString() ?? "";
                 if (!scopes.TryGetValue(key, out var combined)) scopes[key] = combined = [];
                 combined.UnionWith(ports);
+            }
+            catch (JsonException) { }
+        }
+
+        foreach (var observation in observations.Where(item => item.Success && item.ToolName == "udp_scan"))
+        {
+            try
+            {
+                using var doc = JsonDocument.Parse(observation.Result);
+                var root = doc.RootElement;
+                var target = root.TryGetProperty("target", out var targetNode) ? targetNode.GetString() ?? "" : "";
+                if (target.Length == 0 || !root.TryGetProperty("ports", out var portsNode) || portsNode.ValueKind != JsonValueKind.Array) continue;
+                if (!udpStates.TryGetValue(target, out var states)) udpStates[target] = states = [];
+                foreach (var item in portsNode.EnumerateArray())
+                    if (item.TryGetProperty("port", out var portNode) && item.TryGetProperty("state", out var stateNode))
+                        states[portNode.GetInt32()] = stateNode.GetString() ?? "unknown";
             }
             catch (JsonException) { }
         }
@@ -62,7 +79,15 @@ internal static class PortScopeEvidence
                     if (Regex.IsMatch(subject, $@"(?<![a-z]){Regex.Escape(service)}(?![a-z])", RegexOptions.IgnoreCase, MatchTimeout)) mentioned.Add(port);
                 foreach (var target in applicable)
                     foreach (var port in mentioned.Except(scopes[target]))
+                    {
+                        if (udpStates.TryGetValue(target, out var states) && states.TryGetValue(port, out var state))
+                        {
+                            if (state is "unprobeable" or "open|filtered" or "open")
+                                yield return $"{target} 的 UDP {port} 状态为 {state}，不能断言未开放；这是 UDP 不确定性，不是 TCP 范围外问题";
+                            continue;
+                        }
                         yield return $"{target} 的端口 {port} 不在已记录的 TCP 受检范围内，不能断言未开放；请明确范围外未知，不必扩大扫描";
+                    }
             }
         }
     }
