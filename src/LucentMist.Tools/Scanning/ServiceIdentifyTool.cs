@@ -88,6 +88,13 @@ public class ServiceIdentifyTool : INetworkTargetTool
                 httpBanner = await HttpBannerProbe.ProbeDetailedAsync(target, port, timeout, cancellationToken);
                 banner = httpBanner.Banner;
             }
+            else if (port == 445)
+            {
+                // SMB does not send a useful banner after a bare TCP connect.
+                // Use the shared SMB2-first/SMB1-fallback negotiate parser used
+                // by vulnerability scanning so service identification cannot drift.
+                banner = await SmbProbe.NegotiateDialectAsync(target, port, timeout, cancellationToken);
+            }
             else
             {
                 // 尝试抓取 Banner（HTTP / SSH / 通用）
