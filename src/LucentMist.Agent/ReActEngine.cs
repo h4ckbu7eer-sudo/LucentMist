@@ -3,6 +3,7 @@ using LucentMist.Agent.LLM;
 using LucentMist.Core.Compliance;
 using LucentMist.Core.Networking;
 using LucentMist.Tools;
+using LucentMist.Tools.Vulnerability;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Agent;
@@ -18,6 +19,7 @@ public class ReActEngine
     private readonly string _systemPrompt;
     private readonly INetworkAuditSink? _auditSink;
     private readonly string _auditInitiator;
+    private readonly Func<string, CancellationToken, Task<bool>>? _confirmPublicTargetAuthorization;
     private readonly SemaphoreSlim _runGate = new(1, 1);
 
     public int MaxRounds { get; set; } = 10;
@@ -36,13 +38,15 @@ public class ReActEngine
         string systemPrompt,
         ILogger<ReActEngine>? logger = null,
         INetworkAuditSink? auditSink = null,
-        string auditInitiator = "agent")
+        string auditInitiator = "agent",
+        Func<string, CancellationToken, Task<bool>>? confirmPublicTargetAuthorization = null)
     {
         _llm = llm;
         _toolRegistry = toolRegistry;
         _systemPrompt = systemPrompt;
         _auditSink = auditSink;
         _auditInitiator = auditInitiator;
+        _confirmPublicTargetAuthorization = confirmPublicTargetAuthorization;
         _logger = logger ?? Microsoft.Extensions.Logging.Abstractions.NullLogger<ReActEngine>.Instance;
     }
 
@@ -66,12 +70,14 @@ public class ReActEngine
     {
         using var dnsScope = LucentMist.Tools.Discovery.DnsSecurityProbe.BeginAnalysisScope();
         using var httpScope = LucentMist.Tools.Discovery.HttpObservationScope.Begin();
+        using var nmapScope = NmapObservationScope.Begin();
         Observations.Clear();
         ThoughtLog.Clear();
 
         _logger.LogInformation("ReAct 开始: Query={Query}, MaxRounds={Max}", userQuery, MaxRounds);
         var toolDefs = _toolRegistry.ExportForLLM();
         var completionDeferrals = 0;
+        var authorizedPublicTargets = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         for (var round = 1; round <= MaxRounds; round++)
         {
@@ -101,6 +107,15 @@ public class ReActEngine
             // 2. 检查是否是最终答案
             if (step.IsFinal)
             {
+                if (Observations.Any(item => !item.Success &&
+                    item.Result.Contains("公网扫描授权", StringComparison.Ordinal)))
+                {
+                    return ReActResult.Ok(
+                        SecurityAnalysisEvidence.LimitedAssessment(userQuery, Observations),
+                        ThoughtLog,
+                        Observations);
+                }
+
                 bool CanCheck(string missing) => missing != "尚未检查目标端口暴露面" ||
                     _toolRegistry.Get("port_scan") != null || _toolRegistry.Get("vuln_scan") != null;
                 var limitations = SecurityAnalysisEvidence.FindIncompleteChecks(userQuery, Observations).Where(CanCheck).ToArray();
@@ -212,11 +227,9 @@ public class ReActEngine
                 if (tool is INetworkTargetTool && !string.IsNullOrWhiteSpace(target))
                 {
                     var validation = await TargetGuard.ValidateAsync(target, ct);
-                    if (!validation.IsAllowed || validation.RequiresPublicAuthorization)
+                    if (!validation.IsAllowed)
                     {
-                        var reason = validation.RequiresPublicAuthorization
-                            ? "公网扫描未授权：请将目标 IP、CIDR 或域名加入 LMIST_ALLOWED_TARGETS 后重试"
-                            : $"扫描目标被安全策略拒绝：{validation.Message}";
+                        var reason = $"扫描目标被安全策略拒绝：{validation.Message}";
                         var blocked = new ReActObservation
                         {
                             Step = round,
@@ -231,11 +244,42 @@ public class ReActEngine
                             target,
                             step.Action,
                             "rejected",
-                            validation.RequiresPublicAuthorization
-                                ? "PUBLIC_TARGET_NOT_AUTHORIZED"
-                                : validation.Code,
+                            validation.Code,
                             ct);
                         continue;
+                    }
+
+                    if (validation.RequiresPublicAuthorization &&
+                        !authorizedPublicTargets.Contains(target))
+                    {
+                        var authorized = _confirmPublicTargetAuthorization != null &&
+                            await _confirmPublicTargetAuthorization(target, ct);
+                        if (authorized)
+                        {
+                            authorizedPublicTargets.Add(target);
+                        }
+                        else
+                        {
+                            const string reason = "公网扫描授权未确认：该公网目标未执行任何网络探测。" +
+                                "请在交互提示中确认，非交互运行可在确认有权扫描后添加 --authorized，" +
+                                "或将目标加入 LMIST_ALLOWED_TARGETS。";
+                            await AddObservationAsync(new ReActObservation
+                            {
+                                Step = round,
+                                ToolName = step.Action,
+                                Input = step.ActionInput,
+                                Result = reason,
+                                Success = false,
+                            }, ct);
+                            await RecordAuditAsync(
+                                auditEventId,
+                                target,
+                                step.Action,
+                                "rejected",
+                                "PUBLIC_TARGET_NOT_AUTHORIZED",
+                                ct);
+                            continue;
+                        }
                     }
                 }
 
@@ -558,10 +602,12 @@ public class ReActEngine
                 if (!root.TryGetProperty("target", out var resultTarget) ||
                     !string.Equals(resultTarget.GetString(), target, StringComparison.OrdinalIgnoreCase) ||
                     !root.TryGetProperty("openPorts", out var ports) ||
-                    ports.ValueKind != JsonValueKind.Array ||
-                    ports.GetArrayLength() == 0)
+                    ports.ValueKind != JsonValueKind.Array)
                     continue;
 
+                // An empty array is still authoritative evidence that port_scan
+                // completed its requested scope. Preserve it so vuln_scan does
+                // not perform a second, wider discovery pass.
                 args["open_ports"] = string.Join(",", ports.EnumerateArray()
                     .Select(port => port.GetInt32())
                     .Distinct()

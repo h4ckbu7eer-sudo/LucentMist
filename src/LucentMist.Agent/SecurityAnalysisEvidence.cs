@@ -69,12 +69,56 @@ internal static class SecurityAnalysisEvidence
 
     internal static string LimitedAssessment(string query, IReadOnlyCollection<ReActObservation> observations)
     {
+        var authorizationFailures = observations.Where(item =>
+            !item.Success && item.Result.Contains("公网扫描授权", StringComparison.Ordinal)).ToArray();
+        var hasSuccessfulNetworkEvidence = observations.Any(item => item.Success && item.ToolName is
+            "ping_scan" or "port_scan" or "udp_scan" or "service_identify" or "vuln_scan" or "ssl_check" or "os_fingerprint");
+        if (authorizationFailures.Length > 0 && !hasSuccessfulNetworkEvidence)
+        {
+            return "【扫描未执行】\n" +
+                   "原因：该公网目标的扫描授权未确认，LucentMist 没有向该目标发送端口、服务、漏洞或 TLS 探测。\n" +
+                   "已知信息：目前只有用户输入的目标；没有扫描证据，因此不能判断目标安全或不安全。\n" +
+                   "如何继续：交互运行时确认授权；自动化运行可在确认有权扫描后添加 --authorized；" +
+                   "长期自用可把明确获授权的 IP/CIDR/域名加入 LMIST_ALLOWED_TARGETS。\n" +
+                   "安全边界：不要把“未执行”解读成“没有风险”。";
+        }
+
         var sb = new StringBuilder("【有限安全评估】以下结论受限于未确认项；检查完成不等于目标安全。\n");
+        var observedTcpPorts = new HashSet<int>();
+        var observedServicePorts = new HashSet<int>();
         foreach (var group in observations.Where(item => item.Success && item.ToolName is "port_scan" or "vuln_scan")
                      .Select(item => TryReadTargetAndOpenPorts(item.Result, out var target, out var ports)
                          ? (Target: target, Ports: ports) : (Target: "", Ports: Array.Empty<int>()))
                      .Where(item => item.Target.Length > 0).GroupBy(item => item.Target))
-            sb.AppendLine($"暴露面 {group.Key}：受检开放端口 {string.Join(", ", group.SelectMany(item => item.Ports).Distinct().Order())}（仅本次扫描视角）。");
+        {
+            var ports = group.SelectMany(item => item.Ports).Distinct().Order().ToArray();
+            observedTcpPorts.UnionWith(ports);
+            observedServicePorts.UnionWith(ports);
+            sb.AppendLine(ports.Length > 0
+                ? $"TCP 暴露面 {group.Key}：受检开放端口 {string.Join(", ", ports)}（仅本次扫描视角）。"
+                : $"TCP 暴露面 {group.Key}：本次受检范围未观察到开放端口；未开放结果不能区分关闭、过滤或路径不可达。");
+        }
+
+        foreach (var observation in observations.Where(item => item.Success && item.ToolName == "udp_scan"))
+        {
+            try
+            {
+                using var document = JsonDocument.Parse(observation.Result);
+                var root = document.RootElement;
+                var target = root.TryGetProperty("target", out var targetNode) ? targetNode.GetString() ?? "未知目标" : "未知目标";
+                if (!root.TryGetProperty("ports", out var portsNode) || portsNode.ValueKind != JsonValueKind.Array) continue;
+                var states = portsNode.EnumerateArray().Select(item => new
+                {
+                    Port = item.GetProperty("port").GetInt32(),
+                    State = item.GetProperty("state").GetString() ?? "unknown",
+                }).ToArray();
+                observedServicePorts.UnionWith(states.Select(item => item.Port));
+                sb.AppendLine($"UDP 证据 {target}：" + string.Join("；", states.GroupBy(item => item.State)
+                    .Select(group => $"{group.Key}={string.Join(',', group.Select(item => item.Port))}")) +
+                    "。open|filtered/unprobeable 均不是已关闭。");
+            }
+            catch (JsonException) { }
+        }
 
         // Keep successful evidence, not internal correction/contract failures, in the user assessment.
         var facts = WithVerifiedFacts(query, "", observations);
@@ -85,8 +129,19 @@ internal static class SecurityAnalysisEvidence
                      .GroupBy(item => (item.ToolName, item.Input)).Select(group => group.Last())
                      .Where(failure => !observations.Any(item => item.Success && item.ToolName == failure.ToolName && item.Input == failure.Input)))
             sb.AppendLine($"检查受限 {failure.ToolName}：{failure.Result}");
-        sb.AppendLine("下一步：优先核对 HTTPS 设备身份和完整证书链，不绕过信任校验；限制管理端口仅授权网段可达。");
-        sb.AppendLine("登录设备管理端查询厂商、型号、固件/服务版本，对照厂商补丁公告；DNS 不确定项请复测并检查递归 ACL。版本未知不能确认具体 CVE，未检查/检查失败不等于安全。");
+        foreach (var denied in authorizationFailures
+                     .Select(item => TryReadTarget(item.Input))
+                     .Where(target => target.Length > 0)
+                     .Distinct(StringComparer.OrdinalIgnoreCase))
+            sb.AppendLine($"授权边界 {denied}：该公网目标未获授权，未对它执行网络探测；其它目标的已观测证据仍保留在本报告中。");
+        if (observedServicePorts.Contains(443))
+            sb.AppendLine("下一步：优先核对 HTTPS 设备身份和完整证书链，不绕过信任校验；限制管理端口仅授权网段可达。");
+        if (observedServicePorts.Contains(53))
+            sb.AppendLine("DNS 不确定项请复测并检查递归 ACL；单次无响应不能证明已关闭。");
+        if (observedTcpPorts.Count > 0)
+            sb.AppendLine("登录设备管理端查询厂商、型号、固件/服务版本，对照厂商补丁公告；版本未知不能确认具体 CVE，未检查/检查失败不等于安全。");
+        else
+            sb.AppendLine("下一步：确认目标在线与防火墙策略；如需扩大 TCP 范围，应明确授权后另行扫描。当前证据不能推出目标安全。 ");
         return sb.ToString().TrimEnd();
     }
 
@@ -424,6 +479,21 @@ internal static class SecurityAnalysisEvidence
         catch (JsonException)
         {
             return false;
+        }
+    }
+
+    private static string TryReadTarget(string json)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(json);
+            return document.RootElement.TryGetProperty("target", out var targetNode)
+                ? targetNode.GetString() ?? string.Empty
+                : string.Empty;
+        }
+        catch (JsonException)
+        {
+            return string.Empty;
         }
     }
 

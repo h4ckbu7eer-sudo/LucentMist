@@ -1942,6 +1942,8 @@ public class CliApp
         bool renderResumeHistory = true,
         CancellationToken ct = default)
     {
+        var authorizationArgs = args;
+        args = args.Where(arg => !arg.Equals("--authorized", StringComparison.OrdinalIgnoreCase)).ToArray();
         var store = new AgentSessionStore(
             Environment.GetEnvironmentVariable("LMIST_DB") ?? Path.Combine("data", "lucentmist.db"));
 
@@ -2041,19 +2043,14 @@ public class CliApp
             systemPrompt,
             lf.CreateLogger<ReActEngine>(),
             new SqliteNetworkAuditSink(CreateScanStore(), "cli-agent"),
-            "cli-agent")
+            "cli-agent",
+            (target, _) => ConfirmTargetAuthorizationAsync(target, authorizationArgs))
         { MaxRounds = 8 };
 
         try
         {
-            ReActResult? result = null;
-            await AnsiConsole.Status()
-                .Spinner(Spinner.Known.Dots)
-                .SpinnerStyle(Style.Parse("teal"))
-                .StartAsync("AI 分析中...", async _ =>
-                {
-                    result = await engine.RunAsync(message, ct);
-                });
+            AnsiConsole.MarkupLine("[grey]AI 分析中...[/]");
+            var result = await engine.RunAsync(message, ct);
 
             if (result == null) return 1;
 

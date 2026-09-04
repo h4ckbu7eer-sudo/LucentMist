@@ -451,6 +451,60 @@ public class ReActEngineTests
     }
 
     [Fact]
+    public async Task RunAsync_PublicTarget_WithInteractiveAuthorization_IsExecuted()
+    {
+        var confirmationCount = 0;
+        var llm = CreateMockLLM(
+            new ReActStep
+            {
+                Action = "safe_network_tool",
+                ActionInput = "{\"target\":\"8.8.8.8\"}",
+            },
+            new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(
+            llm.Object,
+            new ToolRegistry().Register(new SuccessfulNetworkTool()),
+            "prompt",
+            NullLogger<ReActEngine>.Instance,
+            confirmPublicTargetAuthorization: (_, _) =>
+            {
+                confirmationCount++;
+                return Task.FromResult(true);
+            });
+
+        var result = await engine.RunAsync("test");
+
+        Assert.True(result.Success);
+        Assert.True(Assert.Single(result.Observations).Success);
+        Assert.Equal(1, confirmationCount);
+    }
+
+    [Fact]
+    public async Task RunAsync_PublicTarget_DeniedAuthorization_ReturnsActionableNonScanReport()
+    {
+        var llm = CreateMockLLM(
+            new ReActStep
+            {
+                Action = "safe_network_tool",
+                ActionInput = "{\"target\":\"8.8.8.8\"}",
+            },
+            new ReActStep { Action = "final_answer", ActionInput = "safe" });
+        var engine = new ReActEngine(
+            llm.Object,
+            new ToolRegistry().Register(new SuccessfulNetworkTool()),
+            "prompt",
+            NullLogger<ReActEngine>.Instance,
+            confirmPublicTargetAuthorization: (_, _) => Task.FromResult(false));
+
+        var result = await engine.RunAsync("分析 8.8.8.8 的安全风险");
+
+        Assert.Contains("【扫描未执行】", result.Answer);
+        Assert.Contains("不能判断目标安全或不安全", result.Answer);
+        Assert.Contains("--authorized", result.Answer);
+        Assert.False(Assert.Single(result.Observations).Success);
+    }
+
+    [Fact]
     public async Task RunAsync_PublicTargetInAllowList_IsExecuted()
     {
         var previous = Environment.GetEnvironmentVariable("LMIST_ALLOWED_TARGETS");
@@ -651,6 +705,43 @@ public class ReActEngineTests
             new ReActStep { Action = "port_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
             new ReActStep { Action = "vuln_scan", ActionInput = vulnerabilityInput },
             new ReActStep { Action = "final_answer", ActionInput = "done" });
+        var engine = new ReActEngine(llm.Object, registry, "prompt", NullLogger<ReActEngine>.Instance);
+
+        var result = await engine.RunAsync("test");
+
+        Assert.Contains(result.Observations, item => item.ToolName == "vuln_scan" && item.Success);
+        vulnerabilities.VerifyAll();
+    }
+
+    [Fact]
+    public async Task RunAsync_EmptyPortScanResult_IsStillReusedByVulnerabilityScan()
+    {
+        var portScan = new Mock<ITool>();
+        portScan.SetupGet(tool => tool.Name).Returns("port_scan");
+        portScan.SetupGet(tool => tool.Description).Returns("scan");
+        portScan.SetupGet(tool => tool.Parameters).Returns([]);
+        portScan.Setup(tool => tool.ExecuteAsync(It.IsAny<ToolArguments>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok(
+                "{\"target\":\"192.168.1.1\",\"openPorts\":[]}",
+                TimeSpan.Zero));
+
+        var vulnerabilities = new Mock<ITool>();
+        vulnerabilities.SetupGet(tool => tool.Name).Returns("vuln_scan");
+        vulnerabilities.SetupGet(tool => tool.Description).Returns("vulnerabilities");
+        vulnerabilities.SetupGet(tool => tool.Parameters).Returns([]);
+        vulnerabilities.Setup(tool => tool.ExecuteAsync(
+                It.Is<ToolArguments>(args =>
+                    args.ContainsKey("open_ports") && args["open_ports"] == ""),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ToolResult.Ok(
+                "{\"target\":\"192.168.1.1\",\"openPorts\":[],\"overallRisk\":\"未知\"}",
+                TimeSpan.Zero));
+
+        var registry = new ToolRegistry().Register(portScan.Object).Register(vulnerabilities.Object);
+        var llm = CreateMockLLM(
+            new ReActStep { Action = "port_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
+            new ReActStep { Action = "vuln_scan", ActionInput = "{\"target\":\"192.168.1.1\"}" },
+            new ReActStep { Action = "final_answer", ActionInput = "未观测到开放端口，无法给出安全结论" });
         var engine = new ReActEngine(llm.Object, registry, "prompt", NullLogger<ReActEngine>.Instance);
 
         var result = await engine.RunAsync("test");

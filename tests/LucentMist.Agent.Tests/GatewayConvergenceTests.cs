@@ -83,4 +83,49 @@ public class GatewayConvergenceTests
         Assert.Empty(SecurityAnalysisEvidence.FindIncompleteChecks("分析 192.168.99.1 安全", observations, includeFailedAttempts: false));
         Assert.Contains("网络不可达", SecurityAnalysisEvidence.LimitedAssessment("分析 192.168.99.1 安全", observations));
     }
+
+    [Fact]
+    public void EmptyTcpAndUnprobeableUdp_ProduceUsefulProtocolSpecificAssessment()
+    {
+        var observations = new[]
+        {
+            new ReActObservation { ToolName = "port_scan", Success = true, Result = """{"target":"192.168.99.7","openPorts":[],"scannedPortRange":"1-1000"}""" },
+            new ReActObservation { ToolName = "udp_scan", Success = true, Result = """{"target":"192.168.99.7","ports":[{"port":5353,"state":"unprobeable"},{"port":53,"state":"closed"}]}""" },
+        };
+
+        var answer = SecurityAnalysisEvidence.LimitedAssessment("分析 192.168.99.7 是否安全", observations);
+
+        Assert.Contains("未观察到开放端口", answer);
+        Assert.Contains("unprobeable=5353", answer);
+        Assert.DoesNotContain("核对 HTTPS", answer);
+        Assert.Contains("当前证据不能推出目标安全", answer);
+    }
+
+    [Fact]
+    public void DeniedPublicTarget_DoesNotEraseEvidenceCollectedForAnotherTarget()
+    {
+        var observations = new[]
+        {
+            new ReActObservation
+            {
+                ToolName = "port_scan",
+                Success = true,
+                Result = """{"target":"192.168.99.1","openPorts":[53,443]}""",
+            },
+            new ReActObservation
+            {
+                ToolName = "vuln_scan",
+                Success = false,
+                Input = """{"target":"8.8.8.8"}""",
+                Result = "公网扫描授权未确认：该公网目标未执行任何网络探测。",
+            },
+        };
+
+        var answer = SecurityAnalysisEvidence.LimitedAssessment("分析这些目标的安全风险", observations);
+
+        Assert.Contains("192.168.99.1", answer);
+        Assert.Contains("53, 443", answer);
+        Assert.Contains("授权边界 8.8.8.8", answer);
+        Assert.DoesNotContain("目前只有用户输入的目标", answer);
+    }
 }
