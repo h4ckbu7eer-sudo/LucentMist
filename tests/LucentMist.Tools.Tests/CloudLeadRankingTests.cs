@@ -148,4 +148,23 @@ public class CloudLeadRankingTests
         Assert.Equal("CVE-2026-1001", result[0].GetProperty("cve").GetString());
         Assert.Equal(result.Select(item => item.GetRawText()), CloudLeadRanking.Rank(items.Reverse()).Select(item => item.GetRawText()));
     }
+
+    [Fact]
+    public void SshSearchHitForDifferentProduct_IsNotShownAsOpenSshLead()
+    {
+        var ranked = CloudLeadRanking.Rank([JsonSerializer.SerializeToElement(new
+        {
+            port = 22,
+            cve = "CVE-2026-45695",
+            name = "Kopia backup repository vulnerability",
+            banner = "SSH-2.0-OpenSSH_9.2p1",
+            source = "CVETodo API",
+            cvss = 9.8,
+            versionStatus = "unverified",
+        })]);
+
+        var group = Assert.Single(CloudLeadRanking.Group(ranked));
+        Assert.Empty(group.GetProperty("leads").EnumerateArray());
+        Assert.Equal(1, group.GetProperty("withoutProductEvidenceCount").GetInt32());
+    }
 }

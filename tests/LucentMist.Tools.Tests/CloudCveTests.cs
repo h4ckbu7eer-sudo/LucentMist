@@ -60,6 +60,26 @@ public class CloudCveTests
     }
 
     [Fact]
+    public async Task KnownProductWithoutVersion_RemainsProductKeywordEvidence()
+    {
+        using var http = new HttpClient(new Handler((request, _) => Task.FromResult(Json(
+            request.RequestUri!.Host == "cvetodo.com"
+                ? """{"data":[{"id":"CVE-2099-0001","description":"nginx candidate","base_score":"9.8"}]}"""
+                : """{"cves":[],"vulnerabilities":[]}"""))));
+
+        var report = await CveApiClient.QueryWithStatusAsync(
+            "HTTP Server: nginx",
+            80,
+            http,
+            true,
+            CancellationToken.None);
+
+        Assert.Single(report.Items);
+        Assert.Equal("product_keyword", report.Items[0].EvidenceScope);
+        Assert.False(VulnerabilityScanTool.HasTargetSpecificEvidence(report.Items[0]));
+    }
+
+    [Fact]
     public async Task RealAuthenticationDaemon_DoesNotPromoteVendorHitsToWorkstationFindings()
     {
         var requests = new ConcurrentBag<string>();
@@ -148,11 +168,13 @@ public class CloudCveTests
         Assert.Contains("CVE-2099-1000", output.ToString());
     }
 
-    [Fact]
-    public async Task ProtocolKeywordHits_DoNotBecomeHighRiskTargetVulnerabilities()
+    [Theory]
+    [InlineData("service_keyword")]
+    [InlineData("product_keyword")]
+    public async Task KeywordHits_DoNotBecomeHighRiskTargetVulnerabilities(string evidenceScope)
     {
         var candidate = new CveApiClient.CveDetail("CVE-2099-1000", "Some unrelated HTTP product", 9.8, "NVD", "review",
-            EvidenceScope: "service_keyword");
+            EvidenceScope: evidenceScope);
         var tool = new VulnerabilityScanTool(null, null, (_, _, _, _) => Task.FromResult(new[] { 80 }),
             (_, _, _, _) => Task.FromResult(new CveApiClient.QueryReport([candidate], [new("NVD", "ok", "keyword only")])));
         var result = await tool.ExecuteAsync(new ToolArguments { ["target"] = "127.0.0.1", ["timeout_ms"] = "50" });
@@ -163,6 +185,36 @@ public class CloudCveTests
         Assert.Equal(1, root.GetProperty("cloudCandidateCount").GetInt32());
         Assert.Equal("unverified", root.GetProperty("cloudCandidates")[0].GetProperty("versionStatus").GetString());
         Assert.NotEqual("安全", root.GetProperty("overallRisk").GetString());
+    }
+
+    [Theory]
+    [InlineData("product_version")]
+    [InlineData("product")]
+    public async Task UnverifiedExternalProductHits_RemainLeads_NotTargetFindings(string evidenceScope)
+    {
+        var candidate = new CveApiClient.CveDetail(
+            "CVE-2026-45695",
+            "Kopia backup product issue returned by an SSH search",
+            9.8,
+            "CVETodo API",
+            "review vendor advisory",
+            VersionStatus: "unverified",
+            EvidenceScope: evidenceScope);
+        var tool = new VulnerabilityScanTool(null, null, (_, _, _, _) => Task.FromResult(new[] { 22 }),
+            (_, _, _, _) => Task.FromResult(new CveApiClient.QueryReport([candidate], [new("CVETodo API", "ok", "search hit")])));
+
+        var result = await tool.ExecuteAsync(new ToolArguments
+        {
+            ["target"] = "127.0.0.1",
+            ["open_ports"] = "22",
+            ["timeout_ms"] = "50",
+        });
+        using var doc = JsonDocument.Parse(result.Data);
+
+        Assert.DoesNotContain(doc.RootElement.GetProperty("findings").EnumerateArray(),
+            item => item.GetProperty("cve").GetString() == "CVE-2026-45695");
+        Assert.Contains(doc.RootElement.GetProperty("cloudCandidates").EnumerateArray(),
+            item => item.GetProperty("cve").GetString() == "CVE-2026-45695");
     }
 
     [Fact]

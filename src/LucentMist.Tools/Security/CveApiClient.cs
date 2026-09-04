@@ -116,7 +116,11 @@ public class CveApiClient
                 if (results == null) return ([], new(source, "invalid_response", "响应格式不符合接口契约；未取得有效查询结果"));
                 results = results.Select(d => d with
                 {
-                    EvidenceScope = index == 3 ? "commit" : fingerprint == null ? "service_keyword" : "product",
+                    EvidenceScope = index == 3
+                        ? "commit"
+                        : fingerprint == null
+                            ? "service_keyword"
+                            : fingerprint.Version == null ? "product_keyword" : "product_version",
                     VerificationDetail = d.VerificationDetail ?? (fingerprint == null
                         ? "仅协议关键词相关；未识别目标产品或版本，可能完全无关，不计入目标漏洞风险"
                         : "产品关键词/CPE 检索命中；未验证目标版本、配置和发行版补丁；未执行 PoC"),
