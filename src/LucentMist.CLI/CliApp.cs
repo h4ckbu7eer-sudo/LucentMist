@@ -2025,6 +2025,17 @@ public class CliApp
 
         var (provider, model, endpoint, apiKey) = ReadLLMConfig();
 
+        var configurationError = ValidateAgentLlmConfiguration(provider, apiKey);
+        if (configurationError != null)
+        {
+            AnsiConsole.MarkupLine($"[red]{Escape(configurationError)}[/]");
+            AnsiConsole.MarkupLine("[grey]请通过 LMIST_LLM_APIKEY 环境变量提供密钥；不要把密钥写入命令行、源码或提交。[/]");
+            return 1;
+        }
+        var providerNotice = AgentProviderNotice(provider);
+        if (providerNotice != null)
+            AnsiConsole.MarkupLine($"[yellow]{Escape(providerNotice)}[/]");
+
         var session = resumeSessionId != null
             ? await store.GetSessionAsync(resumeSessionId)
             : await store.CreateSessionAsync("Agent 会话", model);
@@ -2130,7 +2141,9 @@ public class CliApp
         {
             await store.AddMessageAsync(session.Id, "assistant", $"网络错误: {ex.Message}");
             AnsiConsole.MarkupLine($"[red]网络错误: {Escape(ex.Message)}[/]");
-            AnsiConsole.MarkupLine("[grey]请确认 Ollama / API 服务正在运行[/]");
+            AnsiConsole.MarkupLine(provider == "ollama"
+                ? "[grey]当前使用本地 Ollama；请先运行 ollama serve，或显式配置 DeepSeek/Claude 及对应 API key。[/]"
+                : "[grey]请确认外部 API 地址可达且凭据有效。[/]");
             return 1;
         }
         catch (Exception ex)
@@ -2147,6 +2160,21 @@ public class CliApp
         value.Equals("--all", StringComparison.OrdinalIgnoreCase) ||
         value.Equals("-all", StringComparison.OrdinalIgnoreCase) ||
         value.Equals("-a", StringComparison.OrdinalIgnoreCase);
+
+    internal static string? ValidateAgentLlmConfiguration(string provider, string? apiKey) =>
+        provider.Trim().ToLowerInvariant() switch
+        {
+            "deepseek" when string.IsNullOrWhiteSpace(apiKey) =>
+                "DeepSeek 已被选为 LLM Provider，但 LMIST_LLM_APIKEY 未配置；Agent 未启动，也不会静默回退到 Ollama。",
+            "claude" when string.IsNullOrWhiteSpace(apiKey) =>
+                "Claude 已被选为 LLM Provider，但 LMIST_LLM_APIKEY 未配置；Agent 未启动。",
+            _ => null,
+        };
+
+    internal static string? AgentProviderNotice(string provider) =>
+        provider.Equals("ollama", StringComparison.OrdinalIgnoreCase)
+            ? "当前配置使用本地 Ollama，并非 DeepSeek 自动回退；请确认 ollama serve 正在运行。若要使用 DeepSeek，请显式设置 LMIST_LLM_PROVIDER=deepseek 与 LMIST_LLM_APIKEY。"
+            : null;
 
     private async Task<int> RunInteractiveAgentAsync(AgentSessionStore store)
     {

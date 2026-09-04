@@ -1,6 +1,6 @@
+using System.Text.Json;
 using LucentMist.CLI;
 using Spectre.Console;
-using System.Text.Json;
 
 namespace LucentMist.Tools.Tests;
 
@@ -40,5 +40,25 @@ public sealed class ScanCommandOptionTests
         Assert.Contains("在线状态", rendered);
         Assert.Contains("Vendor A", rendered);
         Assert.Contains("R1", rendered);
+    }
+
+    [Fact]
+    public void DeepSeekWithoutKey_IsRejectedInsteadOfSilentlyFallingBack()
+    {
+        var error = CliApp.ValidateAgentLlmConfiguration("deepseek", "");
+
+        Assert.Contains("LMIST_LLM_APIKEY 未配置", error);
+        Assert.Contains("不会静默回退", error);
+        Assert.Null(CliApp.ValidateAgentLlmConfiguration("deepseek", "configured-secret"));
+    }
+
+    [Fact]
+    public void OllamaConfiguration_IsExplicitAboutLocalRuntimeRequirement()
+    {
+        var notice = CliApp.AgentProviderNotice("ollama");
+
+        Assert.Contains("本地 Ollama", notice);
+        Assert.Contains("ollama serve", notice);
+        Assert.Null(CliApp.AgentProviderNotice("deepseek"));
     }
 }
