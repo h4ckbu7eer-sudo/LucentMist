@@ -78,6 +78,20 @@ public class UserTranscriptRegressionTests
     }
 
     [Fact]
+    public void OpenTcp135_IsReportedAsObservedRpcWithoutInventingAVersionOrBanner()
+    {
+        var evidence = LucentMist.Tools.Security.VulnerabilityScanTool
+            .NormalizeObservedServiceEvidence(135, null);
+        var fingerprint = ServiceFingerprint.FromBanner(evidence);
+
+        Assert.Contains("TCP/135 已响应", evidence);
+        Assert.Contains("未返回应用 Banner", evidence);
+        Assert.Equal("windows-rpc", fingerprint?.ProductKey);
+        Assert.Null(fingerprint?.Version);
+        Assert.Null(fingerprint?.Cpe);
+    }
+
+    [Fact]
     public async Task LoopbackHasRealMachineNameWithoutMeaninglessMdnsOrOui()
     {
         var identity = await LucentMist.Tools.Discovery.DeviceDiscovery.EnrichAsync("127.0.0.1");
