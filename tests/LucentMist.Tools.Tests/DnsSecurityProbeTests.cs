@@ -110,6 +110,30 @@ public class DnsSecurityProbeTests
     }
 
     [Fact]
+    public async Task RecursionProbeRunsBeforeIdentityBurst_AndRetriesOneMissingResponse()
+    {
+        var calls = new List<bool>();
+        var recursionCalls = 0;
+        var result = await DnsSecurityProbe.ProbeWithSenderAsync("192.0.2.53", query =>
+        {
+            var recursionDesired = (BinaryPrimitives.ReadUInt16BigEndian(query.AsSpan(2, 2)) & 0x0100) != 0;
+            calls.Add(recursionDesired);
+            if (!recursionDesired || ++recursionCalls == 1) return Task.FromResult<byte[]?>(null);
+
+            var response = query.ToArray();
+            response[2] |= 0x80;
+            response[3] |= 0x80;
+            BinaryPrimitives.WriteUInt16BigEndian(response.AsSpan(6, 2), 1);
+            return Task.FromResult<byte[]?>(response);
+        });
+
+        Assert.Equal([true, true], calls.Take(2));
+        Assert.True(result.RecursionAvailable);
+        Assert.Equal("observed", result.RecursionStatus);
+        Assert.Equal(2, result.RecursionProbeAttempts);
+    }
+
+    [Fact]
     public async Task ServiceIdentify_DnsIncludesVersionAndRecursionAssessment()
     {
         var tool = new ServiceIdentifyTool(

@@ -44,6 +44,14 @@ public static class DnsSecurityProbe
     }
 
     private static async Task<DnsSecurityResult> ProbeFreshAsync(string target, int timeoutMs, CancellationToken cancellationToken)
+        => await ProbeWithSenderAsync(target,
+            query => SendAsync(target, 53, query, timeoutMs, cancellationToken),
+            cancellationToken);
+
+    internal static async Task<DnsSecurityResult> ProbeWithSenderAsync(
+        string target,
+        Func<byte[], Task<byte[]?>> send,
+        CancellationToken cancellationToken = default)
     {
         var versionQuery = BuildQuery("version.bind", 16, 3, recursionDesired: false);
         var recursionQuery = BuildQuery("example.com", 1, 1, recursionDesired: true);
@@ -51,17 +59,32 @@ public static class DnsSecurityProbe
         var octets = IPAddress.Parse(target).GetAddressBytes();
         var zone = $"{octets[2]}.{octets[1]}.{octets[0]}.in-addr.arpa";
         var soaQuery = BuildQuery(zone, 6, 1, recursionDesired: false);
-        // Four small, bounded queries. Identity/SOA records are not software versions.
-        var responses = await Task.WhenAll(new[] { versionQuery, recursionQuery, hostnameQuery, soaQuery }
-            .Select(query => SendAsync(target, 53, query, timeoutMs, cancellationToken)));
-        var versionResponse = responses[0];
-        var recursionResponse = responses[1];
+        // Embedded resolvers commonly rate-limit a burst of CHAOS/A/SOA requests.
+        // Recursion is the security decision, so probe it first and retry one
+        // missing response before sending optional identity queries.
+        cancellationToken.ThrowIfCancellationRequested();
+        var recursionResponse = await send(recursionQuery);
+        var recursionAttempts = 1;
+        if (recursionResponse == null)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            recursionResponse = await send(recursionQuery);
+            recursionAttempts++;
+        }
+        async Task<byte[]?> SendIdentity(byte[] query)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return await send(query);
+        }
+        var identityResponses = await Task.WhenAll(
+            SendIdentity(versionQuery), SendIdentity(hostnameQuery), SendIdentity(soaQuery));
+        var versionResponse = identityResponses[0];
         var queries = new[]
         {
             Describe("version.bind", 16, 3, versionResponse),
             Describe("example.com", 1, 1, recursionResponse),
-            Describe("hostname.bind", 16, 3, responses[2]),
-            Describe(zone, 6, 1, responses[3]),
+            Describe("hostname.bind", 16, 3, identityResponses[1]),
+            Describe(zone, 6, 1, identityResponses[2]),
         };
         var rawVersion = queries[0].Value;
         var version = NormalizeVersion(rawVersion);
@@ -88,6 +111,7 @@ public static class DnsSecurityProbe
             Queries = queries,
             Hostname = queries[2].Value,
             SoaPrimaryName = queries[3].Value,
+            RecursionProbeAttempts = recursionAttempts,
         };
     }
 
@@ -291,6 +315,8 @@ public sealed record DnsSecurityResult(
     public string? Hostname { get; init; }
     [JsonPropertyName("soaPrimaryName")]
     public string? SoaPrimaryName { get; init; }
+    [JsonPropertyName("recursionProbeAttempts")]
+    public int RecursionProbeAttempts { get; init; } = 1;
 }
 
 public sealed record DnsQueryEvidence(string Name, ushort Type, ushort Class, string Status, int? ResponseCode, string? Value);
