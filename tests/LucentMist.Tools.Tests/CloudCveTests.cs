@@ -60,6 +60,31 @@ public class CloudCveTests
     }
 
     [Fact]
+    public async Task RpcWithoutProductVersion_IsSkippedAsNotApplicable_NotReportedAsNetworkFailure()
+    {
+        var calls = 0;
+        using var http = new HttpClient(new Handler((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            throw new InvalidOperationException("must not query a generic RPC protocol token");
+        }));
+
+        var report = await CveApiClient.QueryWithStatusAsync(
+            "DCE/RPC endpoint mapper（TCP/135 已响应；未返回应用 Banner）",
+            135,
+            http,
+            true,
+            CancellationToken.None);
+
+        Assert.Equal(0, calls);
+        var status = Assert.Single(report.Sources);
+        Assert.Equal("not_applicable", status.Status);
+        Assert.Contains("没有足够具体", status.Detail);
+        Assert.False(report.IsPartial);
+        Assert.False(report.FellBackToBuiltIn);
+    }
+
+    [Fact]
     public async Task KnownProductWithoutVersion_RemainsProductKeywordEvidence()
     {
         using var http = new HttpClient(new Handler((request, _) => Task.FromResult(Json(

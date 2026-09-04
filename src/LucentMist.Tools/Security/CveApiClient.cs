@@ -26,8 +26,9 @@ public class CveApiClient
     public record SourceStatus(string Source, string Status, string Detail, bool Cached = false);
     public record QueryReport(List<CveDetail> Items, SourceStatus[] Sources)
     {
-        public bool FellBackToBuiltIn => Sources.Length > 0 && Sources.All(s => s.Status != "ok");
-        public bool IsPartial => Sources.Any(s => s.Status != "ok");
+        public bool FellBackToBuiltIn => Sources.Any(IsAttempted) && Sources.Where(IsAttempted).All(s => s.Status != "ok");
+        public bool IsPartial => Sources.Where(IsAttempted).Any(s => s.Status != "ok");
+        private static bool IsAttempted(SourceStatus status) => status.Status != "not_applicable";
     }
     internal sealed record OsvCommitQuery(string Commit, string Evidence);
 
@@ -66,6 +67,9 @@ public class CveApiClient
         bool externalEnabled, CancellationToken ct, bool useCache = false, bool throttleNvd = false, TimeSpan? sourceTimeout = null)
     {
         ct.ThrowIfCancellationRequested();
+        if (externalEnabled && !HasUsefulExternalQuery(port, banner))
+            return new([], [new("免费云端漏洞源", "not_applicable",
+                "该服务没有足够具体的产品/版本查询关键字；已跳过云端检索，避免把通用协议结果误报为网络失败或目标漏洞")]);
         var sources = GetConsultedSources(port, banner, externalEnabled);
         if (sources.Length == 0) return new([], []);
         var fingerprint = ServiceFingerprint.FromBanner(banner);
@@ -144,6 +148,14 @@ public class CveApiClient
             }
             finally { if (entered) Requests.Release(); }
         }
+    }
+
+    internal static bool HasUsefulExternalQuery(int port, string? banner)
+    {
+        var fingerprint = ServiceFingerprint.FromBanner(banner);
+        if (port == 135 && (fingerprint == null || fingerprint.ProductKey == "windows-rpc" && fingerprint.Version == null))
+            return false;
+        return ServiceKey(port) != "unknown" || fingerprint != null;
     }
 
     internal static CveDetail MergeSourceDetails(IEnumerable<CveDetail> source)
