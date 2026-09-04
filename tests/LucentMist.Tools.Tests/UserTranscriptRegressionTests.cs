@@ -62,12 +62,17 @@ public class UserTranscriptRegressionTests
     [Theory]
     [InlineData("220 VMware Authentication Daemon Version 1.10: SSL Required, ServerDaemonProtocol:SOAP", "1.10")]
     [InlineData("220 VMware Authentication Daemon Version 1.0, ServerDaemonProtocol:SOAP", "1.0")]
-    public void AdvertisedDaemonVersionIsNotLostOrInventedAsVmwareProductVersion(string banner, string version)
+    public void AdvertisedDaemonVersionBecomesAProtocolFingerprintWithoutInventingAProductCpe(string banner, string version)
     {
         var result = BannerGrabber.ParseGenericBanner(banner);
+        var fingerprint = ServiceFingerprint.FromBanner(banner);
+
         Assert.Equal(version, result?.Version);
         Assert.Equal("VMware Authentication Daemon", result?.Service);
-        Assert.Null(ServiceFingerprint.FromBanner(banner));
+        Assert.Equal("vmware-authd", fingerprint?.ProductKey);
+        Assert.Equal(version, fingerprint?.Version);
+        Assert.Null(fingerprint?.Cpe);
+        Assert.Contains("不能等同", fingerprint?.EvidenceDescription);
     }
 
     [Fact]
