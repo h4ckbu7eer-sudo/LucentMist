@@ -8,7 +8,7 @@ public class ExposureFingerprintTests
     public void EmptyServerHeader_CannotConsumeNextHeaderAsProduct()
     {
         var banner = HttpBannerProbe.Parse("HTTP/1.1 200 OK\r\nServer: \r\nAccept-Ranges: bytes\r\n\r\n");
-        Assert.Equal("HTTP (无 Server 头)", banner);
+        Assert.Equal("HTTP 已响应（未公开 Server 头版本）", banner);
         Assert.DoesNotContain("Accept-Ranges", banner);
     }
     [Fact]

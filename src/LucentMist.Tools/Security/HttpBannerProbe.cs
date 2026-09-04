@@ -25,7 +25,7 @@ internal static class HttpBannerProbe
         if (end >= 0) headers = headers[..end];
         var server = Header(headers, "Server");
         var powered = Header(headers, "X-Powered-By");
-        return (server == null ? "HTTP (无 Server 头)" : $"HTTP Server: {server}")
+        return (server == null ? "HTTP 已响应（未公开 Server 头版本）" : $"HTTP Server: {server}")
             + (powered == null ? "" : $"; X-Powered-By: {powered}");
     }
 
@@ -108,7 +108,7 @@ internal static class HttpBannerProbe
                         var bodyIdentity = HttpPageIdentity.Read(encoding.GetString(bytes, 0, count), Value("WWW-Authenticate"));
                         identity = bodyIdentity with { Vendor = bodyIdentity.Vendor ?? identity.Vendor, Model = bodyIdentity.Model ?? identity.Model };
                         if (!string.IsNullOrWhiteSpace(identity.Generator))
-                            best = (best ?? "HTTP (无 Server 头)") + $"; HTTP Generator: {identity.Generator}";
+                            best = (best ?? "HTTP 已响应（未公开 Server 头版本）") + $"; HTTP Generator: {identity.Generator}";
                         bodyStatus = count == bytes.Length ? "bounded_prefix" : "complete";
                     }
                     catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }

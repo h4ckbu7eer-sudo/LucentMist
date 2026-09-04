@@ -140,7 +140,7 @@ public class CloudLeadRankingTests
             port = 80,
             cve,
             name = "A DNS client vulnerability",
-            banner = "HTTP (无 Server 头)",
+            banner = "HTTP 已响应（未公开 Server 头版本）",
             source = "NVD",
         })).ToArray();
         var result = CloudLeadRanking.Rank(items);

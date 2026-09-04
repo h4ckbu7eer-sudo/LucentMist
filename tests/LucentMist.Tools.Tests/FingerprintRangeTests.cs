@@ -22,7 +22,7 @@ public class FingerprintRangeTests
 
     [Theory]
     [InlineData("SMBv3.1.1")]
-    [InlineData("HTTP (无 Server 头)")]
+    [InlineData("HTTP 已响应（未公开 Server 头版本）")]
     [InlineData("DNS（版本未知）")]
     public void ProtocolVersionDoesNotInventProductCpe(string banner) => Assert.Null(ServiceFingerprint.FromBanner(banner));
 

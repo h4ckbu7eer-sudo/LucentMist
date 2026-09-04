@@ -59,6 +59,16 @@ public class UserTranscriptRegressionTests
         Assert.DoesNotContain("未公开", CliApp.DnsVersionLabel(dns));
     }
 
+    [Fact]
+    public void HttpResponseWithoutServerVersion_UsesOneConsistentDisclosureState()
+    {
+        var label = LucentMist.Tools.Security.VulnerabilityScanTool.BuildVersionLabel(
+            "version_not_disclosed", null, "not_disclosed");
+
+        Assert.Equal("HTTP 已响应但未公开 Server 头版本", label);
+        Assert.DoesNotContain("版本未提取", label);
+    }
+
     [Theory]
     [InlineData("220 VMware Authentication Daemon Version 1.10: SSL Required, ServerDaemonProtocol:SOAP", "1.10")]
     [InlineData("220 VMware Authentication Daemon Version 1.0, ServerDaemonProtocol:SOAP", "1.0")]

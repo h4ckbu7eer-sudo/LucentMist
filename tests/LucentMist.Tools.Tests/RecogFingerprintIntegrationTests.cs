@@ -68,7 +68,7 @@ public class RecogFingerprintIntegrationTests
     public void MetaGenerator_IsProductEvidenceWhenHeadersHideServerVersion()
     {
         var fingerprint = ServiceFingerprint.FromBanner(
-            "HTTP (无 Server 头); HTTP Generator: WordPress 6.4.3");
+            "HTTP 已响应（未公开 Server 头版本）; HTTP Generator: WordPress 6.4.3");
 
         Assert.NotNull(fingerprint);
         Assert.Equal("wordpress", fingerprint.ProductKey);
