@@ -23,7 +23,7 @@ builder.WebHost.ConfigureKestrel(options =>
     options.Limits.MaxConcurrentUpgradedConnections = Math.Max(8, maxConnections / 4);
 });
 builder.Services.AddScoped<AppState>();
-builder.Services.AddSingleton<ScanService>();
+builder.Services.AddScoped<ScanService>();
 builder.Services.AddTransient<ScanTaskClient>();
 builder.Services.AddScoped<ITargetAuthorizationPrompt, BrowserTargetAuthorizationPrompt>();
 builder.Services.AddHttpClient("AgentApi", client =>

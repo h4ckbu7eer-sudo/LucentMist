@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace LucentMist.Web;
 
 /// <summary>
@@ -27,5 +29,48 @@ public class AppState
 
     public record DeviceResult(string Ip, string Ports);
     public record ScanPortResult(int Port, string Service);
-    public record SslState(string Target, int Port, bool Expired, int Days, string NotAfter, string Subject, string Issuer, string Fp, int Chain);
+    public record SslState(
+        string Target,
+        int Port,
+        bool Expired,
+        bool Trusted,
+        int Days,
+        string NotAfter,
+        string Subject,
+        string Issuer,
+        string Fp,
+        int Chain,
+        IReadOnlyList<string> TrustExplanations)
+    {
+        public string StatusLabel => Expired
+            ? "已过期"
+            : Trusted ? "有效且受信任" : "有效期内但不受信任";
+
+        public static SslState FromToolResult(JsonElement value) => new(
+            value.GetProperty("target").GetString()!,
+            value.GetProperty("port").GetInt32(),
+            value.GetProperty("isExpired").GetBoolean(),
+            value.TryGetProperty("isTrusted", out var trusted) && trusted.GetBoolean(),
+            value.GetProperty("daysRemaining").GetInt32(),
+            value.GetProperty("notAfter").GetString() ?? "-",
+            value.GetProperty("subject").GetString() ?? "-",
+            value.GetProperty("issuer").GetString() ?? "-",
+            value.TryGetProperty("thumbprintSha256", out var thumbprint) ? thumbprint.GetString() ?? "-" : "-",
+            value.TryGetProperty("chain", out var chain) ? chain.GetArrayLength() : 0,
+            ReadTrustExplanations(value));
+
+        private static IReadOnlyList<string> ReadTrustExplanations(JsonElement value)
+        {
+            var property = value.TryGetProperty("trustExplanations", out var explanations)
+                ? explanations
+                : value.TryGetProperty("trustErrors", out var errors) ? errors : default;
+            return property.ValueKind == JsonValueKind.Array
+                ? property.EnumerateArray()
+                    .Select(item => item.GetString())
+                    .Where(item => !string.IsNullOrWhiteSpace(item))
+                    .Cast<string>()
+                    .ToArray()
+                : [];
+        }
+    }
 }

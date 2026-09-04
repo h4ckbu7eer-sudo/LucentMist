@@ -26,7 +26,7 @@
     var r = State.SslResult;
     <div class="card-grid">
         <div class="card"><div class="card-title">域名</div><div class="card-value" style="font-size:1.2rem">@r.Target:@r.Port</div></div>
-        <div class="card"><div class="card-title">状态</div><div class="card-value @(r.Expired?"red":"green")">@(r.Expired?"过期":"有效")</div></div>
+        <div class="card"><div class="card-title">状态</div><div class="card-value @(r.Expired?"red":r.Trusted?"green":"yellow")">@r.StatusLabel</div></div>
         <div class="card"><div class="card-title">剩余</div><div class="card-value @(r.Days<30?"yellow":"green")">@r.Days 天</div></div>
         <div class="card"><div class="card-title">证书链</div><div class="card-value" style="font-size:1.2rem">@r.Chain 级</div></div>
     </div>
@@ -36,6 +36,11 @@
             <tr><td>颁发者</td><td>@r.Issuer</td></tr>
             <tr><td>过期</td><td>@r.NotAfter</td></tr>
             <tr><td>SHA-256</td><td style="font-size:0.7rem;font-family:monospace">@r.Fp</td></tr>
+            <tr><td>信任校验</td><td>@(r.Trusted ? "通过" : "未通过")</td></tr>
+            @if (!r.Trusted)
+            {
+                <tr><td>信任问题</td><td>@string.Join("；", r.TrustExplanations)</td></tr>
+            }
         </table>
     </div>
 }
@@ -58,17 +63,7 @@
                 return;
             }
 
-            State.SslResult = new(
-                d.GetProperty("target").GetString()!,
-                d.GetProperty("port").GetInt32(),
-                d.GetProperty("isExpired").GetBoolean(),
-                d.GetProperty("daysRemaining").GetInt32(),
-                d.GetProperty("notAfter").GetString()??"-",
-                d.GetProperty("subject").GetString()??"-",
-                d.GetProperty("issuer").GetString()??"-",
-                d.TryGetProperty("thumbprintSha256",out var t)?t.GetString()??"-":"-",
-                d.TryGetProperty("chain",out var c)?c.GetArrayLength():0
-            );
+            State.SslResult = AppState.SslState.FromToolResult(d);
         } catch (Exception ex) {
             _error = $"SSL 检查失败: {ex.Message}";
             Logger.LogWarning(ex, "SSL check failed for {Target}:{Port}", _target, _port);
