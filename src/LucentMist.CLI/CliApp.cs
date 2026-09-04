@@ -1034,8 +1034,8 @@ public class CliApp
             Scope = new ReportGenerator.ScanScope
             {
                 Discovery = "ICMP 存活探测；ICMP 不可用时由工具尝试常见 TCP 端口回退",
-                TcpPorts = "TCP 1-1000",
-                VulnerabilityChecks = $"默认有界发现 TCP 1-1000，并补充高风险端口 {string.Join(',', VulnerabilityScanTool.DefaultScanPorts.Where(port => port > 1000))}；对实际开放端口执行协议与版本匹配",
+                TcpPorts = $"TCP 1-1000，并补充高风险端口 {string.Join(',', VulnerabilityScanTool.DefaultScanPorts.Where(port => port > 1000))}",
+                VulnerabilityChecks = "复用同一次端口扫描的开放端口证据；仅对实际开放端口执行协议与版本匹配，不重复扩大扫描范围",
                 Limitations = "未扫描 UDP 和其余 TCP 端口；候选命中不能证明补丁状态或可利用性"
             }
         };
@@ -1165,7 +1165,12 @@ public class CliApp
                 ["port"] = port.ToString(),
                 ["timeout_ms"] = "3000"
             }, cancellationToken);
-            if (!result.Success) continue;
+            if (!result.Success)
+            {
+                report.Warnings.Add(
+                    $"{target}:{port} TLS 检查失败（{result.Error ?? "未知错误"}）；证书有效期与信任状态未确认");
+                continue;
+            }
 
             try
             {
@@ -1204,6 +1209,7 @@ public class CliApp
             catch (Exception ex) when (ex is JsonException or InvalidOperationException)
             {
                 Logger.LogWarning(ex, "Failed to parse TLS certificate result for report");
+                report.Warnings.Add($"{target}:{port} TLS 检查结果无法解析；证书状态未确认");
             }
         }
     }
@@ -1586,6 +1592,10 @@ public class CliApp
             var med = r.GetProperty("mediumCount").GetInt32();
             var low = r.GetProperty("lowCount").GetInt32();
             var total = r.GetProperty("totalFindings").GetInt32();
+            var cloudLeadCount = r.TryGetProperty("cloudCandidateCount", out var cloudLeadNode)
+                ? cloudLeadNode.GetInt32()
+                : 0;
+            var externalPartial = r.TryGetProperty("externalPartial", out var partialNode) && partialNode.GetBoolean();
 
             if (r.TryGetProperty("checkedServices", out var services))
             {
@@ -1727,9 +1737,13 @@ public class CliApp
             var sumTable = new Table().BorderColor(Color.Grey).HideHeaders()
                 .AddColumn("K").AddColumn("V")
                 .AddRow("[grey]目标[/]", $"[white]{Escape(target)}[/]")
-                .AddRow("[grey]漏洞总数[/]", $"[white]{total}[/]")
+                .AddRow("[grey]目标漏洞匹配[/]", $"[white]{total}[/]（不含未验证云端线索）")
+                .AddRow("[grey]云端待核实线索[/]", $"[white]{cloudLeadCount}[/]（外部结果可能随限流/更新变化）")
                 .AddRow("[grey]风险分布[/]", $"[red]严重 {critical}[/] | [yellow]高危 {high}[/] | [green]中危 {med}[/] | [grey]低危 {low}[/]")
-                .AddRow("[grey]数据来源[/]", $"[teal]{Escape(sourceStr)}[/]");
+                .AddRow("[grey]数据来源[/]", $"[teal]{Escape(sourceStr)}[/]")
+                .AddRow("[grey]云源覆盖[/]", externalPartial
+                    ? "[yellow]不完整；逐源失败原因见下表，不能据此判安全[/]"
+                    : "[green]本次所列云源均返回；单源结果仍有限量[/]");
             AnsiConsole.Write(new Panel(sumTable)
                 .Header("[teal] 📊 扫描总结 [/]")
                 .BorderColor(Color.Teal));

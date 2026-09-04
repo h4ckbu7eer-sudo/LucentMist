@@ -101,8 +101,8 @@ public class ReportGenerator
     {
         report.ScanStatus = report.Warnings.Count == 0 ? "completed" : "partial";
         report.StatusMessage = report.ScanStatus == "completed"
-            ? $"已完成 {scannedDevices} 台在线设备的端口与漏洞候选检测"
-            : $"已扫描 {scannedDevices} 台在线设备，但关键阶段失败，结果不完整";
+            ? $"已完成 {scannedDevices} 个目标的端口与漏洞候选检测"
+            : $"已扫描 {scannedDevices} 个目标，但关键阶段失败或证据不足，结果不完整";
     }
 
     public string Generate(ScanReport r, Format f) => f switch
