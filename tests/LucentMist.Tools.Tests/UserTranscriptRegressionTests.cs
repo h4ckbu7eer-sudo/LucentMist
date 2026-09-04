@@ -104,6 +104,7 @@ public class UserTranscriptRegressionTests
         Assert.Equal("windows-rpc", fingerprint?.ProductKey);
         Assert.Null(fingerprint?.Version);
         Assert.Null(fingerprint?.Cpe);
+        Assert.Equal("TCP/135 protocol evidence", fingerprint?.EvidenceSource);
     }
 
     [Fact]
