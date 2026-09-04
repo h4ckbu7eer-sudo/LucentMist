@@ -985,6 +985,12 @@ public class CliApp
 
     private static async Task<int> ReportCommand(string[] args)
     {
+        // Device identity enrichment and vulnerability matching must consume the
+        // same bounded HTTP/DNS snapshot within one report. Without a scope the
+        // same service is probed twice and can yield contradictory evidence.
+        using var httpScope = HttpObservationScope.Begin();
+        using var dnsScope = DnsSecurityProbe.BeginAnalysisScope();
+        using var nmapScope = NmapObservationScope.Begin();
         var format = "html";
         var output = "report.html";
         var target = "";
