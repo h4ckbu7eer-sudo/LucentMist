@@ -5,6 +5,46 @@ namespace LucentMist.Tools.Tests;
 public class NmapEnhancerTests
 {
     [Fact]
+    public async Task ObservationScope_ReusesOneProbeAcrossReportStages()
+    {
+        var calls = 0;
+        using var scope = NmapObservationScope.Begin();
+
+        Task<IReadOnlyDictionary<int, NmapResult>> Probe()
+        {
+            calls++;
+            return Task.FromResult<IReadOnlyDictionary<int, NmapResult>>(
+                new Dictionary<int, NmapResult>());
+        }
+
+        await NmapObservationScope.GetAsync("192.168.99.1", [443, 80], Probe, default);
+        await NmapObservationScope.GetAsync("192.168.99.1", [80, 443], Probe, default);
+
+        Assert.Equal(1, calls);
+    }
+
+    [Fact]
+    public void ParseXmlMany_PreservesProductOsCpeAndAllOpenPorts()
+    {
+        const string xml = """
+            <nmaprun><host><ports>
+              <port protocol="tcp" portid="135"><state state="open"/><service name="msrpc" product="Microsoft Windows RPC" ostype="Windows" conf="10"><cpe>cpe:/o:microsoft:windows</cpe></service></port>
+              <port protocol="tcp" portid="902"><state state="open"/><service name="vmware-auth" product="VMware Authentication Daemon" version="1.10" extrainfo="Uses VNC" tunnel="ssl" conf="10"/></port>
+              <port protocol="tcp" portid="999"><state state="closed"/><service name="unknown" conf="3"/></port>
+            </ports></host></nmaprun>
+            """;
+
+        var results = NmapEnhancer.ParseXmlMany(xml);
+
+        Assert.Equal(2, results.Count);
+        Assert.Equal("Microsoft Windows RPC", results[135].Product);
+        Assert.Equal("Windows", results[135].OsType);
+        Assert.Contains("cpe:/o:microsoft:windows", results[135].Cpes);
+        Assert.Equal("1.10", results[902].Version);
+        Assert.Equal("ssl", results[902].Tunnel);
+    }
+
+    [Fact]
     public async Task TimeoutActuallyKillsChildRatherThanAwaitingItsOutputForever()
     {
         var watch = System.Diagnostics.Stopwatch.StartNew();
