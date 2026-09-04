@@ -18,6 +18,25 @@ public class UserTranscriptRegressionTests
     }
 
     [Fact]
+    public void ReportLabelsLocalRuntimeAsDeterministicLocalEvidence()
+    {
+        var os = JsonSerializer.SerializeToElement(new
+        {
+            osFamily = "Windows",
+            osVersion = "Microsoft Windows 11",
+            confidence = 100,
+            evidenceType = "local_runtime",
+        });
+
+        var label = CliApp.ReportOsLabel(os);
+
+        Assert.Contains("本机确定证据", label);
+        Assert.Contains("100%", label);
+        Assert.DoesNotContain("启发式", label);
+        Assert.DoesNotContain("非确认", label);
+    }
+
+    [Fact]
     public void ReplQuestionPanelDoesNotRenderInternalConversationEnvelope()
     {
         using var output = new StringWriter();

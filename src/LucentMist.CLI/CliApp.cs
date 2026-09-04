@@ -2465,10 +2465,29 @@ public class CliApp
         .Header("[teal] LucentMist Agent [/]")
         .BorderColor(Color.Teal);
 
-    internal static string ReportOsLabel(JsonElement os) =>
-        $"{os.GetProperty("osFamily").GetString() ?? "未知"}（启发式线索，" +
-        (os.TryGetProperty("confidence", out var confidence) && confidence.TryGetInt32(out var score)
-            ? $"置信度 {score}%" : "置信度未知") + "，非确认）";
+    internal static string ReportOsLabel(JsonElement os)
+    {
+        var family = os.GetProperty("osFamily").GetString() ?? "未知";
+        var confidence = os.TryGetProperty("confidence", out var confidenceNode) &&
+                         confidenceNode.TryGetInt32(out var score)
+            ? $"置信度 {score}%"
+            : "置信度未知";
+        var evidenceType = os.TryGetProperty("evidenceType", out var evidenceNode)
+            ? evidenceNode.GetString()
+            : null;
+        if (evidenceType == "local_runtime")
+        {
+            var version = os.TryGetProperty("osVersion", out var versionNode) &&
+                          !string.IsNullOrWhiteSpace(versionNode.GetString())
+                ? $"，{versionNode.GetString()}"
+                : string.Empty;
+            return $"{family}（本机确定证据{version}，{confidence}）";
+        }
+
+        return evidenceType == "nmap_service"
+            ? $"{family}（Nmap 服务指纹线索，{confidence}，非完整 OS 确认）"
+            : $"{family}（启发式线索，{confidence}，非确认）";
+    }
 
     internal static string DnsVersionLabel(JsonElement dns) =>
         dns.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String &&
