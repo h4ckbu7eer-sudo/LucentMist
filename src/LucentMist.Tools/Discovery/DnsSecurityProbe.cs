@@ -63,7 +63,8 @@ public static class DnsSecurityProbe
             Describe("hostname.bind", 16, 3, responses[2]),
             Describe(zone, 6, 1, responses[3]),
         };
-        var version = queries[0].Value;
+        var rawVersion = queries[0].Value;
+        var version = NormalizeVersion(rawVersion);
         var recursion = recursionResponse == null ? default : ReadHeader(recursionResponse);
         var recursionAvailable = recursionResponse != null && recursion.ResponseCode == 0 &&
                                  recursion.RecursionAvailable && recursion.AnswerCount > 0;
@@ -71,7 +72,11 @@ public static class DnsSecurityProbe
 
         return new DnsSecurityResult(
             version,
-            version == null ? versionResponse == null ? "DNS 版本查询无有效响应，无法判断是否公开版本" : "DNS 响应未公开软件版本" : "服务器公开了 DNS 软件版本",
+            version == null
+                ? rawVersion != null
+                    ? $"DNS 返回占位值“{rawVersion}”，未提供可用的软件版本"
+                    : versionResponse == null ? "DNS 版本查询无有效响应，无法判断是否公开版本" : "DNS 响应未公开软件版本"
+                : "服务器公开了 DNS 软件版本",
             recursionAvailable,
             recursionAvailable ? "对当前扫描源开放递归；若该服务可从公网访问，可能被用于 DNS 反射/放大攻击" :
                 recursionResponse == null ? "DNS 递归查询无有效响应，状态未知，需复测；不能视为已关闭" : "未观察到对当前扫描源开放递归",
@@ -156,21 +161,76 @@ public static class DnsSecurityProbe
         return null;
     }
 
+    internal static string? NormalizeVersion(string? value)
+    {
+        var normalized = value?.Trim().Trim('\0', '"', '\'');
+        return string.IsNullOrWhiteSpace(normalized) ||
+               normalized.Equals("unknown", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("unknow", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("hidden", StringComparison.OrdinalIgnoreCase) ||
+               normalized.Equals("not disclosed", StringComparison.OrdinalIgnoreCase)
+            ? null
+            : normalized;
+    }
+
     private static async Task<byte[]?> SendAsync(string target, int port, byte[] query, int timeoutMs, CancellationToken ct)
     {
+        var budget = Math.Clamp(timeoutMs, 100, 5000);
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            timeout.CancelAfter(Math.Clamp(timeoutMs, 100, 5000));
+            // Give UDP the caller's full per-transport budget. Halving it before
+            // TCP fallback caused slow but valid UDP-only resolvers to be missed.
+            timeout.CancelAfter(UdpTimeoutBudget(budget));
             using var udp = new UdpClient(AddressFamily.InterNetwork);
             udp.Connect(target, port);
             await udp.SendAsync(query, timeout.Token);
             var response = (await udp.ReceiveAsync(timeout.Token)).Buffer;
-            return IsResponseTo(query, response) && (response[2] & 2) == 0 ? response : null;
+            if (IsResponseTo(query, response) && (response[2] & 2) == 0) return response;
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch { }
+
+        // Some appliances intentionally answer CHAOS/version and larger DNS
+        // replies only over TCP. A mature probe must honor DNS-over-TCP framing
+        // instead of treating a UDP timeout/truncation as "no response".
+        try
+        {
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(budget);
+            using var client = new TcpClient(AddressFamily.InterNetwork);
+            await client.ConnectAsync(target, port, timeout.Token);
+            using var stream = client.GetStream();
+            var framed = new byte[query.Length + 2];
+            BinaryPrimitives.WriteUInt16BigEndian(framed, checked((ushort)query.Length));
+            query.CopyTo(framed, 2);
+            await stream.WriteAsync(framed, timeout.Token);
+            var prefix = new byte[2];
+            if (!await ReadExactlyAsync(stream, prefix, timeout.Token)) return null;
+            var length = BinaryPrimitives.ReadUInt16BigEndian(prefix);
+            if (length is < 12 or > 16 * 1024) return null;
+            var response = new byte[length];
+            return await ReadExactlyAsync(stream, response, timeout.Token) && IsResponseTo(query, response)
+                ? response
+                : null;
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
         catch { return null; }
+
+        static async Task<bool> ReadExactlyAsync(NetworkStream stream, byte[] buffer, CancellationToken token)
+        {
+            var offset = 0;
+            while (offset < buffer.Length)
+            {
+                var read = await stream.ReadAsync(buffer.AsMemory(offset), token);
+                if (read == 0) return false;
+                offset += read;
+            }
+            return true;
+        }
     }
+
+    internal static int UdpTimeoutBudget(int timeoutMs) => Math.Clamp(timeoutMs, 100, 5000);
 
     internal static bool IsResponseTo(byte[] query, byte[] response)
     {

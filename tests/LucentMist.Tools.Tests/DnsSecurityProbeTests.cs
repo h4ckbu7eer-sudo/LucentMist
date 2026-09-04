@@ -9,6 +9,26 @@ namespace LucentMist.Tools.Tests;
 
 public class DnsSecurityProbeTests
 {
+    [Theory]
+    [InlineData(2000, 2000)]
+    [InlineData(50, 100)]
+    [InlineData(8000, 5000)]
+    public void UdpReceivesFullBoundedBudgetBeforeTcpFallback(int requested, int expected)
+    {
+        Assert.Equal(expected, DnsSecurityProbe.UdpTimeoutBudget(requested));
+    }
+
+    [Theory]
+    [InlineData("unknown")]
+    [InlineData("unknow")]
+    [InlineData("hidden")]
+    [InlineData("not disclosed")]
+    public void PlaceholderVersion_IsNotPresentedAsSoftwareVersion(string value)
+    {
+        Assert.Null(DnsSecurityProbe.NormalizeVersion(value));
+        Assert.Equal("BIND 9.18.1", DnsSecurityProbe.NormalizeVersion("BIND 9.18.1"));
+    }
+
     private static DnsSecurityResult Snapshot(bool available) => new(null, "版本未知", available,
         available ? "对当前扫描源开放递归" : "状态未知", 29, 0, 0);
 
