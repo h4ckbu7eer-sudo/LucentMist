@@ -2291,8 +2291,9 @@ public class CliApp
                 .BorderColor(Color.Grey);
             AnsiConsole.Write(table);
 
-            if (!includeDetails) return; // The following port scan renders the enriched device once.
-            if (r.TryGetProperty("devices", out var devs))
+            var hasDetails = r.TryGetProperty("deviceDetails", out var details) &&
+                             details.ValueKind == JsonValueKind.Array && details.GetArrayLength() > 0;
+            if (!hasDetails && r.TryGetProperty("devices", out var devs))
             {
                 var devices = devs.EnumerateArray().Select(d => d.GetString()).ToList();
                 if (devices.Count > 0)
@@ -2303,27 +2304,35 @@ public class CliApp
                 }
             }
 
-            if (r.TryGetProperty("deviceDetails", out var details) && details.ValueKind == JsonValueKind.Array)
+            if (hasDetails)
             {
-                var deviceTable = new Table().BorderColor(Color.Grey)
-                    .AddColumn("IP").AddColumn("名称").AddColumn("MAC")
-                    .AddColumn("厂商").AddColumn("型号");
-                foreach (var d in details.EnumerateArray())
-                {
-                    deviceTable.AddRow(
-                        Escape(d.GetProperty("ip").GetString() ?? "未知"),
-                        Escape(d.GetProperty("name").GetString() ?? "未广播"),
-                        Escape(d.TryGetProperty("mac", out var mac) ? mac.GetString() ?? "未知" : "未知"),
-                        Escape(d.GetProperty("vendor").GetString() ?? "未知"),
-                        Escape(d.GetProperty("model").GetString() ?? "未知"));
-                }
-                AnsiConsole.Write(deviceTable);
+                AnsiConsole.Write(BuildPingDeviceTable(details));
+                if (!includeDetails)
+                    AnsiConsole.MarkupLine("[grey]以上为存活发现明细；后续端口表仅针对明确指定的扫描目标。[/]");
             }
 
             if (r.TryGetProperty("hint", out var hint) && hint.ValueKind == JsonValueKind.String)
                 AnsiConsole.MarkupLine($"  [yellow]{Escape(hint.GetString() ?? "")}[/]");
         }
         catch { AnsiConsole.WriteLine(json); }
+    }
+
+    internal static Table BuildPingDeviceTable(JsonElement details)
+    {
+        var deviceTable = new Table().BorderColor(Color.Grey)
+            .AddColumn("IP").AddColumn("在线状态").AddColumn("名称").AddColumn("MAC")
+            .AddColumn("厂商").AddColumn("型号");
+        foreach (var device in details.EnumerateArray())
+        {
+            deviceTable.AddRow(
+                Escape(device.GetProperty("ip").GetString() ?? "未知"),
+                "[green]在线[/]",
+                Escape(device.GetProperty("name").GetString() ?? "未广播"),
+                Escape(device.TryGetProperty("mac", out var mac) ? mac.GetString() ?? "未知" : "未知"),
+                Escape(device.GetProperty("vendor").GetString() ?? "未知"),
+                Escape(device.GetProperty("model").GetString() ?? "未知"));
+        }
+        return deviceTable;
     }
 
     private static void RenderObservation(string toolName, string json, bool compact = false)
