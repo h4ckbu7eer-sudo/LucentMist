@@ -88,6 +88,19 @@ public class OsFingerprintToolTests
     }
 
     [Fact]
+    public void InferOs_Ttl64FamilyAndSshEvidence_RaisesButDoesNotOverstateConfidence()
+    {
+        var (os, confidence, reasons) = OsFingerprintTool.InferOs(
+            true,
+            51,
+            OsFingerprintTool.HintsFromPorts([22]));
+
+        Assert.Equal("Linux", os);
+        Assert.InRange(confidence, 51, 75);
+        Assert.Contains(reasons, reason => reason.Contains("TTL 家族与开放端口"));
+    }
+
+    [Fact]
     public async Task ExecuteAsync_Localhost_TtlIsReasonable()
     {
         var r = await _tool.ExecuteAsync(new ToolArguments { ["target"] = "127.0.0.1", ["timeout_ms"] = "2000" });

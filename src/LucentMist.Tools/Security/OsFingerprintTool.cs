@@ -270,7 +270,7 @@ public class OsFingerprintTool : INetworkTargetTool
             if (TtlMap.TryGetValue(possibleInitial, out var candidates))
             {
                 foreach (var os in candidates)
-                    scores[os] = scores.GetValueOrDefault(os) + 20;
+                    scores[os] = scores.GetValueOrDefault(os) + 25;
             }
         }
 
@@ -278,9 +278,9 @@ public class OsFingerprintTool : INetworkTargetTool
         foreach (var hint in portHints)
         {
             reasons.Add($"开放端口提示: {hint}");
-            if (hint.Contains("Windows")) { scores["Windows"] = scores.GetValueOrDefault("Windows") + 20; scores["Windows Server"] = scores.GetValueOrDefault("Windows Server") + 15; }
-            if (hint.Contains("Linux")) { scores["Linux"] = scores.GetValueOrDefault("Linux") + 15; scores["Android"] = scores.GetValueOrDefault("Android") + 10; }
-            if (hint.Contains("macOS")) { scores["macOS"] = scores.GetValueOrDefault("macOS") + 15; }
+            if (hint.Contains("Windows")) { scores["Windows"] = scores.GetValueOrDefault("Windows") + 35; scores["Windows Server"] = scores.GetValueOrDefault("Windows Server") + 30; }
+            if (hint.Contains("Linux")) { scores["Linux"] = scores.GetValueOrDefault("Linux") + 35; scores["Android"] = scores.GetValueOrDefault("Android") + 15; }
+            if (hint.Contains("macOS")) { scores["macOS"] = scores.GetValueOrDefault("macOS") + 35; }
         }
 
         if (portHints.Count == 0)
@@ -298,6 +298,8 @@ public class OsFingerprintTool : INetworkTargetTool
         var confidence = portHints.Count == 0
             ? Math.Min(45, best.Value)
             : Math.Min(90, best.Value);
+        if (portHints.Count > 0 && confidence > 50)
+            reasons.Add("TTL 家族与开放端口平台线索一致；置信度已提高，但仍不是主动 TCP/IP OS 指纹");
         if (possibleInitialTtls.Length > 1)
         {
             reasons.Add("低置信度：TTL 跳数不确定，结果应视为参考");
