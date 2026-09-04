@@ -2,9 +2,11 @@ using System.Diagnostics;
 using System.Net;
 using System.Net.NetworkInformation;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using LucentMist.Core.Networking;
 using LucentMist.Tools.Common;
+using LucentMist.Tools.Vulnerability;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Security;
@@ -21,6 +23,7 @@ public class OsFingerprintTool : INetworkTargetTool
     public ToolParameter[] Parameters => [
         new() { Name = "target", Type = "string", Description = "目标 IP", Required = true },
         new() { Name = "open_ports", Type = "string", Description = "复用已发现的开放端口；空字符串表示已扫描且无开放端口", Required = false },
+        new() { Name = "use_nmap", Type = "string", Description = "显式设为 true 才用 Nmap 服务证据辅助 OS 判断；也可设置 LMIST_USE_NMAP=true。默认关闭", Required = false, Default = "false" },
         new() { Name = "timeout_ms", Type = "int", Description = "超时(毫秒)", Required = false, Default = "5000" }
     ];
 
@@ -69,6 +72,31 @@ public class OsFingerprintTool : INetworkTargetTool
             cancellationToken.ThrowIfCancellationRequested();
             _logger.LogInformation("OsFingerprint: {Target}", target);
 
+            if (IsLocalTarget(target))
+            {
+                var localFamily = OperatingSystem.IsWindows() ? "Windows" :
+                    OperatingSystem.IsLinux() ? "Linux" :
+                    OperatingSystem.IsMacOS() ? "macOS" :
+                    OperatingSystem.IsFreeBSD() ? "FreeBSD" : "未知";
+                var localResult = new
+                {
+                    target,
+                    reachable = true,
+                    icmpReachable = true,
+                    osFamily = localFamily,
+                    osVersion = RuntimeInformation.OSDescription,
+                    confidence = 100,
+                    evidenceType = "local_runtime",
+                    limitation = "目标与本机接口精确匹配；这是本机运行时证据。它不能替代远程主机的主动 OS 指纹。",
+                    reasons = new[] { "目标 IP 与本机启用接口匹配", $"运行时平台：{RuntimeInformation.OSDescription}" },
+                    ttl = 0,
+                    pingMs = 0L,
+                    portHints = Array.Empty<string>(),
+                    scanDuration = sw.Elapsed.ToString()
+                };
+                return ToolResult.Ok(JsonSerializer.Serialize(localResult), sw.Elapsed);
+            }
+
             // 1. ICMP Ping → 获取 TTL
             var (reachable, ttl, pingMs) = await PingWithTtl(target, timeout, cancellationToken);
 
@@ -78,6 +106,40 @@ public class OsFingerprintTool : INetworkTargetTool
                 ? HintsFromPorts(knownPorts)
                 : await ProbeKnownPorts(target, timeout, cancellationToken);
             var tcpReachable = knownPorts?.Count > 0 || portHints.Count > 0;
+
+            if (knownPorts is { Count: > 0 } && VulnerabilityScanTool.ShouldUseNmap(args))
+            {
+                var nmap = new NmapEnhancer(timeoutSeconds: 15);
+                if (nmap.IsAvailable)
+                {
+                    var nmapEvidence = await nmap.ScanManyAsync(target, knownPorts, cancellationToken);
+                    var osTypes = nmapEvidence.Values
+                        .Where(item => !string.IsNullOrWhiteSpace(item.OsType))
+                        .OrderByDescending(item => item.Confidence)
+                        .ToArray();
+                    if (osTypes.Length > 0)
+                    {
+                        var best = osTypes[0];
+                        var nmapResult = new
+                        {
+                            target,
+                            reachable = true,
+                            icmpReachable = reachable,
+                            osFamily = best.OsType,
+                            confidence = Math.Clamp(best.Confidence * 10, 60, 95),
+                            evidenceType = "nmap_service",
+                            limitation = "OS 来自 Nmap 服务指纹（产品/CPE/ostype），不是完整 TCP/IP OS 扫描；可确认平台家族线索，不能确认具体系统版本。",
+                            reasons = nmapEvidence.Values.Where(item => !string.IsNullOrWhiteSpace(item.OsType))
+                                .Select(item => $"端口 {item.Port}: {item.Product ?? item.ServiceName}; ostype={item.OsType}; conf={item.Confidence}").ToArray(),
+                            ttl,
+                            pingMs,
+                            portHints,
+                            scanDuration = sw.Elapsed.ToString()
+                        };
+                        return ToolResult.Ok(JsonSerializer.Serialize(nmapResult), sw.Elapsed);
+                    }
+                }
+            }
 
             // 3. 综合推断 OS
             var (osFamily, confidence, reasons) = InferOs(reachable || tcpReachable, ttl, portHints);
@@ -239,5 +301,22 @@ public class OsFingerprintTool : INetworkTargetTool
             confidence = Math.Min(confidence, 60);
         }
         return (best.Key, confidence, reasons.ToArray());
+    }
+
+    internal static bool IsLocalTarget(string target)
+    {
+        if (!IPAddress.TryParse(target, out var address)) return false;
+        if (IPAddress.IsLoopback(address)) return true;
+        try
+        {
+            return NetworkInterface.GetAllNetworkInterfaces()
+                .Where(nic => nic.OperationalStatus == OperationalStatus.Up)
+                .SelectMany(nic => nic.GetIPProperties().UnicastAddresses)
+                .Any(item => item.Address.Equals(address));
+        }
+        catch (NetworkInformationException)
+        {
+            return false;
+        }
     }
 }

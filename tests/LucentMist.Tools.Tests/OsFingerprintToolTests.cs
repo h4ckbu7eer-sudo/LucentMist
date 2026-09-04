@@ -9,6 +9,13 @@ namespace LucentMist.Tools.Tests;
 public class OsFingerprintToolTests
 {
     [Fact]
+    public void NmapOsEvidence_IsExplicitlyOptIn()
+    {
+        var parameter = new OsFingerprintTool().Parameters.Single(item => item.Name == "use_nmap");
+        Assert.Equal("false", parameter.Default);
+    }
+
+    [Fact]
     public void KnownTcpEvidenceWithIcmpFailureIsNotAnUnreachableDevice()
     {
         var hints = OsFingerprintTool.HintsFromPorts([22, 22, 80]);
@@ -43,6 +50,9 @@ public class OsFingerprintToolTests
         var d = JsonDocument.Parse(r.Data).RootElement;
         Assert.True(d.GetProperty("reachable").GetBoolean());
         Assert.NotEmpty(d.GetProperty("osFamily").GetString()!);
+        Assert.Equal("local_runtime", d.GetProperty("evidenceType").GetString());
+        Assert.Equal(100, d.GetProperty("confidence").GetInt32());
+        Assert.False(string.IsNullOrWhiteSpace(d.GetProperty("osVersion").GetString()));
     }
 
     [Fact]
