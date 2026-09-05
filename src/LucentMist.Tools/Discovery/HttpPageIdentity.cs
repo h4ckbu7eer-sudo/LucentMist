@@ -29,6 +29,7 @@ public sealed record HttpPageIdentity(
         {
             if (title.Contains("中兴", StringComparison.Ordinal) || Regex.IsMatch(title, @"\b(?:ZTE|ZXHN|ZXDSL|ZXV10)\b", RegexOptions.IgnoreCase)) vendor ??= "ZTE";
             if (vendor == "ZTE") model ??= Match(title, @"\b((?:ZXHN|ZXDSL|ZXV10)[ _-][A-Z0-9][A-Z0-9._-]{1,24})\b");
+            if (vendor == "ZTE") model ??= Match(title, @"\bZTE\s+(F[0-9]{2,4}[A-Z0-9-]*)\b");
         }
         var generator = Match(html, "<meta\\s+name=[\"']generator[\"']\\s+content=[\"']([^\"']{1,128})[\"']");
         return new(title, vendor, model, Clean(generator),

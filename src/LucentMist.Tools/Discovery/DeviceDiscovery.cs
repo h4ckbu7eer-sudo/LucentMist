@@ -40,19 +40,29 @@ public static class DeviceDiscovery
         }
         var neighbors = await NeighborTable.ReadAsync([target], ct);
         neighbors.TryGetValue(target, out var mac);
+        return await EnrichRemoteAsync(target, mac, ct);
+    }
+
+    internal static async Task<DeviceIdentity> EnrichRemoteAsync(string target, string? mac, CancellationToken ct)
+    {
         var isPrivate = IsPrivateAddress(target);
-        var mdns = isPrivate ? await MdnsProbe.ProbeAsync(target, ct) : null;
+        var mdnsTask = isPrivate ? MdnsProbe.ProbeAsync(target, ct) : null;
+        var upnpTask = isPrivate ? UpnpProbe.ProbeAsync(target, ct) : null;
+        if (mdnsTask != null && upnpTask != null) await Task.WhenAll(mdnsTask, upnpTask);
+        var mdns = mdnsTask == null ? null : await mdnsTask;
+        var upnp = upnpTask == null ? null : await upnpTask;
         if (!isPrivate && string.IsNullOrWhiteSpace(mac))
             return BuildPublicIdentityWithoutLayer2Evidence(target);
         return new DeviceIdentity(
             target,
             mac,
-            Oui.Value.Lookup(mac) ?? (mac == null ? "未知（邻居表无 MAC，无法查询 OUI）" : "未知（OUI 库无此前缀）"),
-            mdns?.Name ?? "未知（未获得有效名称响应）",
-            mdns?.Model ?? "未知（需服务指纹或管理接口确认）")
+            upnp?.Manufacturer ?? Oui.Value.Lookup(mac) ?? (mac == null ? "未知（邻居表无 MAC，无法查询 OUI）" : "未知（OUI 库无此前缀）"),
+            mdns?.Name ?? upnp?.Name ?? "未知（未获得有效名称响应）",
+            mdns?.Model ?? upnp?.Model ?? "未知（本次 mDNS/UPnP 未取得型号，需管理端确认）")
         {
             MdnsStatus = mdns?.Status ?? "not_probed",
-            IdentityEvidence = "厂商来自离线 OUI，名称/型号来自未经认证的定向 mDNS 响应（可能为代理公告），均需管理端确认。无响应不代表未广播。邻居表无 DHCP Option，未采集 DHCP。",
+            UpnpStatus = upnp?.Status ?? "not_probed",
+            IdentityEvidence = "厂商来自 UPnP 设备声明或离线 OUI；名称/型号来自未经认证的定向 mDNS/UPnP 响应，均需管理端确认。无响应不代表未广播，不用厂商或主机名猜型号。邻居表无 DHCP Option，未采集 DHCP。",
         };
     }
 
@@ -86,8 +96,8 @@ public static class DeviceDiscovery
         return page == null ? device : device with
         {
             Name = device.Name.StartsWith("未知", StringComparison.Ordinal) && page.Title != null ? $"网页：{page.Title}" : device.Name,
-            Vendor = device.Vendor == "未知" ? page.Vendor ?? device.Vendor : device.Vendor,
-            Model = device.Model.StartsWith("未知", StringComparison.Ordinal) ? page.Model ?? device.Model : device.Model,
+            Vendor = device.Vendor.StartsWith("未知", StringComparison.Ordinal) ? page.Vendor ?? device.Vendor : device.Vendor,
+            Model = device.Model.StartsWith("未知", StringComparison.Ordinal) || device.Model.StartsWith("未公开", StringComparison.Ordinal) ? page.Model ?? device.Model : device.Model,
             PageIdentity = page,
             IdentityEvidence = device.IdentityEvidence + " " + page.Evidence,
         };
@@ -184,6 +194,8 @@ public sealed record DeviceIdentity(
 {
     [JsonPropertyName("mdnsStatus")]
     public string MdnsStatus { get; init; } = "not_probed";
+    [JsonPropertyName("upnpStatus")]
+    public string UpnpStatus { get; init; } = "not_probed";
     [JsonPropertyName("identityEvidence")]
     public string? IdentityEvidence { get; init; }
     [JsonPropertyName("pageIdentity")]

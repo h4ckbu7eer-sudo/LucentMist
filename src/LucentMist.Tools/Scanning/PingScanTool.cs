@@ -22,7 +22,7 @@ public class PingScanTool : INetworkTargetTool
     private readonly Func<IReadOnlyCollection<string>, CancellationToken, Task<IReadOnlyDictionary<string, string>>> _neighborLookupAsync;
     private readonly Func<string, CancellationToken, Task<string?>> _mdnsLookupAsync;
     private readonly OuiDatabase _ouiDatabase;
-    private readonly Func<string, CancellationToken, Task<MdnsProbe.Identity>>? _identityProbe;
+    private readonly Func<string, string?, CancellationToken, Task<DeviceIdentity>>? _deviceProbe;
     private const int IcmpNoResponse = 1;
     private const int IcmpRejected = 2;
     private const int IcmpUnavailable = 4;
@@ -39,9 +39,8 @@ public class PingScanTool : INetworkTargetTool
     ];
 
     public PingScanTool(ILogger<PingScanTool> logger)
-        : this(logger, SendIcmpAsync, TcpProbeAsync, NeighborTable.ReadAsync, MdnsProbe.ResolveNameAsync, new OuiDatabase())
+        : this(logger, SendIcmpAsync, TcpProbeAsync, NeighborTable.ReadAsync, MdnsProbe.ResolveNameAsync, new OuiDatabase(), DeviceDiscovery.EnrichRemoteAsync)
     {
-        _identityProbe = MdnsProbe.ProbeAsync;
     }
 
     internal PingScanTool(
@@ -60,7 +59,8 @@ public class PingScanTool : INetworkTargetTool
         Func<string, int, CancellationToken, Task<bool>> tcpProbeAsync,
         Func<IReadOnlyCollection<string>, CancellationToken, Task<IReadOnlyDictionary<string, string>>> neighborLookupAsync,
         Func<string, CancellationToken, Task<string?>> mdnsLookupAsync,
-        OuiDatabase ouiDatabase)
+        OuiDatabase ouiDatabase,
+        Func<string, string?, CancellationToken, Task<DeviceIdentity>>? deviceProbe = null)
     {
         _logger = logger;
         _icmpProbeAsync = icmpProbeAsync;
@@ -68,6 +68,7 @@ public class PingScanTool : INetworkTargetTool
         _neighborLookupAsync = neighborLookupAsync;
         _mdnsLookupAsync = mdnsLookupAsync;
         _ouiDatabase = ouiDatabase;
+        _deviceProbe = deviceProbe;
     }
 
     public async Task<ToolResult> ExecuteAsync(ToolArguments args, CancellationToken cancellationToken = default)
@@ -133,14 +134,19 @@ public class PingScanTool : INetworkTargetTool
                         return;
                     }
                     neighborTable.TryGetValue(ip, out var mac);
-                    var identity = IsPrivateAddress(ip) && _identityProbe != null ? await _identityProbe(ip, ct) : null;
-                    var name = identity?.Name ?? (IsPrivateAddress(ip) && _identityProbe == null ? await _mdnsLookupAsync(ip, ct) : null);
+                    if (_deviceProbe != null)
+                    {
+                        var device = await _deviceProbe(ip, mac, ct);
+                        deviceDetails[index] = new DeviceDetail(ip, device.Mac, device.Vendor, device.Name, device.Model);
+                        return;
+                    }
+                    var name = IsPrivateAddress(ip) ? await _mdnsLookupAsync(ip, ct) : null;
                     deviceDetails[index] = new DeviceDetail(
                         ip,
                         mac,
                         _ouiDatabase.Lookup(mac) ?? "未知",
                         name ?? "未知（未获得有效名称响应）",
-                        identity?.Model ?? "未知（需服务指纹或管理接口确认）");
+                        "未知（需服务指纹或管理接口确认）");
                 });
 
             var result = new

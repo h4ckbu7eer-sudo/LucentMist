@@ -31,13 +31,16 @@ public static class MdnsProbe
             udp.Connect(new IPEndPoint(address, port));
             await Query(reverse, 12);
             await Query(enumeration, 12);
+            // Some devices answer their service type but not the DNS-SD enumeration query.
+            await Query("_googlecast._tcp.local", 12);
+            await Query("_device-info._tcp.local", 12);
             while (!timeout.IsCancellationRequested)
             {
                 var packet = (await udp.ReceiveAsync(timeout.Token)).Buffer;
                 records.AddRange(DnsRecords.Read(packet).Where(r => r.Class == 1));
                 if (records.Count > 256) break;
                 foreach (var type in records.Where(r => r.Owner == enumeration && r.Type == 12 && r.Name != null)
-                    .Select(r => r.Name!).Distinct().Take(2).ToArray())
+                    .Select(r => r.Name!).Concat(["_googlecast._tcp.local", "_device-info._tcp.local"]).Distinct().Take(4).ToArray())
                 {
                     await Query(type, 12);
                     foreach (var instance in records.Where(r => r.Owner.Equals(type, StringComparison.OrdinalIgnoreCase) && r.Type == 12 && r.Name != null)
@@ -65,6 +68,7 @@ public static class MdnsProbe
         var name = records.FirstOrDefault(r => r.Type == 12 && r.Owner.Equals(reverse, StringComparison.OrdinalIgnoreCase))?.Name;
         var types = records.Where(r => r.Type == 12 && r.Owner == "_services._dns-sd._udp.local")
             .Select(r => r.Name).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
+        types.UnionWith(["_googlecast._tcp.local", "_device-info._tcp.local"]);
         var instances = records.Where(r => r.Type == 12 && types.Contains(r.Owner))
             .Select(r => r.Name).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var txt = records.Where(r => r.Type == 16 && instances.Contains(r.Owner)).SelectMany(r => r.Text);
