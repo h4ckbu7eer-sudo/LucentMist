@@ -100,6 +100,16 @@ public class OsFingerprintToolTests
         Assert.Contains(reasons, reason => reason.Contains("TTL 家族与开放端口"));
     }
 
+    [Theory]
+    [InlineData(128, 22)]
+    [InlineData(51, 135)]
+    public void ContradictoryTtlAndPortEvidenceRemainsLowConfidence(int ttl, int port)
+    {
+        var (_, confidence, reasons) = OsFingerprintTool.InferOs(true, ttl, OsFingerprintTool.HintsFromPorts([port]));
+        Assert.InRange(confidence, 0, 45);
+        Assert.Contains(reasons, reason => reason.Contains("不一致"));
+    }
+
     [Fact]
     public async Task ExecuteAsync_Localhost_TtlIsReasonable()
     {

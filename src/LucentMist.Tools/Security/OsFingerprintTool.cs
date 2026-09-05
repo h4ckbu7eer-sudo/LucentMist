@@ -275,7 +275,7 @@ public class OsFingerprintTool : INetworkTargetTool
         }
 
         // Port hints
-        foreach (var hint in portHints)
+        foreach (var hint in portHints.Distinct())
         {
             reasons.Add($"开放端口提示: {hint}");
             if (hint.Contains("Windows")) { scores["Windows"] = scores.GetValueOrDefault("Windows") + 35; scores["Windows Server"] = scores.GetValueOrDefault("Windows Server") + 30; }
@@ -298,11 +298,19 @@ public class OsFingerprintTool : INetworkTargetTool
         var confidence = portHints.Count == 0
             ? Math.Min(45, best.Value)
             : Math.Min(90, best.Value);
-        if (portHints.Count > 0 && confidence > 50)
+        var ttlSupportsBest = possibleInitialTtls.Any(value => TtlMap[value].Contains(best.Key));
+        var conflictingHint = portHints.Any(hint =>
+            !possibleInitialTtls.Any(value => TtlMap[value].Any(os => hint.Contains(os, StringComparison.Ordinal))));
+        if (portHints.Count > 0 && (!ttlSupportsBest || conflictingHint))
+        {
+            confidence = Math.Min(confidence, 45);
+            reasons.Add("低置信度：TTL 家族与部分端口平台提示不一致，不提高确定性");
+        }
+        else if (portHints.Count > 0 && confidence > 50)
             reasons.Add("TTL 家族与开放端口平台线索一致；置信度已提高，但仍不是主动 TCP/IP OS 指纹");
         if (possibleInitialTtls.Length > 1)
         {
-            reasons.Add("低置信度：TTL 跳数不确定，结果应视为参考");
+            reasons.Add("TTL 跳数不确定，评分仅表示启发式证据强弱，不是统计概率或 OS 确认");
             confidence = Math.Min(confidence, 60);
         }
         return (best.Key, confidence, reasons.ToArray());
