@@ -2570,7 +2570,7 @@ public class CliApp
 
     internal static string DnsRecursionLabel(JsonElement dns) =>
         dns.TryGetProperty("recursionStatus", out var state) && state.GetString() == "unknown"
-            ? "无法确认，需复测（不是已关闭）"
+            ? "本次无法确认递归配置（不是已关闭）"
             : dns.GetProperty("recursionAvailable").GetBoolean()
                 ? "对当前扫描源开放" : "本次未观察到开放递归（不是对所有来源关闭）";
 

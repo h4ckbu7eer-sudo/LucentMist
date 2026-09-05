@@ -74,7 +74,10 @@ public class DnsSecurityProbeTests
         });
         Assert.False(result.RecursionAvailable);
         Assert.Equal("unknown", result.RecursionStatus);
-        Assert.Contains("两次探测不一致", result.RecursionAssessment);
+        Assert.Contains("递归配置未确认", result.RecursionAssessment);
+        Assert.DoesNotContain("RA=", result.RecursionAssessment);
+        Assert.DoesNotContain("no_value", result.RecursionAssessment);
+        Assert.Contains("管理端", result.RecursionAssessment);
         Assert.Equal(2, result.RecursionSamples.Length);
         Assert.Contains("RA=False", result.RecursionSamples[0]);
         Assert.Contains("RA=True", result.RecursionSamples[1]);

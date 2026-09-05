@@ -101,7 +101,7 @@ public static class DnsSecurityProbe
             recursionAvailable,
             recursionAvailable ? "对当前扫描源开放递归；若该服务可从公网访问，可能被用于 DNS 反射/放大攻击" :
                 recursionStatus == "unknown"
-                    ? $"DNS 递归状态无法确认（{(inconsistent ? "两次探测不一致；" : "")}{queries[1].Status}；RA={recursionHeader.RecursionAvailable}；答案数={recursionHeader.AnswerCount}），需复测；回答外部域名不等于已证明递归，也不能视为已关闭"
+                    ? "DNS 递归配置未确认，不能视为已关闭；建议仅允许可信局域网访问 DNS，并在管理端核对递归设置"
                     : "本次递归查询被拒绝或服务器未声明递归能力；未观察到对当前扫描源开放递归",
             recursionQuery.Length,
             recursionResponse?.Length ?? 0,

@@ -6,6 +6,23 @@ namespace LucentMist.Agent.Tests;
 
 public class AgentObservationFormatterTests
 {
+    [Fact]
+    public void DnsModelViewHasOneAssessment_RawConflictingSamplesRemainInSavedEvidence()
+    {
+        var observation = new ReActObservation
+        {
+            ToolName = "vuln_scan",
+            Success = true,
+            Result = """{"dnsSecurity":{"recursionStatus":"unknown","recursionAssessment":"DNS 递归配置未确认","recursionSamples":["RA=False","RA=True"],"recursionAdvertised":true}}""",
+        };
+        var view = AgentObservationFormatter.ForModel(observation);
+        Assert.Contains("递归配置未确认", view);
+        Assert.DoesNotContain("RA=", view);
+        Assert.DoesNotContain("recursionAdvertised", view);
+        Assert.Contains("RA=False", observation.Result);
+        Assert.Contains("RA=True", observation.Result);
+    }
+
     [Theory]
     [InlineData("服务版本均未公开（HTTP 无 Server 头、DNS版本未知）", true)]
     [InlineData("所有服务版本都未公开", true)]
