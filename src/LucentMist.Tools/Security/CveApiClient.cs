@@ -153,7 +153,7 @@ public class CveApiClient
     internal static bool HasUsefulExternalQuery(int port, string? banner)
     {
         var fingerprint = ServiceFingerprint.FromBanner(banner);
-        if (port == 135 && (fingerprint == null || fingerprint.ProductKey == "windows-rpc" && fingerprint.Version == null))
+        if (port == 135 && (fingerprint == null || fingerprint.ProductKey is "windows-rpc" or "dce-rpc" && fingerprint.Version == null))
             return false;
         return ServiceKey(port) != "unknown" || fingerprint != null;
     }

@@ -10,6 +10,7 @@ using LucentMist.Core.Networking;
 using LucentMist.Tools.Common;
 using LucentMist.Tools.Discovery;
 using LucentMist.Tools.Security;
+using LucentMist.Tools.Vulnerability;
 using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Tools.Scanning;
@@ -362,6 +363,8 @@ public class ServiceIdentifyTool : INetworkTargetTool
 
     private async Task<string?> GrabBannerAsync(string ip, int port, int timeoutMs, CancellationToken cancellationToken)
     {
+        if (port == 135)
+            return await RpcProbe.ProbeAsync(ip, port, timeoutMs, cancellationToken);
         try
         {
             cancellationToken.ThrowIfCancellationRequested();

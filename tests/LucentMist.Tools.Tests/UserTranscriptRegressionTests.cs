@@ -93,18 +93,14 @@ public class UserTranscriptRegressionTests
     }
 
     [Fact]
-    public void OpenTcp135_IsReportedAsObservedRpcWithoutInventingAVersionOrBanner()
+    public void OpenTcp135_WithoutProtocolResponseDoesNotInventRpcOrWindows()
     {
         var evidence = LucentMist.Tools.Security.VulnerabilityScanTool
             .NormalizeObservedServiceEvidence(135, null);
         var fingerprint = ServiceFingerprint.FromBanner(evidence);
 
-        Assert.Contains("TCP/135 已响应", evidence);
-        Assert.Contains("未返回应用 Banner", evidence);
-        Assert.Equal("windows-rpc", fingerprint?.ProductKey);
-        Assert.Null(fingerprint?.Version);
-        Assert.Null(fingerprint?.Cpe);
-        Assert.Equal("TCP/135 protocol evidence", fingerprint?.EvidenceSource);
+        Assert.Null(evidence);
+        Assert.Null(fingerprint);
     }
 
     [Fact]
