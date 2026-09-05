@@ -45,6 +45,31 @@ public class CloudCveTests
     }
 
     [Fact]
+    public async Task SameHttpProductAcrossPortsReusesRawSourcesButDifferentVersionRequeries()
+    {
+        var calls = 0;
+        using var http = new HttpClient(new Handler((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(Json("""{"data":[],"cves":[],"vulnerabilities":[]}"""));
+        }));
+        using (CveApiClient.BeginAnalysisScope())
+        {
+            await CveApiClient.QueryWithStatusAsync("HTTP Server: nginx/1.24.0", 80, http, true, CancellationToken.None);
+            var https = await CveApiClient.QueryWithStatusAsync("HTTP Server: nginx/1.24.0", 443, http, true, CancellationToken.None);
+            Assert.Equal(3, calls);
+            Assert.All(https.Sources, source => Assert.True(source.Cached));
+            await CveApiClient.QueryWithStatusAsync("HTTP Server: nginx/1.26.0", 443, http, true, CancellationToken.None);
+            Assert.Equal(6, calls);
+        }
+        using (CveApiClient.BeginAnalysisScope())
+        {
+            await CveApiClient.QueryWithStatusAsync("HTTP Server: nginx/1.24.0", 80, http, true, CancellationToken.None);
+            Assert.Equal(9, calls);
+        }
+    }
+
+    [Fact]
     public async Task UnknownHttp_QueriesKeywords_NotInventedNginxCpe()
     {
         var requests = new ConcurrentBag<string>();
@@ -151,12 +176,14 @@ public class CloudCveTests
         Assert.Contains(report.Sources, s => s.Status == "rate_limited");
     }
 
-    [Fact]
-    public async Task ShodanUnknownProduct404_IsAValidEmptyResult_NotCoverageFailure()
+    [Theory]
+    [InlineData("{\"detail\":\"No information available\"}", false)]
+    [InlineData("Not Found", true)]
+    public async Task ShodanUnknownProduct404_IsEmptyOnlyForExplicitNoDataResponse(string body, bool partial)
     {
         using var http = new HttpClient(new Handler((request, _) => Task.FromResult(
             request.RequestUri!.Host == "cvedb.shodan.io"
-                ? new HttpResponseMessage(HttpStatusCode.NotFound)
+                ? new HttpResponseMessage(HttpStatusCode.NotFound) { Content = new StringContent(body) }
                 : Json(request.RequestUri.Host == "cvetodo.com"
                     ? """{"data":[]}"""
                     : """{"vulnerabilities":[]}"""))));
@@ -164,8 +191,8 @@ public class CloudCveTests
         var report = await CveApiClient.QueryWithStatusAsync(
             "HTTP 已响应（未公开 Server 头版本）", 80, http, true, CancellationToken.None);
 
-        Assert.Contains(report.Sources, source => source.Source == "Shodan API" && source.Status == "ok");
-        Assert.False(report.IsPartial);
+        Assert.Contains(report.Sources, source => source.Source == "Shodan API" && source.Status == (partial ? "http_error" : "ok"));
+        Assert.Equal(partial, report.IsPartial);
     }
 
     [Fact]

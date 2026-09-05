@@ -20,6 +20,20 @@ public class CveApiClient
     private static readonly SemaphoreSlim Requests = new(6);
     private static readonly object NvdLock = new();
     private static DateTime NextNvdRequest;
+    private static readonly AsyncLocal<QueryScope?> CurrentScope = new();
+
+    public static IDisposable BeginAnalysisScope()
+    {
+        var scope = new QueryScope(CurrentScope.Value);
+        CurrentScope.Value = scope;
+        return scope;
+    }
+
+    private sealed class QueryScope(QueryScope? previous) : IDisposable
+    {
+        internal readonly ConcurrentDictionary<string, Lazy<Task<QueryReport>>> Snapshots = new();
+        public void Dispose() => CurrentScope.Value = previous;
+    }
 
     public record CveDetail(string Cve, string Description, double CvssScore, string Source, string Fix,
         string VersionStatus = "unverified", string? VerificationDetail = null, string EvidenceScope = "product", int ReferenceCount = 0);
@@ -77,12 +91,25 @@ public class CveApiClient
         var commit = CreateOsvCommitQuery(banner);
         var cpe = fingerprint?.Version == null ? null : fingerprint.Cpe;
         var cacheKey = $"{port}|{keyword}|{cpe}|{commit?.Commit}";
-        if (useCache && Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
+        if (useCache && CurrentScope.Value == null && Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
             return hit.Report with { Items = hit.Report.Items.ToList(), Sources = hit.Report.Sources.Select(s => s with { Cached = true }).ToArray() };
 
-        var responses = await Task.WhenAll(sources.Select((source, index) => Fetch(source, index)));
-        var items = responses.SelectMany(r => r.Items).GroupBy(d => d.Cve, StringComparer.OrdinalIgnoreCase).Select(MergeSourceDetails);
-        var report = new QueryReport(FilterExternalResultsByBanner(port, banner, items), responses.Select(r => r.Status).ToArray());
+        async Task<QueryReport> FetchRaw()
+        {
+            var responses = await Task.WhenAll(sources.Select((source, index) => Fetch(source, index)));
+            var items = responses.SelectMany(r => r.Items).GroupBy(d => d.Cve, StringComparer.OrdinalIgnoreCase).Select(MergeSourceDetails).ToList();
+            return new(items, responses.Select(r => r.Status).ToArray());
+        }
+        // HTTP and HTTPS with identical product/version evidence issue the same
+        // cloud query. Share its raw snapshot within this scan, but apply each
+        // port's built-in version exclusions independently below.
+        var lookupKey = $"{keyword}|{fingerprint?.Version}|{cpe}|{commit?.Commit}";
+        var scope = CurrentScope.Value;
+        var reused = scope?.Snapshots.ContainsKey(lookupKey) == true;
+        var raw = scope == null ? await FetchRaw() : await scope.Snapshots.GetOrAdd(lookupKey,
+            _ => new Lazy<Task<QueryReport>>(FetchRaw, LazyThreadSafetyMode.ExecutionAndPublication)).Value.WaitAsync(ct);
+        var report = new QueryReport(FilterExternalResultsByBanner(port, banner, raw.Items),
+            raw.Sources.Select(s => reused ? s with { Cached = true, Detail = s.Detail + "；本次分析复用相同产品/版本查询" } : s).ToArray());
         if (useCache)
         {
             Cache[cacheKey] = (DateTime.UtcNow.AddSeconds(report.IsPartial ? 30 : 600), report);
@@ -246,9 +273,19 @@ public class CveApiClient
         {
             var url = cpe == null ? $"https://cvedb.shodan.io/cves?product={Uri.EscapeDataString(svcKey)}&limit=10" : $"https://cvedb.shodan.io/cves?cpe23={Uri.EscapeDataString(cpe)}&limit=10";
             using var response = await http.GetAsync(url, ct);
-            // CVEDB uses 404 for an unknown product/CPE search. That is a valid
-            // empty lookup, not a transport failure or evidence of lost coverage.
-            if (response.StatusCode == System.Net.HttpStatusCode.NotFound) return [];
+            // Only CVEDB's documented-by-response no-data body is an empty lookup.
+            // A generic proxy/route 404 must remain a source coverage failure.
+            if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
+            {
+                var body = await response.Content.ReadAsStringAsync(ct);
+                try
+                {
+                    using var error = JsonDocument.Parse(body);
+                    if (error.RootElement.TryGetProperty("detail", out var detail) &&
+                        detail.ValueKind == JsonValueKind.String && detail.GetString() == "No information available") return [];
+                }
+                catch (JsonException) { }
+            }
             response.EnsureSuccessStatusCode();
 
             var json = await response.Content.ReadAsStringAsync(ct);
