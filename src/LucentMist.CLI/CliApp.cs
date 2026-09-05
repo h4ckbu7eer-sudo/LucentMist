@@ -2348,7 +2348,7 @@ public class CliApp
     internal static Table BuildPingDeviceTable(JsonElement details)
     {
         var deviceTable = new Table().BorderColor(Color.Grey)
-            .AddColumn("IP").AddColumn("在线状态").AddColumn("名称").AddColumn("MAC")
+            .AddColumn(new TableColumn("IP").NoWrap()).AddColumn("在线状态").AddColumn("名称").AddColumn("MAC")
             .AddColumn("厂商").AddColumn("型号");
         foreach (var device in details.EnumerateArray())
         {
