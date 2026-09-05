@@ -10,6 +10,7 @@ public static class CloudLeadRanking
 {
     public const int PerPortLimit = 3;
     public const int ModelLeadLimit = 5;
+    public const string DisplayPolicy = "云端待核实线索仅展示 CVSS ≥ 4.0、实际发布日期在 2018 年之后且有产品证据的条目；缺失评分/日期的不推荐。过滤不代表目标安全，不删除已确认风险证据。";
     public const string NextStep = "先登录设备管理端确认厂商、型号和固件/服务版本，再对照厂商安全公告与受影响范围；不要仅凭这些关键词线索认定漏洞或执行利用。";
 
     public static JsonElement[] Rank(IEnumerable<JsonElement> candidates, OsHint? os = null) => candidates.Select(item => Annotate(item, os))
@@ -33,7 +34,7 @@ public static class CloudLeadRanking
             withoutProductEvidenceCount = group.Count(item => !item.GetProperty("productEvidence").GetBoolean()),
             leads = group.Where(IsRelevantForPresentation).Take(PerPortLimit).ToArray(),
             nextStep = NextStep,
-            limitation = "按可观察相关性排序，均为待核实线索，不是目标漏洞；年份/引用数仅用于同相关性排序，不代表正在被利用。",
+            limitation = DisplayPolicy,
         })).ToArray();
 
     public static JsonElement[] ForPresentation(IEnumerable<JsonElement> groups)
@@ -41,7 +42,7 @@ public static class CloudLeadRanking
         var array = groups.ToArray();
         static string Key(JsonElement lead) => $"{lead.GetProperty("port")}:{lead.GetProperty("cve")}";
         var selected = Rank(array.SelectMany(group => group.GetProperty("leads").EnumerateArray()))
-            .Take(ModelLeadLimit).Select(Key).ToHashSet(StringComparer.Ordinal);
+            .Where(IsRelevantForPresentation).Take(ModelLeadLimit).Select(Key).ToHashSet(StringComparer.Ordinal);
         return array.Select(group =>
         {
             var node = JsonNode.Parse(group.GetRawText())!.AsObject();
@@ -111,6 +112,10 @@ public static class CloudLeadRanking
         item["historicalUnverified"] = year is > 0 and < 2005 &&
             item["versionStatus"]?.GetValue<string>() != "verified" && item["versionVerified"]?.GetValue<bool>() != true;
         item["hasCvss"] = item["cvss"] is JsonValue value && value.TryGetValue<double>(out var cvss) && cvss > 0;
+        var published = item["publishedAt"]?.GetValue<string>();
+        item["displayPolicyEligible"] = item["cvss"] is JsonValue rating && rating.TryGetValue<double>(out var scoreValue) &&
+            scoreValue >= 4 && DateTimeOffset.TryParse(published, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal, out var date) && date.Year > 2018;
         item["referenceCount"] = Math.Clamp(item["referenceCount"]?.GetValue<int>() ?? 0, 0, 1000);
         return item;
     }
@@ -120,7 +125,7 @@ public static class CloudLeadRanking
         TimeSpan.FromMilliseconds(100));
 
     private static bool IsRelevantForPresentation(JsonElement item) =>
-        !item.GetProperty("historicalUnverified").GetBoolean() && item.GetProperty("productEvidence").GetBoolean();
+        item.GetProperty("displayPolicyEligible").GetBoolean() && item.GetProperty("productEvidence").GetBoolean();
 
     private static int SourcePriority(string source) => source.Contains("NVD", StringComparison.OrdinalIgnoreCase) ? 3
         : source.Contains("Shodan", StringComparison.OrdinalIgnoreCase) ? 2 : 1;

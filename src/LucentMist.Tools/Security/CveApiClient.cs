@@ -36,7 +36,8 @@ public class CveApiClient
     }
 
     public record CveDetail(string Cve, string Description, double CvssScore, string Source, string Fix,
-        string VersionStatus = "unverified", string? VerificationDetail = null, string EvidenceScope = "product", int ReferenceCount = 0);
+        string VersionStatus = "unverified", string? VerificationDetail = null, string EvidenceScope = "product", int ReferenceCount = 0,
+        DateTimeOffset? PublishedAt = null);
     public record SourceStatus(string Source, string Status, string Detail, bool Cached = false);
     public record QueryReport(List<CveDetail> Items, SourceStatus[] Sources)
     {
@@ -212,6 +213,7 @@ public class CveApiClient
             Source = sources,
             Fix = strongestMetadata.Fix,
             ReferenceCount = details.Max(item => item.ReferenceCount),
+            PublishedAt = details.Min(item => item.PublishedAt),
         };
     }
 
@@ -256,7 +258,7 @@ public class CveApiClient
                 if (item.TryGetProperty("base_score", out var bs) && double.TryParse(bs.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)) cvss = parsed;
                 else if (item.TryGetProperty("cvss_v3", out var cv3) && cv3.ValueKind == JsonValueKind.Number && cv3.TryGetDouble(out var v3)) cvss = v3;
                 else if (item.TryGetProperty("cvss", out var cv) && cv.ValueKind == JsonValueKind.Number && cv.TryGetDouble(out var v)) cvss = v;
-                results.Add(new CveDetail(cveId, desc ?? "无描述", cvss, "CVETodo API", "参考官方公告"));
+                results.Add(new CveDetail(cveId, desc ?? "无描述", cvss, "CVETodo API", "参考官方公告", PublishedAt: ReadPublishedAt(item)));
             }
             return results;
         }
@@ -310,7 +312,7 @@ public class CveApiClient
                 if (item.TryGetProperty("base_score", out var bs) && double.TryParse(bs.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var parsed)) cvss = parsed;
                 else if (item.TryGetProperty("cvss_v3", out var cv3) && cv3.ValueKind == JsonValueKind.Number && cv3.TryGetDouble(out var v3)) cvss = v3;
                 else if (item.TryGetProperty("cvss", out var cv) && cv.ValueKind == JsonValueKind.Number && cv.TryGetDouble(out var v)) cvss = v;
-                results.Add(new CveDetail(cveId, desc ?? "无描述", cvss, "Shodan API", "参考官方公告"));
+                results.Add(new CveDetail(cveId, desc ?? "无描述", cvss, "Shodan API", "参考官方公告", PublishedAt: ReadPublishedAt(item)));
             }
             return results;
         }
@@ -369,7 +371,7 @@ public class CveApiClient
 
                 var referenceCount = cveNode.TryGetProperty("references", out var references) && references.ValueKind == JsonValueKind.Array
                     ? references.GetArrayLength() : 0;
-                results.Add(new CveDetail(cveId, desc, cvss, "NVD", $"参考 NVD: https://nvd.nist.gov/vuln/detail/{cveId}", ReferenceCount: referenceCount));
+                results.Add(new CveDetail(cveId, desc, cvss, "NVD", $"参考 NVD: https://nvd.nist.gov/vuln/detail/{cveId}", ReferenceCount: referenceCount, PublishedAt: ReadPublishedAt(cveNode)));
             }
             return results;
         }
@@ -377,6 +379,16 @@ public class CveApiClient
         catch (HttpRequestException) { throw; }
         catch (TaskCanceledException) { throw; }
         catch (JsonException) { return null; }
+    }
+
+    // Do not substitute the CVE ID year or modification time for publication evidence.
+    internal static DateTimeOffset? ReadPublishedAt(JsonElement item)
+    {
+        foreach (var field in new[] { "published", "published_time", "published_at", "datePublished" })
+            if (item.TryGetProperty(field, out var value) && value.ValueKind == JsonValueKind.String &&
+                DateTimeOffset.TryParse(value.GetString(), System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal, out var date)) return date;
+        return null;
     }
 
     // ========== OSV.dev ==========

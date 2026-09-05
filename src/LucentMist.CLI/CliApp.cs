@@ -2715,15 +2715,16 @@ public class CliApp
                 ? presentedNode.GetInt32()
                 : CloudLeadRanking.CountForPresentation(CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())));
             AnsiConsole.MarkupLine($"[yellow]云源原始命中 {candidates.GetArrayLength()} 条元数据；筛出 {presented} 条优先待核实线索。原始数量会随外部索引/限流变化，不代表目标风险增加。相关性不是漏洞确认。[/]");
-            foreach (var group in CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())))
+            AnsiConsole.MarkupLine($"[grey]{Escape(CloudLeadRanking.DisplayPolicy)}[/]");
+            foreach (var group in CloudLeadRanking.ForPresentation(CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray()))))
             {
                 if (group.GetProperty("leads").GetArrayLength() == 0)
                 {
-                    AnsiConsole.MarkupLine($"[grey]端口 {group.GetProperty("port")}：收起 {group.GetProperty("totalCount")} 条无产品证据/历史检索结果，不列为优先核实项。[/]");
+                    AnsiConsole.MarkupLine($"[grey]端口 {group.GetProperty("port")}：收起 {group.GetProperty("totalCount")} 条未满足产品证据/评分/发布日期条件的检索结果，不列为优先核实项。[/]");
                     continue;
                 }
                 AnsiConsole.Write(new Panel(BuildCloudCandidateTable(group.GetProperty("leads")))
-                    .Header($"端口 {group.GetProperty("port")} · {group.GetProperty("totalCount")} 条 / 收起 {group.GetProperty("omittedCount")} 条")
+                    .Header($"端口 {group.GetProperty("port")} · {group.GetProperty("totalCount")} 条 / 收起 {group.GetProperty("totalCount").GetInt32() - group.GetProperty("leads").GetArrayLength()} 条")
                     .BorderColor(Color.Yellow));
             }
             AnsiConsole.MarkupLine($"[yellow]下一步：{Escape(CloudLeadRanking.NextStep)}[/]");
@@ -2745,7 +2746,7 @@ public class CliApp
         if (root.TryGetProperty("cloudCandidates", out var candidates) && candidates.ValueKind == JsonValueKind.Array && candidates.GetArrayLength() > 0)
         {
             var groups = CloudLeadRanking.ForPresentation(CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates.EnumerateArray())));
-            lines.Add($"云端 {candidates.GetArrayLength()} 条检索结果；仅展示有产品证据的相关线索，最多 {CloudLeadRanking.ModelLeadLimit} 条（版本未验证，非目标漏洞）：");
+            lines.Add($"云端 {candidates.GetArrayLength()} 条检索结果；仅推荐产品相关、CVSS ≥ 4、发布于 2018 年后的线索，最多 {CloudLeadRanking.ModelLeadLimit} 条（非目标漏洞）：");
             foreach (var group in groups)
             {
                 var leads = group.GetProperty("leads").EnumerateArray().ToArray();

@@ -16,6 +16,7 @@ public class CloudLeadRankingTests
             banner = "HTTP Server: nginx/1.24.0",
             source = "NVD",
             cvss = 7.5,
+            publishedAt = "2025-01-01T00:00:00Z",
             versionStatus = "unverified",
         }));
 
@@ -89,13 +90,14 @@ public class CloudLeadRankingTests
     }
 
     [Fact]
-    public void OldVersionVerifiedEvidenceIsNotHiddenBecauseOfAge()
+    public void CloudDisplayPolicyDoesNotDeleteOldEvidence_ButOmitsItFromRecommendations()
     {
         var ranked = CloudLeadRanking.Rank([JsonSerializer.SerializeToElement(new
         {
             port = 53, cve = "CVE-1999-0010", name = "DNS", source = "version-aware", versionStatus = "verified",
         })]);
-        Assert.Single(Assert.Single(CloudLeadRanking.Group(ranked)).GetProperty("leads").EnumerateArray());
+        Assert.Single(ranked);
+        Assert.Empty(Assert.Single(CloudLeadRanking.Group(ranked)).GetProperty("leads").EnumerateArray());
     }
 
     [Fact]
@@ -109,6 +111,7 @@ public class CloudLeadRankingTests
             banner = "HTTP Server: nginx/1.20.0",
             source = "NVD",
             cvss = 7.0,
+            publishedAt = "2024-01-01T00:00:00Z",
         }));
         var groups = CloudLeadRanking.ForPresentation(CloudLeadRanking.Group(CloudLeadRanking.Rank(candidates)));
         Assert.Equal(5, groups.Sum(group => group.GetProperty("leads").GetArrayLength()));
@@ -137,6 +140,7 @@ public class CloudLeadRankingTests
             banner = "HTTP Server: nginx/1.20.0",
             source = "CVETodo API",
             cvss = 7.7,
+            publishedAt = "2021-05-25T00:00:00Z",
             versionStatus = "unverified",
             referenceCount = 1,
         });
