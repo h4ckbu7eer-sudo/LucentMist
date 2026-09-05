@@ -494,7 +494,7 @@ public class CliApp
         var tool = new ServiceIdentifyTool(lf.CreateLogger<ServiceIdentifyTool>());
 
         var rows = new List<(int port, string service, string banner, string? procName, int? pid, string? svcName, bool ok)>();
-        var dnsRows = new List<(string version, bool recursion, string assessment, double ratio)>();
+        var dnsRows = new List<(string version, string recursion, string assessment, double ratio)>();
         var sw = System.Diagnostics.Stopwatch.StartNew();
 
         foreach (var port in svcPorts)
@@ -528,7 +528,7 @@ public class CliApp
                 {
                     dnsRows.Add((
                         DnsVersionLabel(dns),
-                        dns.GetProperty("recursionAvailable").GetBoolean(),
+                        DnsRecursionLabel(dns),
                         dns.GetProperty("recursionAssessment").GetString() ?? "未知",
                         dns.GetProperty("amplificationRatio").GetDouble()));
                 }
@@ -568,7 +568,7 @@ public class CliApp
         AnsiConsole.Write(table);
         if (dnsRows.Count > 0)
         {
-            var dnsTable = new Table().BorderColor(dnsRows.Any(row => row.recursion) ? Color.Yellow : Color.Green)
+            var dnsTable = new Table().BorderColor(Color.Yellow)
                 .AddColumn("DNS 版本")
                 .AddColumn("递归状态")
                 .AddColumn("本次响应/请求")
@@ -577,7 +577,7 @@ public class CliApp
             {
                 dnsTable.AddRow(
                     Escape(dns.version),
-                    dns.recursion ? "[yellow]对当前扫描源开放[/]" : "[green]未观察到开放递归[/]",
+                    Escape(dns.recursion),
                     $"{dns.ratio:F2}x",
                     Escape(dns.assessment));
             }
@@ -2551,6 +2551,12 @@ public class CliApp
             : $"{family}（启发式线索，{confidence}，非确认）";
     }
 
+    internal static string DnsRecursionLabel(JsonElement dns) =>
+        dns.TryGetProperty("recursionStatus", out var state) && state.GetString() == "unknown"
+            ? "无法确认，需复测（不是已关闭）"
+            : dns.GetProperty("recursionAvailable").GetBoolean()
+                ? "对当前扫描源开放" : "本次未观察到开放递归（不是对所有来源关闭）";
+
     internal static string DnsVersionLabel(JsonElement dns) =>
         dns.TryGetProperty("version", out var version) && version.ValueKind == JsonValueKind.String &&
         !string.IsNullOrWhiteSpace(version.GetString()) ? version.GetString()! :
@@ -2574,12 +2580,11 @@ public class CliApp
         if (r.TryGetProperty("dnsSecurity", out var dns) && dns.ValueKind == JsonValueKind.Object)
         {
             var version = DnsVersionLabel(dns);
-            var recursion = dns.GetProperty("recursionAvailable").GetBoolean();
             var ratio = dns.GetProperty("amplificationRatio").GetDouble();
-            var table = new Table().BorderColor(recursion ? Color.Yellow : Color.Green)
+            var table = new Table().BorderColor(Color.Yellow)
                 .AddColumn("DNS 检查").AddColumn("结果")
                 .AddRow("版本", Escape(version))
-                .AddRow("递归", recursion ? "[yellow]对当前扫描源开放[/]" : "[green]未观察到开放递归[/]")
+                .AddRow("递归", Escape(DnsRecursionLabel(dns)))
                 .AddRow("本次响应/请求", $"{ratio:F2}x")
                 .AddRow("风险判断", Escape(dns.GetProperty("recursionAssessment").GetString() ?? "未知"));
             AnsiConsole.Write(table);

@@ -29,6 +29,57 @@ public class DnsSecurityProbeTests
         Assert.Equal("BIND 9.18.1", DnsSecurityProbe.NormalizeVersion("BIND 9.18.1"));
     }
 
+    [Theory]
+    [InlineData(0x80, 0, "unknown")]
+    [InlineData(0x82, 0, "unknown")]
+    [InlineData(0x83, 0, "unknown")]
+    [InlineData(0x85, 0, "not_observed")]
+    [InlineData(0x00, 0, "not_observed")]
+    [InlineData(0x80, 1, "unknown")]
+    public void RecursionDoesNotTreatResolutionFailureOrMalformedAnswerAsDisabled(int flags, int count, string status)
+    {
+        var response = DnsSecurityProbe.BuildQuery("example.com", 1, 1, true);
+        response[2] |= 0x80;
+        response[3] = (byte)flags;
+        response[7] = (byte)count;
+        Assert.Equal(status, DnsSecurityProbe.RecursionState(response));
+    }
+
+    [Fact]
+    public async Task RealGatewayAnswerWithoutRaIsUnknownNotDisabled_AndRetryCannotDiscardIt()
+    {
+        // Captured gateway response: two A records, NOERROR, but RA=0.
+        var packet = Convert.FromHexString("4C4D81000001000200000000076578616D706C6503636F6D0000010001C00C00010001000000C80004AC4293F3C00C00010001000000C800046814179A");
+        Assert.Equal("unknown", DnsSecurityProbe.RecursionState(packet));
+        var calls = 0;
+        var result = await DnsSecurityProbe.ProbeWithSenderAsync("192.0.2.53", _ => Task.FromResult<byte[]?>(++calls == 1 ? packet : null));
+        Assert.Equal("unknown", result.RecursionStatus);
+        Assert.False(result.RecursionAdvertised);
+        Assert.Equal(2, result.RecursionAnswerCount);
+        Assert.Contains("不能视为已关闭", result.RecursionAssessment);
+        Assert.Equal("unknown", result.VersionStatus);
+    }
+
+    [Fact]
+    public async Task ChangingRaBetweenValidRepliesIsReportedAsInconsistentNotAsClosedOrOpen()
+    {
+        var response = Convert.FromHexString("4C4D81000001000200000000076578616D706C6503636F6D0000010001C00C00010001000000C80004AC4293F3C00C00010001000000C800046814179A");
+        var calls = 0;
+        var result = await DnsSecurityProbe.ProbeWithSenderAsync("192.0.2.53", _ =>
+        {
+            if (++calls > 2) return Task.FromResult<byte[]?>(null);
+            var sample = response.ToArray();
+            if (calls == 2) sample[3] |= 0x80;
+            return Task.FromResult<byte[]?>(sample);
+        });
+        Assert.False(result.RecursionAvailable);
+        Assert.Equal("unknown", result.RecursionStatus);
+        Assert.Contains("两次探测不一致", result.RecursionAssessment);
+        Assert.Equal(2, result.RecursionSamples.Length);
+        Assert.Contains("RA=False", result.RecursionSamples[0]);
+        Assert.Contains("RA=True", result.RecursionSamples[1]);
+    }
+
     private static DnsSecurityResult Snapshot(bool available) => new(null, "版本未知", available,
         available ? "对当前扫描源开放递归" : "状态未知", 29, 0, 0);
 
@@ -47,6 +98,9 @@ public class DnsSecurityProbeTests
         using var vulnerabilityJson = JsonDocument.Parse(vulnerability.Data);
         Assert.Equal(serviceJson.RootElement.GetProperty("dnsSecurity").GetRawText(),
             vulnerabilityJson.RootElement.GetProperty("dnsSecurity").GetRawText());
+        var dnsService = Assert.Single(vulnerabilityJson.RootElement.GetProperty("checkedServices").EnumerateArray());
+        Assert.Equal("版本未知", dnsService.GetProperty("versionLabel").GetString());
+        Assert.DoesNotContain("版本未提取", dnsService.GetProperty("versionLabel").GetString());
     }
 
     [Fact]
@@ -120,7 +174,7 @@ public class DnsSecurityProbeTests
             calls.Add(recursionDesired);
             if (!recursionDesired || ++recursionCalls == 1) return Task.FromResult<byte[]?>(null);
 
-            var response = query.ToArray();
+            var response = query.Concat(new byte[] { 0xc0, 0x0c, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 192, 0, 2, 1 }).ToArray();
             response[2] |= 0x80;
             response[3] |= 0x80;
             BinaryPrimitives.WriteUInt16BigEndian(response.AsSpan(6, 2), 1);

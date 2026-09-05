@@ -28,6 +28,7 @@ internal static class DnsRecords
             offset += 10;
             var end = offset + length;
             if (end > packet.Length) return [];
+            if (type == 1 && length != 4 || type == 28 && length != 16) return [];
             string? name = null;
             var text = new List<string>();
             if (type is 12 or 6 or 33)

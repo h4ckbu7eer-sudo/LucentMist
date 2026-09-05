@@ -59,18 +59,16 @@ public static class DnsSecurityProbe
         var octets = IPAddress.Parse(target).GetAddressBytes();
         var zone = $"{octets[2]}.{octets[1]}.{octets[0]}.in-addr.arpa";
         var soaQuery = BuildQuery(zone, 6, 1, recursionDesired: false);
-        // Embedded resolvers commonly rate-limit a burst of CHAOS/A/SOA requests.
-        // Recursion is the security decision, so probe it first and retry one
-        // missing response before sending optional identity queries.
+        // Prioritize security evidence over optional identity queries. A timeout
+        // or transient resolution error is not evidence that recursion is disabled.
         cancellationToken.ThrowIfCancellationRequested();
-        var recursionResponse = await send(recursionQuery);
-        var recursionAttempts = 1;
-        if (recursionResponse == null)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            recursionResponse = await send(recursionQuery);
-            recursionAttempts++;
-        }
+        var firstRecursionResponse = await send(recursionQuery);
+        cancellationToken.ThrowIfCancellationRequested();
+        var secondRecursionResponse = await send(recursionQuery);
+        var recursionResponse = secondRecursionResponse ?? firstRecursionResponse;
+        const int recursionAttempts = 2;
+        var inconsistent = firstRecursionResponse != null && secondRecursionResponse != null &&
+            RecursionState(firstRecursionResponse) != RecursionState(secondRecursionResponse);
         async Task<byte[]?> SendIdentity(byte[] query)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -88,9 +86,9 @@ public static class DnsSecurityProbe
         };
         var rawVersion = queries[0].Value;
         var version = NormalizeVersion(rawVersion);
-        var recursion = recursionResponse == null ? default : ReadHeader(recursionResponse);
-        var recursionAvailable = recursionResponse != null && recursion.ResponseCode == 0 &&
-                                 recursion.RecursionAvailable && recursion.AnswerCount > 0;
+        var recursionStatus = inconsistent ? "unknown" : RecursionState(recursionResponse);
+        var recursionHeader = recursionResponse == null ? default : ReadHeader(recursionResponse);
+        var recursionAvailable = recursionStatus == "observed";
         var ratio = recursionResponse == null ? 0 : recursionResponse.Length / (double)recursionQuery.Length;
 
         return new DnsSecurityResult(
@@ -102,17 +100,37 @@ public static class DnsSecurityProbe
                 : "服务器公开了 DNS 软件版本",
             recursionAvailable,
             recursionAvailable ? "对当前扫描源开放递归；若该服务可从公网访问，可能被用于 DNS 反射/放大攻击" :
-                recursionResponse == null ? "DNS 递归查询无有效响应，状态未知，需复测；不能视为已关闭" : "未观察到对当前扫描源开放递归",
+                recursionStatus == "unknown"
+                    ? $"DNS 递归状态无法确认（{(inconsistent ? "两次探测不一致；" : "")}{queries[1].Status}；RA={recursionHeader.RecursionAvailable}；答案数={recursionHeader.AnswerCount}），需复测；回答外部域名不等于已证明递归，也不能视为已关闭"
+                    : "本次递归查询被拒绝或服务器未声明递归能力；未观察到对当前扫描源开放递归",
             recursionQuery.Length,
             recursionResponse?.Length ?? 0,
             Math.Round(ratio, 2))
         {
-            RecursionStatus = recursionResponse == null ? "unknown" : recursionAvailable ? "observed" : "not_observed",
+            RecursionStatus = recursionStatus,
+            VersionStatus = version != null ? "observed" : versionResponse == null ? "unknown" : "not_disclosed",
             Queries = queries,
             Hostname = queries[2].Value,
             SoaPrimaryName = queries[3].Value,
             RecursionProbeAttempts = recursionAttempts,
+            RecursionAdvertised = recursionResponse == null ? null : recursionHeader.RecursionAvailable,
+            RecursionResponseCode = recursionResponse == null ? null : recursionHeader.ResponseCode,
+            RecursionAnswerCount = recursionResponse == null ? null : recursionHeader.AnswerCount,
+            RecursionSamples = new[] { firstRecursionResponse, secondRecursionResponse }.Select(packet =>
+                packet == null ? "no_valid_response" : $"{RecursionState(packet)}; RA={ReadHeader(packet).RecursionAvailable}; RCODE={ReadHeader(packet).ResponseCode}; answers={ReadHeader(packet).AnswerCount}").ToArray(),
         };
+    }
+
+    internal static string RecursionState(byte[]? response)
+    {
+        if (response == null || response.Length < 12 || (response[2] & 0x82) != 0x80) return "unknown";
+        var header = ReadHeader(response);
+        if (header.ResponseCode == 5 || header.ResponseCode == 0 && !header.RecursionAvailable && header.AnswerCount == 0) return "not_observed";
+        // SERVFAIL, NXDOMAIN or a bare RA bit do not prove successful recursion.
+        // Require parsed A answer evidence, not merely a nonzero header counter.
+        return header.ResponseCode == 0 && header.RecursionAvailable && header.AnswerCount > 0 &&
+            DnsRecords.Read(response).Any(record => record.Type == 1 && record.Class == 1)
+            ? "observed" : "unknown";
     }
 
     internal static byte[] BuildQuery(string name, ushort type, ushort @class, bool recursionDesired)
@@ -305,6 +323,8 @@ public sealed record DnsSecurityResult(
     [property: JsonPropertyName("responseBytes")] int ResponseBytes,
     [property: JsonPropertyName("amplificationRatio")] double AmplificationRatio)
 {
+    [JsonPropertyName("versionStatus")]
+    public string VersionStatus { get; init; } = "unknown";
     [JsonPropertyName("recursionStatus")]
     public string? RecursionStatus { get; init; }
     [JsonPropertyName("evidenceId")]
@@ -317,6 +337,14 @@ public sealed record DnsSecurityResult(
     public string? SoaPrimaryName { get; init; }
     [JsonPropertyName("recursionProbeAttempts")]
     public int RecursionProbeAttempts { get; init; } = 1;
+    [JsonPropertyName("recursionAdvertised")]
+    public bool? RecursionAdvertised { get; init; }
+    [JsonPropertyName("recursionResponseCode")]
+    public int? RecursionResponseCode { get; init; }
+    [JsonPropertyName("recursionAnswerCount")]
+    public int? RecursionAnswerCount { get; init; }
+    [JsonPropertyName("recursionSamples")]
+    public string[] RecursionSamples { get; init; } = [];
 }
 
 public sealed record DnsQueryEvidence(string Name, ushort Type, ushort Class, string Status, int? ResponseCode, string? Value);

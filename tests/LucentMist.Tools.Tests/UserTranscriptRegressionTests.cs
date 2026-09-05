@@ -60,6 +60,14 @@ public class UserTranscriptRegressionTests
     }
 
     [Fact]
+    public void DnsTransientFailureIsRenderedAsUnknownNotClosed()
+    {
+        var dns = JsonSerializer.SerializeToElement(new { recursionAvailable = false, recursionStatus = "unknown" });
+        Assert.Contains("无法确认", CliApp.DnsRecursionLabel(dns));
+        Assert.DoesNotContain("未观察到开放", CliApp.DnsRecursionLabel(dns));
+    }
+
+    [Fact]
     public void HttpResponseWithoutServerVersion_UsesOneConsistentDisclosureState()
     {
         var label = LucentMist.Tools.Security.VulnerabilityScanTool.BuildVersionLabel(
