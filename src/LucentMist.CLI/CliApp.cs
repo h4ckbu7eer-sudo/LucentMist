@@ -2090,6 +2090,13 @@ public class CliApp
             var result = await engine.RunAsync(message, ct);
 
             if (result == null) return 1;
+            if (!result.Success)
+            {
+                var error = result.Error ?? "AI 分析未完成；请使用扫描/报告命令获取确定性结果。";
+                await store.AddMessageAsync(session.Id, "assistant", error);
+                AnsiConsole.Write(new Panel(Markup.Escape(error)).Header(" AI 暂不可用 · 未生成分析结论 ").BorderColor(Color.Yellow));
+                return 1;
+            }
 
             // 推理过程
             if (engine.ThoughtLog.Count > 0)

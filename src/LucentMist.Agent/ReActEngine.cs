@@ -93,6 +93,11 @@ public class ReActEngine
             {
                 throw;
             }
+            catch (LlmUnavailableException ex)
+            {
+                _logger.LogDebug("LLM unavailable; analysis was not completed");
+                return ReActResult.Fail(ex.Message, ThoughtLog, Observations);
+            }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "LLM 调用失败");

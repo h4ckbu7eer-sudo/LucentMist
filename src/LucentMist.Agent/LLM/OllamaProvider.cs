@@ -47,8 +47,7 @@ public class OllamaProvider : ILLMProvider
         var json = JsonSerializer.Serialize(body);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        using var response = await _http.PostAsync("/api/chat", content, ct);
-        response.EnsureSuccessStatusCode();
+        using var response = await SendChatAsync(content, ct);
 
         var responseJson = await response.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(responseJson);
@@ -84,14 +83,29 @@ public class OllamaProvider : ILLMProvider
         var json = JsonSerializer.Serialize(body);
         using var content = new StringContent(json, Encoding.UTF8, "application/json");
 
-        using var response = await _http.PostAsync("/api/chat", content, ct);
-        response.EnsureSuccessStatusCode();
+        using var response = await SendChatAsync(content, ct);
 
         var responseJson = await response.Content.ReadAsStringAsync(ct);
         using var doc = JsonDocument.Parse(responseJson);
         var reply = doc.RootElement.GetProperty("message").GetProperty("content").GetString() ?? "";
 
         return ReActResponseParser.Parse(reply);
+    }
+
+    private async Task<HttpResponseMessage> SendChatAsync(HttpContent content, CancellationToken ct)
+    {
+        try
+        {
+            var response = await _http.PostAsync("/api/chat", content, ct);
+            if (response.IsSuccessStatusCode) return response;
+            response.Dispose();
+            throw new LlmUnavailableException("Ollama 模型请求失败；请用 ollama list 检查模型，必要时用 ollama pull <模型名> 安装。可继续独立使用 scan、vuln-scan、report。");
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+        catch (Exception ex) when (ex is HttpRequestException or OperationCanceledException)
+        {
+            throw new LlmUnavailableException("Ollama 模型服务连接中断或超时；请检查 ollama serve 后重试。扫描/报告命令仍可独立使用，未生成 AI 结论。");
+        }
     }
 
     public async Task EnsureAvailableAsync(CancellationToken ct = default)
@@ -102,8 +116,7 @@ public class OllamaProvider : ILLMProvider
             timeout.CancelAfter(TimeSpan.FromSeconds(2));
             using var response = await _http.GetAsync("/api/tags", timeout.Token);
             if (!response.IsSuccessStatusCode)
-                throw new InvalidOperationException(
-                    $"Ollama 服务不可达（{_http.BaseAddress}），请确认已运行：ollama serve");
+                throw new LlmUnavailableException("Ollama 当前不可用；请先运行 ollama serve，再重试。可继续使用 scan、vuln-scan、ssl-check、report 等不依赖 AI 的命令。");
         }
         catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
@@ -111,13 +124,11 @@ public class OllamaProvider : ILLMProvider
         }
         catch (OperationCanceledException)
         {
-            throw new InvalidOperationException(
-                $"Ollama 服务不可达（{_http.BaseAddress}），请确认已运行：ollama serve");
+            throw new LlmUnavailableException("Ollama 连接超时；请先运行 ollama serve，再重试。扫描和报告命令仍可独立使用。");
         }
-        catch (HttpRequestException ex)
+        catch (HttpRequestException)
         {
-            throw new InvalidOperationException(
-                $"Ollama 服务不可达（{_http.BaseAddress}），请确认已运行：ollama serve（{ex.Message}）");
+            throw new LlmUnavailableException("Ollama 当前不可用；请先运行 ollama serve，再重试。可继续使用 scan、vuln-scan、ssl-check、report 等不依赖 AI 的命令。");
         }
     }
 
