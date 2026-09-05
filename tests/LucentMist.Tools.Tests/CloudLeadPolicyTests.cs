@@ -23,7 +23,8 @@ public class CloudLeadPolicyTests
         var ranked = CloudLeadRanking.Rank([candidate]);
         Assert.Single(ranked); // Preserve raw evidence, including old CVE IDs with new publication dates.
         Assert.Equal(visible ? 1 : 0, Assert.Single(CloudLeadRanking.Group(ranked)).GetProperty("leads").GetArrayLength());
-}
+    }
+
     [Theory]
     [InlineData("published")]
     [InlineData("published_time")]
