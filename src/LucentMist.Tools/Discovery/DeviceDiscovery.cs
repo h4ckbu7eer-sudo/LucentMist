@@ -15,8 +15,7 @@ public static class DeviceDiscovery
     {
         ct.ThrowIfCancellationRequested();
         if (IPAddress.TryParse(target, out var address) && IPAddress.IsLoopback(address))
-            return new DeviceIdentity(target, null, "不适用（回环地址）", Environment.MachineName, "本机（硬件型号未读取）")
-            { MdnsStatus = "not_applicable", IdentityEvidence = "本机名称来自操作系统；回环地址没有对应的物理 MAC/OUI。未推断硬件型号。" };
+            return BuildLoopbackIdentity(target, ReadLocalHardwareIdentity());
         if (address != null && TryGetLocalInterface(address, out var localNic, out var localMac))
         {
             var nic = localNic!;
@@ -56,6 +55,14 @@ public static class DeviceDiscovery
             IdentityEvidence = "厂商来自离线 OUI，名称/型号来自未经认证的定向 mDNS 响应（可能为代理公告），均需管理端确认。无响应不代表未广播。邻居表无 DHCP Option，未采集 DHCP。",
         };
     }
+
+    internal static DeviceIdentity BuildLoopbackIdentity(string target, (string? Manufacturer, string? Model) hardware) =>
+        new(target, null, hardware.Manufacturer ?? "未知（本机 BIOS/DMI 未提供厂商）",
+            Environment.MachineName, hardware.Model ?? "未知（本机 BIOS/DMI 未提供型号）")
+        {
+            MdnsStatus = "not_applicable",
+            IdentityEvidence = "本机名称来自操作系统；整机厂商/型号来自本机 BIOS/DMI。回环地址无物理 MAC，不用 OUI 推断整机厂商。",
+        };
 
     internal static DeviceIdentity BuildPublicIdentityWithoutLayer2Evidence(string target) => new(
         target,

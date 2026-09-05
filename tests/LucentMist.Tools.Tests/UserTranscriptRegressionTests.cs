@@ -113,6 +113,16 @@ public class UserTranscriptRegressionTests
     }
 
     [Fact]
+    public void LoopbackIncludesObservedBiosHardwareWithoutUsingNetworkOui()
+    {
+        var identity = LucentMist.Tools.Discovery.DeviceDiscovery.BuildLoopbackIdentity("127.0.0.1", ("Generic PC Vendor", "MODEL-0001"));
+        Assert.Equal("Generic PC Vendor", identity.Vendor);
+        Assert.Equal("MODEL-0001", identity.Model);
+        Assert.Null(identity.Mac);
+        Assert.Contains("BIOS/DMI", identity.IdentityEvidence);
+    }
+
+    [Fact]
     public void PublicIpIdentity_DoesNotPretendAsnOrServiceBannerIsHardwareVendor()
     {
         var identity = LucentMist.Tools.Discovery.DeviceDiscovery
