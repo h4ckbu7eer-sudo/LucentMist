@@ -61,6 +61,23 @@ public class NmapEnhancerTests
             NmapEnhancer.RunProcessAsync(SleepProcess(), TimeSpan.FromSeconds(10), cts.Token));
     }
 
+    [Fact]
+    public async Task ProcessStatusRetainsPidAndExitCode_InsteadOfSilentEmptyResult()
+    {
+        var psi = SleepProcess();
+        psi.ArgumentList.Clear();
+        if (OperatingSystem.IsWindows())
+        {
+            psi.ArgumentList.Add("-NoProfile"); psi.ArgumentList.Add("-Command"); psi.ArgumentList.Add("exit 7");
+        }
+        else { psi.ArgumentList.Add("-c"); psi.ArgumentList.Add("exit 7"); }
+        var result = await NmapEnhancer.RunProcessDetailedAsync(psi, TimeSpan.FromSeconds(10), default);
+        Assert.Equal("exit_error", result.Status);
+        Assert.Equal(7, result.ExitCode);
+        Assert.True(result.ProcessId > 0);
+        Assert.Null(result.Xml);
+    }
+
     private static System.Diagnostics.ProcessStartInfo SleepProcess()
     {
         var psi = new System.Diagnostics.ProcessStartInfo(OperatingSystem.IsWindows() ? "powershell.exe" : "/bin/sh")

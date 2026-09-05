@@ -1595,6 +1595,7 @@ public class CliApp
             using var doc = JsonDocument.Parse(result.Data);
             var r = doc.RootElement;
             var critical = r.TryGetProperty("criticalCount", out var cc) ? cc.GetInt32() : 0;
+            RenderNmapExecution(r);
             var high = r.GetProperty("highCount").GetInt32();
             var med = r.GetProperty("mediumCount").GetInt32();
             var low = r.GetProperty("lowCount").GetInt32();
@@ -2549,6 +2550,22 @@ public class CliApp
         return evidenceType == "nmap_service"
             ? $"{family}（Nmap 服务指纹线索，{confidence}，非完整 OS 确认）"
             : $"{family}（启发式线索，{confidence}，非确认）";
+    }
+
+    internal static void RenderNmapExecution(JsonElement result)
+    {
+        if (!result.TryGetProperty("nmapStatus", out var status) || status.GetString() == "disabled") return;
+        AnsiConsole.MarkupLine($"[yellow]Nmap: {Escape(status.GetString() ?? "unknown")}[/]");
+        if (result.TryGetProperty("nmapExecution", out var run) && run.ValueKind == JsonValueKind.Object &&
+            run.TryGetProperty("ProcessId", out var pid) && pid.ValueKind == JsonValueKind.Number)
+        {
+            AnsiConsole.MarkupLine($"[grey]程序: {Escape(run.GetProperty("Executable").GetString() ?? "nmap")}；PID: {Escape(run.GetProperty("ProcessId").ToString())}；退出码: {Escape(run.GetProperty("ExitCode").ToString())}；耗时: {Escape(run.GetProperty("ElapsedMs").ToString())}ms[/]");
+            AnsiConsole.MarkupLine($"[grey]参数: {Escape(string.Join(' ', run.GetProperty("Arguments").EnumerateArray().Select(a => a.GetString())))}[/]");
+        }
+        if (status.GetString() == "unavailable")
+            AnsiConsole.MarkupLine("[yellow]未执行 Nmap：请安装并加入 PATH，或设置 NMAP_PATH 为 nmap 可执行文件的绝对路径。原生探测继续，不能视为已用 Nmap。[/]");
+        else if (status.GetString() is "timeout" or "exit_error" or "invalid_xml" or "start_failed" or "output_error")
+            AnsiConsole.MarkupLine("[yellow]Nmap 增强未完整完成；不能把缺少识别结果视为没有服务或漏洞。已保留原生探测证据。[/]");
     }
 
     internal static string DnsRecursionLabel(JsonElement dns) =>
