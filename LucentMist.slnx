@@ -9,6 +9,7 @@
     <Project Path="src/LucentMist.Web/LucentMist.Web.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/LucentMist.CLI.TestHost/LucentMist.CLI.TestHost.csproj" />
     <Project Path="tests/LucentMist.Agent.Tests/LucentMist.Agent.Tests.csproj" />
     <Project Path="tests/LucentMist.API.Tests/LucentMist.API.Tests.csproj" />
     <Project Path="tests/LucentMist.Benchmarks/LucentMist.Benchmarks.csproj" />
