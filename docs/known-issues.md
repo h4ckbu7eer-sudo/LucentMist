@@ -3,6 +3,22 @@
 Current 0.9.8 self-use boundaries; older release evidence remains historical.
 Start with [SELF_USE_GUIDE.md](SELF_USE_GUIDE.md) and [SECURITY_CHECKLIST.md](SECURITY_CHECKLIST.md).
 
+## Home monitoring (current source, not a new published image)
+
+`monitor`/`watch` and `diagnose` are single-machine CLI features; see [usage](HOME_NETWORK_MONITOR.md)
+and [real validation](home-monitor-validation.md). They do not change router configuration, isolate devices,
+or auto-remediate. No active CLI process means no monitoring. Discovery depends on responding devices;
+sleep, AP isolation, randomized/spoofed MACs and missing neighbors limit identity and presence claims.
+The first baseline is not an approval of every device already present. IP-based trust binds to an observed MAC,
+never a permanently trusted DHCP address. An empty/failed discovery keeps the baseline; a missing TCP response
+is not proof a port is closed. Port sets have separate baselines to avoid false closure alerts.
+Default monitoring does not check CVEs; opt-in `--check-vulns` retains existing cloud-source policy and only
+alerts on target findings, not generic keyword leads. No-CVE alerts is not proof of safety or remediation.
+SQLite monitor tables and alert history are plaintext, with no automatic alert retention/purge policy yet.
+Diagnostics contact a fixed internet TCP endpoint plus DNS; `--no-external` disables only that TCP check.
+One failed endpoint does not establish a WAN outage. Real additional-phone join remains pending, not simulated
+into a claimed physical test; deterministic new-device/trust tests and real local TCP changes are separate evidence.
+
 ## Published gateway-analysis follow-up (0.9.8)
 
 The follow-up is now in 0.9.8: limited actionable assessments, shared HTTP HEAD/GET probes and DNS snapshots, historical keyword-lead folding, compact presentation and target-scoped port assertions. The [0.9.7 artifact test](release-artifact-validation-0.9.7.md) found two additional model fact errors despite passing JSON/CI; both were fixed and the [0.9.8 GHCR artifact](release-artifact-validation-0.9.8.md) was actually retested. Gateway: four model calls, zero completion corrections, 147 terminal lines; container loopback: two calls, 50 lines. Final model contract 6/6 is a focused reproduction, not a new ten-call benchmark or universal semantic guarantee. Local tests: 590 .NET plus 14 Python. Version/firmware identification remains limited; the gateway returned 40 protocol-keyword leads and zero version-matched CVEs. Source failures/limits reduce coverage, DNS is vantage-specific, and container loopback is not the Windows host. No fresh Web/browser or whole-network test is claimed.
