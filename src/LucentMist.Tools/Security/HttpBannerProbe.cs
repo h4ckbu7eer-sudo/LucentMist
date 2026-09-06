@@ -125,6 +125,9 @@ internal static class HttpBannerProbe
             if (timeout.IsCancellationRequested) break;
         }
         ct.ThrowIfCancellationRequested();
+        if (ServiceFingerprint.FromBanner(best)?.Version != null)
+            return new Result(best, "version_observed", "GET / 网页 Generator 公开了可识别软件版本（未经认证的页面证据，不等同于 HTTP 服务器版本）")
+            { Responses = evidence, PageIdentity = identity, BodyStatus = bodyStatus };
         return new Result(best, evidence.Count == 2 && usableGet ? "version_not_disclosed" : "probe_incomplete",
             evidence.Count == 2 && usableGet
                 ? "服务器在 HEAD/GET / 响应头中未公开可识别版本；网页标题/型号线索不是软件版本，不代表其它路径也不公开"

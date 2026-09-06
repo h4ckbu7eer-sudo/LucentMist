@@ -9,6 +9,17 @@ namespace LucentMist.Tools.Tests;
 public class HttpBannerProbeTests
 {
     [Fact]
+    public async Task GeneratorVersionIsNotReportedAsUndisclosed()
+    {
+        const string body = "<meta name=\"generator\" content=\"WordPress 6.4.3\">";
+        var (result, _) = await Probe("HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n",
+            $"HTTP/1.1 200 OK\r\nContent-Length: {body.Length}\r\n\r\n{body}");
+        Assert.Equal("6.4.3", ServiceFingerprint.FromBanner(result.Banner)?.Version);
+        Assert.Equal("version_observed", result.Status);
+        Assert.Contains("Generator", result.Reason);
+    }
+
+    [Fact]
     public async Task HeadersBeyondFourKiBAreRead_ViaIsEvidenceNotOriginProduct()
     {
         var (result, _) = await Probe("HTTP/1.1 200 OK\r\nX-Padding: " + new string('a', 5000) +
