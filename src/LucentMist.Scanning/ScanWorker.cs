@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using LucentMist.Tools;
 using LucentMist.Tools.Scanning;
 using Microsoft.Extensions.DependencyInjection;
@@ -189,11 +190,11 @@ public sealed class ScanWorker : BackgroundService
         }
     }
 
-    private async Task<ScanOutcome> RunPingAsync(
-        ScanJob req, DateTime startedAt, CancellationToken ct)
+    internal async Task<ScanOutcome> RunPingAsync(
+        ScanJob req, DateTime startedAt, CancellationToken ct, ITool? pingTool = null, ITool? portTool = null)
     {
-        var pingTool = new PingScanTool(_loggerFactory.CreateLogger<PingScanTool>());
-        var portTool = new PortScanTool(_loggerFactory.CreateLogger<PortScanTool>());
+        pingTool ??= new PingScanTool(_loggerFactory.CreateLogger<PingScanTool>());
+        portTool ??= new PortScanTool(_loggerFactory.CreateLogger<PortScanTool>());
         var pingResult = await pingTool.ExecuteAsync(new ToolArguments
         {
             ["target"] = req.Target,
@@ -206,79 +207,62 @@ public sealed class ScanWorker : BackgroundService
 
         await PublishAsync(req.TaskId, "running", "存活扫描完成", 40, ct);
 
-        var totalDevices = 0;
-        var discovered = new List<string>();
-        var openPortsByIp = new System.Collections.Concurrent.ConcurrentDictionary<string, int[]>();
+        JsonObject snapshot;
+        string[] discovered;
         try
         {
+            snapshot = JsonNode.Parse(pingResult.Data) as JsonObject ?? throw new JsonException("Expected object");
             using var doc = JsonDocument.Parse(pingResult.Data);
-            var root = doc.RootElement;
-            totalDevices = root.TryGetProperty("alive", out var alive) ? alive.GetInt32() : 0;
-
-            if (root.TryGetProperty("devices", out var devices))
-            {
-                discovered.AddRange(devices.EnumerateArray()
-                    .Select(x => x.GetString())
-                    .Where(x => !string.IsNullOrEmpty(x))
-                    .Cast<string>());
-
-                var candidates = devices.EnumerateArray()
-                    .Take(5)
-                    .Select(item => item.GetString())
-                    .Where(ip => !string.IsNullOrEmpty(ip))
-                    .Cast<string>()
-                    .ToArray();
-                var identified = 0;
-                await Parallel.ForEachAsync(
-                    candidates,
-                    new ParallelOptions
-                    {
-                        MaxDegreeOfParallelism = Math.Min(3, Math.Max(1, candidates.Length)),
-                        CancellationToken = ct,
-                    },
-                    async (ip, token) =>
-                    {
-                        var portResult = await portTool.ExecuteAsync(new ToolArguments
-                        {
-                            ["target"] = ip,
-                            ["ports"] = "22,80,443,3389,8080,8443",
-                            ["timeout_ms"] = "2000",
-                            ["concurrency"] = "20",
-                        }, token);
-
-                        if (portResult.Success)
-                        {
-                            using var pdoc = JsonDocument.Parse(portResult.Data);
-                            var ports = pdoc.RootElement.TryGetProperty("openPorts", out var p)
-                                ? p.EnumerateArray().Select(x => x.GetInt32()).ToArray()
-                                : [];
-                            openPortsByIp[ip] = ports;
-                        }
-
-                        var done = Interlocked.Increment(ref identified);
-                        await PublishAsync(req.TaskId, "running",
-                            $"端口识别 {done}/{candidates.Length}",
-                            40 + 10 * done,
-                            token);
-                    });
-            }
+            discovered = doc.RootElement.GetProperty("devices").EnumerateArray()
+                .Select(ip => ip.GetString() ?? throw new JsonException("Null device address")).ToArray();
+            if (doc.RootElement.GetProperty("alive").GetInt32() != discovered.Length)
+                throw new JsonException("Device count does not match evidence");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
             _logger.LogWarning(ex, "解析存活扫描结果失败: TaskId={TaskId}", req.TaskId);
+            return new ScanOutcome(null, 0, "存活扫描结果缺失或格式无效，不能确认发现结果");
         }
-
-        var resultJson = JsonSerializer.Serialize(new
+        var openPortsByIp = new System.Collections.Concurrent.ConcurrentDictionary<string, int[]>();
+        var failures = new System.Collections.Concurrent.ConcurrentDictionary<string, string>();
+        var candidates = discovered.Take(5).ToArray();
+        const string enrichmentPorts = "22,80,443,3389,8080,8443";
+        var identified = 0;
+        await Parallel.ForEachAsync(candidates, new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = ct }, async (ip, token) =>
         {
-            target = req.Target,
-            scanType = "ping",
-            alive = totalDevices,
-            devices = discovered.ToArray(),
-            openPortsByIp,
-            durationSec = Math.Round((DateTime.UtcNow - startedAt).TotalSeconds, 2),
+            try
+            {
+                var portResult = await portTool.ExecuteAsync(new ToolArguments
+                {
+                    ["target"] = ip,
+                    ["ports"] = enrichmentPorts,
+                    ["timeout_ms"] = "2000",
+                    ["concurrency"] = "20",
+                }, token);
+                if (portResult.Success)
+                {
+                    using var pdoc = JsonDocument.Parse(portResult.Data);
+                    openPortsByIp[ip] = pdoc.RootElement.GetProperty("openPorts").EnumerateArray().Select(p => p.GetInt32()).ToArray();
+                }
+                else failures[ip] = "端口补充扫描失败，不能判断开放端口";
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested) { throw; }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "端口补充检查未完成: TaskId={TaskId}, Target={Target}", req.TaskId, ip);
+                failures[ip] = "端口补充扫描未完成或结果无效";
+            }
+            var done = Interlocked.Increment(ref identified);
+            await PublishAsync(req.TaskId, "running", $"端口识别 {done}/{candidates.Length}", 40 + 10 * done, token);
         });
-
-        return new ScanOutcome(resultJson, totalDevices);
+        ct.ThrowIfCancellationRequested();
+        snapshot["target"] = req.Target;
+        snapshot["scanType"] = "ping";
+        snapshot["openPortsByIp"] = JsonSerializer.SerializeToNode(openPortsByIp);
+        snapshot["portScanFailures"] = JsonSerializer.SerializeToNode(failures);
+        snapshot["portScanScope"] = JsonSerializer.SerializeToNode(new { ports = enrichmentPorts, devices = candidates, notScannedDeviceCount = discovered.Length - candidates.Length });
+        snapshot["durationSec"] = Math.Round((DateTime.UtcNow - startedAt).TotalSeconds, 2);
+        return new ScanOutcome(snapshot.ToJsonString(), discovered.Length);
     }
 
     private async Task HeartbeatAsync(string taskId, CancellationToken ct)
@@ -338,34 +322,28 @@ public sealed class ScanWorker : BackgroundService
         return BuildPortOutcome(req, startedAt, result.Data, "udp");
     }
 
-    private static ScanOutcome BuildPortOutcome(
+    internal static ScanOutcome BuildPortOutcome(
         ScanJob req, DateTime startedAt, string data, string scanType)
     {
-        var totalScanned = 0;
-        var openPorts = Array.Empty<int>();
         try
         {
             using var doc = JsonDocument.Parse(data);
             var root = doc.RootElement;
-            totalScanned = root.TryGetProperty("totalScanned", out var total) ? total.GetInt32() : 0;
-            if (root.TryGetProperty("openPorts", out var ports))
-                openPorts = ports.EnumerateArray().Select(x => x.GetInt32()).ToArray();
+            var total = root.GetProperty("totalScanned").GetInt32();
+            var ports = root.GetProperty("openPorts").EnumerateArray().Select(x => x.GetInt32()).ToArray();
+            if (total < 0 || ports.Length > total || ports.Any(p => p is < 1 or > 65535)) throw new JsonException("Invalid port evidence");
+            // Keep protocol states, uncertainty explanations and identity evidence.
+            // Flattening into openPorts alone silently discards UDP open|filtered.
+            var snapshot = JsonNode.Parse(data)!.AsObject();
+            snapshot["target"] = req.Target;
+            snapshot["scanType"] = scanType;
+            snapshot["durationSec"] = Math.Round((DateTime.UtcNow - startedAt).TotalSeconds, 2);
+            return new ScanOutcome(snapshot.ToJsonString(), 0);
         }
-        catch (JsonException ex)
+        catch (Exception ex) when (ex is JsonException or KeyNotFoundException or InvalidOperationException or FormatException)
         {
-            return new ScanOutcome(null, 0, $"扫描结果解析失败: {ex.Message}");
+            return new ScanOutcome(null, 0, "扫描结果缺失或格式无效，不能判断开放端口");
         }
-
-        var resultJson = JsonSerializer.Serialize(new
-        {
-            target = req.Target,
-            scanType,
-            totalScanned,
-            openPorts,
-            durationSec = Math.Round((DateTime.UtcNow - startedAt).TotalSeconds, 2),
-        });
-
-        return new ScanOutcome(resultJson, 0);
     }
 
     private async Task PublishAsync(
@@ -377,7 +355,7 @@ public sealed class ScanWorker : BackgroundService
             await _progress.PublishAsync(
                 new ScanProgressEvent(taskId, status, message, percent, resultJson), ct);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
         {
             throw;
         }
@@ -450,5 +428,5 @@ public sealed class ScanWorker : BackgroundService
         }
     }
 
-    private sealed record ScanOutcome(string? ResultJson, int TotalDevices, string? Error = null);
+    internal sealed record ScanOutcome(string? ResultJson, int TotalDevices, string? Error = null);
 }
