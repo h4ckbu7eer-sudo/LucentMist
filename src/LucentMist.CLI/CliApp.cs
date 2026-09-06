@@ -44,6 +44,8 @@ public class CliApp
             "sirius-scan" => await SiriusScanCommand(commandArgs),
             "report" => await ReportCommand(commandArgs),
             "agent" => await AgentCommand(commandArgs),
+            "monitor" or "watch" => await HomeNetworkCommands.MonitorAsync(commandArgs, _sharedLoggerFactory),
+            "diagnose" => await HomeNetworkCommands.DiagnoseAsync(commandArgs),
             "audit" => await AuditCommand(commandArgs),
             "backup" => BackupCommand(commandArgs),
             "restore" => RestoreCommand(commandArgs),
@@ -3067,6 +3069,8 @@ public class CliApp
         table.AddRow("[yellow]report[/]", "生成报告", "[grey]lmist report --format html[/]");
         table.AddRow("[yellow]agent[/]", "AI 智能体对话", "[grey]lmist agent \"分析网络\"[/]");
         table.AddRow("[yellow]audit[/]", "查看扫描审计", "[grey]lmist audit --limit 50[/]");
+        table.AddRow("[yellow]monitor[/]", "家庭网络基线与变化告警", "[grey]lmist monitor --interval 30 --subnet 192.168.99.0/24[/]");
+        table.AddRow("[yellow]diagnose[/]", "接口/网关/DNS/出口基础诊断", "[grey]lmist diagnose[/]");
         table.AddRow("[yellow]--verbose / -v[/]", "显示 Debug 及以上日志", "[grey]lmist agent -v \"分析网络\"[/]");
         table.AddRow("[yellow]backup[/]", "安全备份数据", "[grey]lmist backup --output backups/me.db[/]");
         table.AddRow("[yellow]restore[/]", "恢复扫描数据", "[grey]lmist restore backups/me.db --yes[/]");
