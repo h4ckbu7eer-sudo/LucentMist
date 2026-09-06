@@ -91,32 +91,40 @@ public class CveApiClient
         var keyword = fingerprint?.ProductKey ?? ServiceKey(port);
         var commit = CreateOsvCommitQuery(banner);
         var cpe = fingerprint?.Version == null ? null : fingerprint.Cpe;
-        var cacheKey = $"{port}|{keyword}|{cpe}|{commit?.Commit}";
-        if (useCache && CurrentScope.Value == null && Cache.TryGetValue(cacheKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
-            return hit.Report with { Items = hit.Report.Items.ToList(), Sources = hit.Report.Sources.Select(s => s with { Cached = true }).ToArray() };
+        var lookupKey = $"{keyword}|{fingerprint?.Version}|{cpe}|{commit?.Commit}";
 
         async Task<QueryReport> FetchRaw()
         {
+            if (useCache && Cache.TryGetValue(lookupKey, out var hit) && hit.ExpiresAt > DateTime.UtcNow)
+                return hit.Report with
+                {
+                    Items = hit.Report.Items.ToList(),
+                    Sources = hit.Report.Sources.Select(s => s with
+                    {
+                        Cached = true,
+                        Detail = s.Detail + "；复用短期云源缓存，非本轮重新查询"
+                    }).ToArray()
+                };
             var responses = await Task.WhenAll(sources.Select((source, index) => Fetch(source, index)));
             var items = responses.SelectMany(r => r.Items).GroupBy(d => d.Cve, StringComparer.OrdinalIgnoreCase).Select(MergeSourceDetails).ToList();
-            return new(items, responses.Select(r => r.Status).ToArray());
+            var snapshot = new QueryReport(items, responses.Select(r => r.Status).ToArray());
+            if (useCache)
+            {
+                Cache[lookupKey] = (DateTime.UtcNow.AddSeconds(snapshot.IsPartial ? 30 : 600), snapshot);
+                foreach (var key in Cache.OrderBy(kv => kv.Value.ExpiresAt).Take(Math.Max(0, Cache.Count - 256)).Select(kv => kv.Key))
+                    Cache.TryRemove(key, out _);
+            }
+            return snapshot;
         }
         // HTTP and HTTPS with identical product/version evidence issue the same
         // cloud query. Share its raw snapshot within this scan, but apply each
         // port's built-in version exclusions independently below.
-        var lookupKey = $"{keyword}|{fingerprint?.Version}|{cpe}|{commit?.Commit}";
         var scope = CurrentScope.Value;
         var reused = scope?.Snapshots.ContainsKey(lookupKey) == true;
         var raw = scope == null ? await FetchRaw() : await scope.Snapshots.GetOrAdd(lookupKey,
             _ => new Lazy<Task<QueryReport>>(FetchRaw, LazyThreadSafetyMode.ExecutionAndPublication)).Value.WaitAsync(ct);
         var report = new QueryReport(FilterExternalResultsByBanner(port, banner, raw.Items),
             raw.Sources.Select(s => reused ? s with { Cached = true, Detail = s.Detail + "；本次分析复用相同产品/版本查询" } : s).ToArray());
-        if (useCache)
-        {
-            Cache[cacheKey] = (DateTime.UtcNow.AddSeconds(report.IsPartial ? 30 : 600), report);
-            foreach (var key in Cache.OrderBy(kv => kv.Value.ExpiresAt).Take(Math.Max(0, Cache.Count - 256)).Select(kv => kv.Key))
-                Cache.TryRemove(key, out _);
-        }
         return report;
 
         async Task<(List<CveDetail> Items, SourceStatus Status)> Fetch(string source, int index)

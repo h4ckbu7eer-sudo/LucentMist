@@ -7,6 +7,32 @@ namespace LucentMist.Tools.Tests;
 
 public class CloudCveTests
 {
+    [Fact]
+    public async Task IndependentAnalysesReuseRawCacheWithoutCallerMutationOrVersionMixing()
+    {
+        var calls = 0;
+        using var http = new HttpClient(new Handler((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return Task.FromResult(Json("""{"data":[{"id":"CVE-2099-8901","description":"nginx test"}],"cves":[],"vulnerabilities":[]}"""));
+        }));
+        const string banner = "HTTP Server: nginx/789.123.456";
+        using (CveApiClient.BeginAnalysisScope())
+        {
+            var first = await CveApiClient.QueryWithStatusAsync(banner, 80, http, true, default, useCache: true);
+            first.Items.Clear(); // A caller must not mutate the cached snapshot.
+        }
+        using (CveApiClient.BeginAnalysisScope())
+        {
+            var second = await CveApiClient.QueryWithStatusAsync(banner, 443, http, true, default, useCache: true);
+            Assert.Equal(3, calls);
+            Assert.Single(second.Items);
+            Assert.All(second.Sources, source => Assert.True(source.Cached));
+            await CveApiClient.QueryWithStatusAsync("HTTP Server: nginx/789.123.457", 443, http, true, default, useCache: true);
+            Assert.Equal(6, calls);
+        }
+    }
+
     [Theory]
     [InlineData(null, true)]
     [InlineData("", true)]
