@@ -112,13 +112,17 @@ public sealed class MonitorStoreTests : IDisposable
         Assert.DoesNotContain(update.Alerts, a => a.Kind is "new_device" or "missing_device");
     }
     [Fact]
-    public void DifferentPortScopeCreatesNewBaseline_NotFalsePortClosure()
+    public void DifferentPortScopeSharesBaseline_WithoutFalsePortClosure()
     {
         Store.Apply(Scope, new(true, [A([80, 443])]), Now);
         var other = MonitorScope.Create(Scope.Subnet, "80");
         var update = Store.Apply(other, new(true, [A([80])]), Now.AddMinutes(1));
-        Assert.True(update.BaselineCreated);
+        Assert.False(update.BaselineCreated);
         Assert.Empty(update.Alerts);
+        Assert.Equal(new[] { 80, 443 }, Assert.Single(update.Devices).Device.OpenPorts);
+        Assert.Equal(Now, update.Devices[0].PortHistory![443].At);
+        Assert.Equal(Now.AddMinutes(1), update.Devices[0].PortHistory![80].At);
+        Assert.Single(Store.ListDevices(MonitorScope.Create(Scope.Subnet, "22")));
     }
     [Fact]
     public void ServiceAndVendorChangesHaveEvidence_UnknownProbeDoesNotEraseIt()
@@ -136,6 +140,22 @@ public sealed class MonitorStoreTests : IDisposable
         Store.Apply(Scope, new(true, [A() with { Vulnerabilities = null, Warnings = ["failed"] }]), Now.AddMinutes(1));
         var update = Store.Apply(Scope, new(true, [A() with { Vulnerabilities = ["22:CVE-2024-6387"] }]), Now.AddMinutes(2));
         Assert.DoesNotContain(update.Alerts, a => a.Kind == "vulnerability_candidate");
+    }
+    [Fact]
+    public void AnalysisCoverageIsPersistedStatus_NotAnAlert_AndDoesNotHideNewDevices()
+    {
+        var warned = A() with { Warnings = ["NVD timeout：覆盖不完整"] };
+        for (var i = 0; i < 3; i++)
+        {
+            var update = Store.Apply(Scope, new(true, [warned]), Now.AddMinutes(i));
+            Assert.Empty(update.Alerts);
+            Assert.Contains("partial", update.Summary);
+        }
+        Assert.Empty(Store.ListAlerts(Scope));
+        Assert.Contains("NVD timeout：覆盖不完整", Assert.Single(Store.ListDevices(Scope)).Device.Warnings!);
+        var changed = Store.Apply(Scope, new(true, [warned, B]), Now.AddMinutes(4));
+        Assert.Equal("new_device", Assert.Single(changed.Alerts).Kind);
+        Assert.Equal("high", Assert.Single(Store.ListAlerts(Scope)).Priority);
     }
     [Theory]
     [InlineData("1.1.1.0/24", "80")]

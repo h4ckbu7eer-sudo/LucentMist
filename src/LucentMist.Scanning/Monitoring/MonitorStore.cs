@@ -5,7 +5,7 @@ using Microsoft.Data.Sqlite;
 namespace LucentMist.Scanning.Monitoring;
 
 /// <summary>Atomic baseline + event updates, in the same database as scan history/backup.</summary>
-public sealed class MonitorStore
+public sealed partial class MonitorStore
 {
     private readonly string _connectionString;
     public MonitorStore(string dbPath)
@@ -28,6 +28,7 @@ public sealed class MonitorStore
             CREATE INDEX IF NOT EXISTS idx_monitor_alerts_scope ON monitor_alerts(scope,id);
             """;
         command.ExecuteNonQuery();
+        MigrateLegacyScopes(db);
     }
     private SqliteConnection Open()
     {
@@ -80,7 +81,9 @@ public sealed class MonitorStore
     public MonitorAlert[] ListAlerts(MonitorScope scope, int limit = 100)
     {
         using var db = Open();
-        using var command = Command(db, null, "SELECT id,occurred_at,kind,priority,ip,message FROM monitor_alerts WHERE scope=$scope ORDER BY id DESC LIMIT $limit",
+        // Old releases stored coverage status as events. Keep the historical rows,
+        // but do not let them crowd out actual changes in the alert view.
+        using var command = Command(db, null, "SELECT id,occurred_at,kind,priority,ip,message FROM monitor_alerts WHERE scope=$scope AND kind!='analysis_incomplete' ORDER BY id DESC LIMIT $limit",
             ("$scope", scope.Id), ("$limit", Math.Clamp(limit, 1, 1000)));
         using var reader = command.ExecuteReader();
         var alerts = new List<MonitorAlert>();
@@ -96,6 +99,7 @@ public sealed class MonitorStore
         using (var state = Command(db, transaction, "SELECT initialized,last_status FROM monitor_state WHERE scope=$scope", ("$scope", scope.Id)))
         using (var reader = state.ExecuteReader()) { reader.Read(); initialized = reader.GetBoolean(0); lastStatus = reader.GetString(1); }
         var old = ReadDevices(db, scope.Id, transaction).ToDictionary(d => d.Device.Id);
+        var scannedPorts = scope.Ports.Split(',').Select(int.Parse).ToHashSet();
         var alerts = new List<MonitorAlert>();
         var unconfirmedIdentities = new HashSet<string>();
         var duplicateIdentity = snapshot.Devices.GroupBy(d => d.Id).Any(g => g.Count() > 1);
@@ -131,6 +135,7 @@ public sealed class MonitorStore
                     }
                 }
                 old.TryGetValue(id, out var previous);
+                var history = PortHistory(previous);
                 using var trust = Command(db, transaction, "SELECT COUNT(*) FROM monitor_trust WHERE scope=$scope AND device_id=$id", ("$scope", scope.Id), ("$id", id));
                 var trusted = Convert.ToInt32(trust.ExecuteScalar()) > 0;
                 if (initialized && previous == null && !trusted)
@@ -139,10 +144,14 @@ public sealed class MonitorStore
                 {
                     if (!previous.Present) Alert("device_returned", "low", device.Ip, "已知设备重新被观测到。");
                     if (previous.Device.Ip != device.Ip) Alert("ip_changed", "low", device.Ip, $"同一 MAC 的 IP 从 {previous.Device.Ip} 变为 {device.Ip}，不是新设备。");
-                    if (device.OpenPorts != null && previous.Device.OpenPorts != null)
+                    if (device.OpenPorts != null)
                     {
-                        foreach (var port in device.OpenPorts.Except(previous.Device.OpenPorts)) Alert("port_added", "medium", device.Ip, $"新增可连接 TCP 端口 {port}；核对是否启用了新服务，不据此认定被入侵。");
-                        foreach (var port in previous.Device.OpenPorts.Except(device.OpenPorts)) Alert("port_not_observed", "low", device.Ip, $"TCP 端口 {port} 本次未连接成功；可能关闭、过滤或暂时不可达，不能确定已关闭。");
+                        foreach (var port in scannedPorts.Where(history.ContainsKey))
+                        {
+                            var isOpen = device.OpenPorts.Contains(port);
+                            if (isOpen && !history[port].Open) Alert("port_added", "medium", device.Ip, $"新增可连接 TCP 端口 {port}；核对是否启用了新服务，不据此认定被入侵。");
+                            if (!isOpen && history[port].Open) Alert("port_not_observed", "low", device.Ip, $"TCP 端口 {port} 本次未连接成功；可能关闭、过滤或暂时不可达，不能确定已关闭。");
+                        }
                     }
                     if (Meaningful(device.Vendor) && Meaningful(previous.Device.Vendor) && device.Vendor != previous.Device.Vendor)
                         Alert("vendor_changed", "medium", device.Ip, $"厂商线索变化：{previous.Device.Vendor} → {device.Vendor}，需核对设备。");
@@ -151,17 +160,21 @@ public sealed class MonitorStore
                             Alert("service_changed", "medium", device.Ip, $"端口 {port} 的服务证据变化：{before} → {service}。");
                 }
                 foreach (var risk in (device.Vulnerabilities ?? []).Except(previous?.Device.Vulnerabilities ?? []))
-                    Alert("vulnerability_candidate", "high", device.Ip, $"新增漏洞候选 {risk}；仍需按受影响版本/厂商补丁核实，不是利用确认。");
+                    Alert("vulnerability_candidate", "high", device.Ip, $"新增漏洞候选 {risk}；候选不是确认漏洞，需核对受影响版本及厂商补丁。");
+                if (device.OpenPorts != null)
+                    foreach (var port in scannedPorts) history[port] = new(device.OpenPorts.Contains(port), now);
                 var retained = device with
                 {
                     Vendor = Meaningful(device.Vendor) ? device.Vendor : previous?.Device.Vendor ?? device.Vendor,
                     Name = Meaningful(device.Name) ? device.Name : previous?.Device.Name ?? device.Name,
-                    OpenPorts = device.OpenPorts ?? previous?.Device.OpenPorts,
+                    Model = Meaningful(device.Model) ? device.Model : previous?.Device.Model ?? device.Model,
+                    OpenPorts = history.Count > 0 ? history.Where(p => p.Value.Open).Select(p => p.Key).Order().ToArray() : previous?.Device.OpenPorts,
                     Services = (previous?.Device.Services ?? []).Concat(device.Services ?? []).GroupBy(p => p.Key).ToDictionary(g => g.Key, g => g.Last().Value),
                     Vulnerabilities = (previous?.Device.Vulnerabilities ?? []).Union(device.Vulnerabilities ?? []).ToArray(),
                 };
                 Save(new(retained, previous?.FirstSeen ?? now, now, true, trusted,
-                    device.OpenPorts != null ? now : previous?.PortsObservedAt, device.OpenPorts != null));
+                    device.OpenPorts != null ? now : previous?.PortsObservedAt, device.OpenPorts != null,
+                    PortHistory: history, LastPortScope: device.OpenPorts != null ? scope.Ports : previous?.LastPortScope));
             }
             foreach (var previous in old.Values.Where(d => d.Present && !incoming.ContainsKey(d.Device.Id) && !unconfirmedIdentities.Contains(d.Device.Id)))
             {
@@ -170,8 +183,6 @@ public sealed class MonitorStore
             }
             if (snapshot.Devices.Any(d => d.OpenPorts == null) && lastStatus != "partial")
                 Alert("port_scan_incomplete", "low", "", "部分设备端口扫描失败，保留其上次端口基线；不能据此认定端口关闭。");
-            if (snapshot.Devices.Any(d => d.Warnings?.Length > 0) && lastStatus != "partial")
-                Alert("analysis_incomplete", "low", "", "部分服务/漏洞检查未完成或来源覆盖不完整；没有新漏洞告警不代表安全。");
         }
         var status = uncertain ? "uncertain" : unconfirmedIdentities.Count > 0 || snapshot.Devices.Any(d => d.OpenPorts == null || d.Warnings?.Length > 0) ? "partial" : "completed";
         using (var update = Command(db, transaction, "UPDATE monitor_state SET initialized=$init,last_status=$status WHERE scope=$scope",
@@ -182,13 +193,7 @@ public sealed class MonitorStore
 
         void Save(KnownDevice device)
         {
-            using var command = Command(db, transaction, """
-                INSERT INTO monitor_devices(scope,device_id,ip,mac,vendor,first_seen,last_seen,known_ports,state_json)
-                VALUES($scope,$id,$ip,$mac,$vendor,$first,$last,$ports,$json)
-                ON CONFLICT(scope,device_id) DO UPDATE SET ip=excluded.ip,mac=excluded.mac,vendor=excluded.vendor,last_seen=excluded.last_seen,known_ports=excluded.known_ports,state_json=excluded.state_json
-                """, ("$scope", scope.Id), ("$id", device.Device.Id), ("$ip", device.Device.Ip), ("$mac", device.Device.Mac), ("$vendor", device.Device.Vendor),
-                ("$first", device.FirstSeen.ToString("O")), ("$last", device.LastSeen.ToString("O")), ("$ports", JsonSerializer.Serialize(device.Device.OpenPorts)), ("$json", JsonSerializer.Serialize(device)));
-            command.ExecuteNonQuery();
+            SaveDevice(db, transaction, scope.Id, device);
         }
         void Alert(string kind, string priority, string ip, string message)
         {
@@ -196,6 +201,28 @@ public sealed class MonitorStore
                 ("$scope", scope.Id), ("$at", now.ToString("O")), ("$kind", kind), ("$priority", priority), ("$ip", ip), ("$message", message));
             alerts.Add(new(Convert.ToInt64(command.ExecuteScalar()), now, kind, priority, ip, message));
         }
+    }
+    private static void SaveDevice(SqliteConnection db, SqliteTransaction transaction, string scope, KnownDevice device)
+    {
+        using var command = Command(db, transaction, """
+            INSERT INTO monitor_devices(scope,device_id,ip,mac,vendor,first_seen,last_seen,known_ports,state_json)
+            VALUES($scope,$id,$ip,$mac,$vendor,$first,$last,$ports,$json)
+            ON CONFLICT(scope,device_id) DO UPDATE SET ip=excluded.ip,mac=excluded.mac,vendor=excluded.vendor,
+                first_seen=excluded.first_seen,last_seen=excluded.last_seen,known_ports=excluded.known_ports,state_json=excluded.state_json
+            """, ("$scope", scope), ("$id", device.Device.Id), ("$ip", device.Device.Ip), ("$mac", device.Device.Mac), ("$vendor", device.Device.Vendor),
+            ("$first", device.FirstSeen.ToString("O")), ("$last", device.LastSeen.ToString("O")), ("$ports", JsonSerializer.Serialize(device.Device.OpenPorts)), ("$json", JsonSerializer.Serialize(device)));
+        command.ExecuteNonQuery();
+    }
+    private static Dictionary<int, MonitorPortObservation> PortHistory(KnownDevice? device, string? legacyPorts = null)
+    {
+        if (device?.PortHistory != null) return new(device.PortHistory);
+        var result = new Dictionary<int, MonitorPortObservation>();
+        if (device?.Device.OpenPorts == null || device.PortsObservedAt == null) return result;
+        // With no coverage evidence we can retain positive observations only.
+        var ports = legacyPorts ?? device.LastPortScope;
+        foreach (var port in ports == null ? device.Device.OpenPorts : ports.Split(',').Select(int.Parse))
+            result[port] = new(device.Device.OpenPorts.Contains(port), device.PortsObservedAt.Value);
+        return result;
     }
     private static bool Meaningful(string? value) => !string.IsNullOrWhiteSpace(value) &&
         !value.StartsWith("未知", StringComparison.Ordinal) && !value.StartsWith("本地管理", StringComparison.Ordinal);

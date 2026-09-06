@@ -6,7 +6,8 @@ namespace LucentMist.Scanning.Monitoring;
 
 public sealed record MonitorScope(string Subnet, string Ports)
 {
-    public string Id => Subnet + "|" + Ports;
+    // Device identity, trust and alerts belong to a network, not a scan recipe.
+    public string Id => Subnet;
     public static MonitorScope Create(string subnet, string ports)
     {
         var parts = subnet.Split('/');
@@ -26,7 +27,8 @@ public sealed record MonitorScope(string Subnet, string Ports)
 }
 
 public sealed record MonitorDevice(string Ip, string? Mac, string Vendor, string Name,
-    int[]? OpenPorts, Dictionary<int, string>? Services = null, string[]? Vulnerabilities = null, string[]? Warnings = null)
+    int[]? OpenPorts, Dictionary<int, string>? Services = null, string[]? Vulnerabilities = null, string[]? Warnings = null,
+    string? Model = null, string[]? MdnsServices = null)
 {
     public static string? NormalizeMac(string? value)
     {
@@ -38,7 +40,9 @@ public sealed record MonitorDevice(string Ip, string? Mac, string Vendor, string
     public string Id => NormalizeMac(Mac) is { } mac ? "mac:" + mac : "ip:" + Ip;
 }
 public sealed record NetworkSnapshot(bool DiscoverySucceeded, MonitorDevice[] Devices, string? Error = null);
+public sealed record MonitorPortObservation(bool Open, DateTimeOffset At);
 public sealed record KnownDevice(MonitorDevice Device, DateTimeOffset FirstSeen, DateTimeOffset LastSeen, bool Present,
-    bool Trusted = false, DateTimeOffset? PortsObservedAt = null, bool LastPortScanSucceeded = false, bool IdentityConfirmed = true);
+    bool Trusted = false, DateTimeOffset? PortsObservedAt = null, bool LastPortScanSucceeded = false, bool IdentityConfirmed = true,
+    Dictionary<int, MonitorPortObservation>? PortHistory = null, string? LastPortScope = null);
 public sealed record MonitorAlert(long Id, DateTimeOffset At, string Kind, string Priority, string Ip, string Message);
 public sealed record MonitorUpdate(bool BaselineCreated, bool Applied, KnownDevice[] Devices, MonitorAlert[] Alerts, string Summary);
