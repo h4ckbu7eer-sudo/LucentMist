@@ -29,10 +29,42 @@ public class NetworkDiagnosticsTests
     }
 
     [Fact]
-    public async Task InternetSingleEndpointFailureDoesNotClaimWholeInternetDown()
+    public async Task AllTestEndpointsFail_DoesNotClaimWholeInternetDown()
     {
         var report = await Diagnostics(true, true, false).RunAsync();
-        Assert.Contains(report.Suggestions, s => s.Contains("不能据单个端点判整个互联网断网"));
+        Assert.Contains(report.Suggestions, s => s.Contains("不据此断言整个互联网断网"));
+        Assert.Contains(report.Checks, c => c.Layer == "internet" && c.Evidence.Contains("0/3"));
+    }
+
+    [Fact]
+    public async Task OneEndpointRejects_TheOthersStillRun_AndProveConnectivity()
+    {
+        var calls = new System.Collections.Concurrent.ConcurrentBag<string>();
+        var diagnostics = new NetworkDiagnostics(Interfaces, (_, _) => Task.FromResult(true), (_, _) => Task.FromResult(true),
+            listeners: () => [], internetEndpoint: (address, port, _) =>
+            {
+                calls.Add(address + ":" + port);
+                if (address == "1.1.1.1") throw new SocketException();
+                return Task.FromResult(true);
+            });
+        var report = await diagnostics.RunAsync();
+        Assert.Equal(3, calls.Count);
+        Assert.Contains(report.Checks, c => c.Layer == "internet" && c.Status == "ok" && c.Evidence.Contains("2/3") && c.Evidence.Contains("1.1.1.1:443"));
+        Assert.Contains(report.Suggestions, s => s.Contains("不代表整体断网"));
+    }
+
+    [Fact]
+    public void LoopbackAndHighPortsAreFolded_NotDeclaredSafe_AndCanBeExpanded()
+    {
+        string[] ports = ["127.0.0.1:5050", "[::1]:5051", "0.0.0.0:80", "[::]:443", "0.0.0.0:50001"];
+        var compact = NetworkDiagnostics.DescribeListeners(ports);
+        Assert.Contains("0.0.0.0:80", compact);
+        Assert.Contains("[::]:443", compact);
+        Assert.DoesNotContain("127.0.0.1:5050", compact);
+        Assert.DoesNotContain("0.0.0.0:50001", compact);
+        Assert.Contains("折叠回环 2 项", compact);
+        Assert.Contains("高位不等于安全", compact);
+        Assert.Contains("0.0.0.0:50001", NetworkDiagnostics.DescribeListeners(ports, all: true));
     }
 
     [Fact]
