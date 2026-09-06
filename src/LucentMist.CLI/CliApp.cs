@@ -20,6 +20,17 @@ namespace LucentMist.CLI;
 
 public class CliApp
 {
+    private readonly Func<LucentMist.Scanning.Monitoring.MonitorScope, bool, CancellationToken, Task<LucentMist.Scanning.Monitoring.NetworkSnapshot>>? _monitorCapture;
+    private readonly Func<CancellationToken, Task<string>>? _monitorSubnet;
+
+    public CliApp() { }
+
+    internal CliApp(Func<LucentMist.Scanning.Monitoring.MonitorScope, bool, CancellationToken, Task<LucentMist.Scanning.Monitoring.NetworkSnapshot>> monitorCapture,
+        Func<CancellationToken, Task<string>> monitorSubnet)
+    {
+        _monitorCapture = monitorCapture;
+        _monitorSubnet = monitorSubnet;
+    }
     private static ILoggerFactory _sharedLoggerFactory = BuildLoggerFactory(LogLevel.Error);
     private static LogLevel _minimumLogLevel = LogLevel.Error;
     private static ILogger Logger => _sharedLoggerFactory.CreateLogger(nameof(CliApp));
@@ -44,7 +55,7 @@ public class CliApp
             "sirius-scan" => await SiriusScanCommand(commandArgs),
             "report" => await ReportCommand(commandArgs),
             "agent" => await AgentCommand(commandArgs),
-            "monitor" or "watch" => await HomeNetworkCommands.MonitorAsync(commandArgs, _sharedLoggerFactory),
+            "monitor" or "watch" => await HomeNetworkCommands.MonitorAsync(commandArgs, _sharedLoggerFactory, _monitorCapture, _monitorSubnet),
             "diagnose" => await HomeNetworkCommands.DiagnoseAsync(commandArgs),
             "audit" => await AuditCommand(commandArgs),
             "backup" => BackupCommand(commandArgs),

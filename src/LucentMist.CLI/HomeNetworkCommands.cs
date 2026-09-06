@@ -31,7 +31,9 @@ internal static class HomeNetworkCommands
         return result;
     }
 
-    public static Task<int> MonitorAsync(string[] args, ILoggerFactory logger) => WithCancellation(async ct =>
+    public static Task<int> MonitorAsync(string[] args, ILoggerFactory logger,
+        Func<MonitorScope, bool, CancellationToken, Task<NetworkSnapshot>>? capture = null,
+        Func<CancellationToken, Task<string>>? defaultSubnet = null) => WithCancellation(async ct =>
     {
         var options = Parse(args, ["--once", "--alerts", "--devices", "--check-vulns"], ["--interval", "--subnet", "--ports", "--trust", "--cycles", "--limit"]);
         if (new[] { "--alerts", "--devices", "--trust" }.Count(options.ContainsKey) > 1)
@@ -40,6 +42,7 @@ internal static class HomeNetworkCommands
         int? cycles = options.ContainsKey("--once") ? 1 : options.ContainsKey("--cycles") ? Integer(options, "--cycles", 1, 1, 10000) : null;
         if (options.ContainsKey("--once") && options.ContainsKey("--cycles")) throw new ArgumentException("--once 与 --cycles 不能同时使用");
         var subnet = options.GetValueOrDefault("--subnet");
+        if (subnet == null && defaultSubnet != null) subnet = await defaultSubnet(ct);
         if (subnet == null)
         {
             var local = await new GetMyIpTool().ExecuteAsync(new(), ct);
@@ -52,7 +55,8 @@ internal static class HomeNetworkCommands
         // Reuse scan-store startup checks, audit history and the existing database/backup location.
         var audit = new ScanStore(dbPath);
         var store = new MonitorStore(dbPath);
-        AnsiConsole.MarkupLine($"[teal]家庭监控：{Markup.Escape(scope.Subnet)}；TCP {Markup.Escape(scope.Ports)}[/]");
+        var queryOnly = new[] { "--alerts", "--devices", "--trust" }.Any(options.ContainsKey);
+        AnsiConsole.MarkupLine($"[teal]家庭监控：{Markup.Escape(scope.Subnet)}{(queryOnly ? "（查询此网段的全部记录）" : "; TCP " + Markup.Escape(scope.Ports))}[/]");
         if (options.TryGetValue("--trust", out var identity))
         {
             var mac = store.Trust(scope, identity);
@@ -62,6 +66,7 @@ internal static class HomeNetworkCommands
         if (options.ContainsKey("--devices")) { RenderDevices(store.ListDevices(scope)); return 0; }
         if (options.ContainsKey("--alerts"))
         {
+            RenderAnalysisStatus(store.ListDevices(scope));
             var alerts = store.ListAlerts(scope, Integer(options, "--limit", 100, 1, 1000));
             if (alerts.Length == 0) AnsiConsole.MarkupLine("[grey]当前范围暂无已记录告警；不代表已完成全面安全检查。[/]");
             RenderAlerts(alerts);
@@ -74,12 +79,12 @@ internal static class HomeNetworkCommands
         {
             var lastApplied = false;
             var vulnerability = options.ContainsKey("--check-vulns");
-            AnsiConsole.MarkupLine($"[yellow]每轮结束后等待 {interval} 分钟；Ctrl+C 停止。仅监控+告警+建议，不自动修复或隔离。[/]");
+            AnsiConsole.MarkupLine("[yellow]" + ScheduleDescription(cycles, interval) + "仅监控+告警+建议，不自动修复或隔离。[/]");
             AnsiConsole.MarkupLine(vulnerability
                 ? "[yellow]已启用漏洞候选检查，云源开关沿用 LMIST_CVE_EXTERNAL；候选不是确认漏洞。[/]"
                 : "[grey]默认检查设备/端口/服务变化；不会声称已检查漏洞。需要时添加 --check-vulns。[/]");
             var scanner = new NetworkMonitorScanner(logger);
-            var loop = new NetworkMonitor(store, token => scanner.CaptureAsync(scope, vulnerability, token));
+            var loop = new NetworkMonitor(store, token => capture != null ? capture(scope, vulnerability, token) : scanner.CaptureAsync(scope, vulnerability, token));
             await loop.RunAsync(scope, TimeSpan.FromMinutes(interval), cycles, async update =>
             {
                 lastApplied = update.Applied;
@@ -95,11 +100,11 @@ internal static class HomeNetworkCommands
 
     public static Task<int> DiagnoseAsync(string[] args) => WithCancellation(async ct =>
     {
-        var options = Parse(args, ["--no-external"], ["--gateway", "--dns-name"]);
+        var options = Parse(args, ["--no-external", "--all-listeners"], ["--gateway", "--dns-name"]);
         if (options.TryGetValue("--gateway", out var gateway)) ValidateGateway(gateway);
         AnsiConsole.MarkupLine("[teal]基础网络诊断：接口 → 网关 → DNS → 公网 TCP → 本地监听[/]");
-        AnsiConsole.MarkupLine("[grey]默认查询 example.com 并连接 1.1.1.1:443，不上传扫描报告；--no-external 可禁用公网 TCP 检查。[/]");
-        var report = await new NetworkDiagnostics().RunAsync(options.GetValueOrDefault("--gateway"), options.GetValueOrDefault("--dns-name", "example.com"), !options.ContainsKey("--no-external"), ct);
+        AnsiConsole.MarkupLine("[grey]默认查询 example.com；公网 TCP 检查 1.1.1.1:443、8.8.8.8:53、223.5.5.5:53，不上传扫描报告。--no-external 禁用这些 TCP 检查（DNS 查询仍执行）。[/]");
+        var report = await new NetworkDiagnostics().RunAsync(options.GetValueOrDefault("--gateway"), options.GetValueOrDefault("--dns-name", "example.com"), !options.ContainsKey("--no-external"), ct, options.ContainsKey("--all-listeners"));
         var table = new Table().AddColumn("层次").AddColumn("状态").AddColumn("实际证据");
         foreach (var check in report.Checks) table.AddRow(Markup.Escape(check.Layer), Markup.Escape(check.Status), Markup.Escape(check.Evidence));
         AnsiConsole.Write(table);
@@ -121,19 +126,42 @@ internal static class HomeNetworkCommands
     }
     private static void RenderDevices(IEnumerable<KnownDevice> devices)
     {
+        var items = devices.ToArray();
         AnsiConsole.MarkupLine("[grey]以下为数据库最近有效记录，不是实时在线保证；端口保留各自观测时间。[/]");
         var table = new Table().AddColumn("IP/MAC").AddColumn("设备/厂商").AddColumn("最近记录/信任").AddColumn("已观测端口");
-        foreach (var item in devices) table.AddRow(Markup.Escape(item.Device.Ip + "\n" + (item.Device.Mac ?? "无 MAC")),
-            Markup.Escape(item.Device.Name + "\n" + item.Device.Vendor), IdentityObservation(item) + $"\n最后出现 {item.LastSeen.ToLocalTime():MM-dd HH:mm:ss}",
+        foreach (var item in items) table.AddRow(Markup.Escape(item.Device.Ip + "\n" + (item.Device.Mac ?? "无 MAC")),
+            Markup.Escape(DeviceDescription(item.Device)), IdentityObservation(item) + $"\n最后出现 {item.LastSeen.ToLocalTime():MM-dd HH:mm:ss}",
             Markup.Escape(PortObservation(item)));
         AnsiConsole.Write(table);
+        RenderAnalysisStatus(items);
+    }
+    internal static string ScheduleDescription(int? cycles, int interval) => cycles == 1
+        ? "仅执行一轮，完成后退出；Ctrl+C 可停止。"
+        : $"两轮之间等待 {interval} 分钟；Ctrl+C 停止。";
+
+    internal static string DeviceDescription(MonitorDevice device) => device.Name + "\n" + device.Vendor +
+        (string.IsNullOrWhiteSpace(device.Model) ? "" : "\n型号：" + device.Model) +
+        (device.MdnsServices?.Length > 0 ? "\nmDNS 声明：" + string.Join(", ", device.MdnsServices.Select(s => s.Replace("._tcp.local", "", StringComparison.Ordinal))) + "（非型号确认）" : "");
+
+    internal static string[] AnalysisStatus(IEnumerable<KnownDevice> devices) => devices
+        .Where(d => d.Present).SelectMany(d => (d.Device.Warnings ?? []).Select(w => d.Device.Ip + "：" + w)).Distinct().ToArray();
+
+    private static void RenderAnalysisStatus(IEnumerable<KnownDevice> devices)
+    {
+        var notes = AnalysisStatus(devices);
+        if (notes.Length == 0) return;
+        AnsiConsole.MarkupLine("[yellow]检查状态：部分服务/漏洞分析未完成（不是变化告警）；没有漏洞候选不代表安全。[/]");
+        foreach (var note in notes.Take(3)) AnsiConsole.MarkupLine("[grey]" + Markup.Escape(note) + "[/]");
+        if (notes.Length > 3) AnsiConsole.MarkupLine($"[grey]另有 {notes.Length - 3} 条状态说明保存在设备最近记录中。[/]");
     }
     internal static string IdentityObservation(KnownDevice item) => !item.IdentityConfirmed
         ? "本轮身份未确认/信任不适用于当前响应"
         : (item.Present ? "观测到" : "未观测到") + (item.Trusted ? "/可信" : "/未信任");
     internal static string PortObservation(KnownDevice item) => item.Device.OpenPorts == null ? "未取得成功结果" :
         (item.Device.OpenPorts.Length == 0 ? "所选端口无成功连接" : string.Join(',', item.Device.OpenPorts)) +
-        (!item.IdentityConfirmed ? "（本轮身份未确认，保留历史）" : item.LastPortScanSucceeded ? "" : "（本次扫描失败，保留历史）") + $"\n观测于 {item.PortsObservedAt?.ToLocalTime():MM-dd HH:mm:ss}";
+        (!item.IdentityConfirmed ? "（本轮身份未确认，保留历史）" : item.LastPortScanSucceeded ? "" : "（本次扫描失败，保留历史）") +
+        $"\n最近成功范围 {item.LastPortScope ?? "未记录"}，观测于 {item.PortsObservedAt?.ToLocalTime():MM-dd HH:mm:ss}" +
+        (item.PortHistory?.Values.Select(p => p.At).Distinct().Skip(1).Any() == true ? "\n含其它轮次端口历史，未扫描端口不推断关闭" : "");
     private static void RenderAlerts(IEnumerable<MonitorAlert> alerts)
     {
         foreach (var alert in alerts)
