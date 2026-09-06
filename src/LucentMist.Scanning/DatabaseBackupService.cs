@@ -76,27 +76,7 @@ public static class DatabaseBackupService
             var existing = new[] { targetPath, targetPath + "-wal", targetPath + "-shm" }
                 .Where(File.Exists)
                 .ToArray();
-            if (existing.Length > 0)
-            {
-                Directory.CreateDirectory(safetyDirectory);
-                foreach (var file in existing)
-                    File.Move(file, Path.Combine(safetyDirectory, Path.GetFileName(file)));
-            }
-
-            try
-            {
-                File.Move(tempPath, targetPath);
-            }
-            catch
-            {
-                foreach (var file in existing)
-                {
-                    var safetyCopy = Path.Combine(safetyDirectory, Path.GetFileName(file));
-                    if (File.Exists(safetyCopy) && !File.Exists(file))
-                        File.Move(safetyCopy, file);
-                }
-                throw;
-            }
+            ReplaceFileSet(tempPath, targetPath, safetyDirectory, existing, File.Move);
 
             return new DatabaseRestoreResult(
                 targetPath,
@@ -110,6 +90,36 @@ public static class DatabaseBackupService
             {
                 Directory.Delete(safetyDirectory);
             }
+        }
+    }
+
+    // The injected move supports deterministic filesystem-failure regression tests.
+    internal static void ReplaceFileSet(string tempPath, string targetPath, string safetyDirectory,
+        string[] existing, Action<string, string> move)
+    {
+        var moved = new List<(string Original, string Saved)>();
+        try
+        {
+            if (existing.Length > 0) Directory.CreateDirectory(safetyDirectory);
+            foreach (var file in existing)
+            {
+                var saved = Path.Combine(safetyDirectory, Path.GetFileName(file));
+                move(file, saved);
+                moved.Add((file, saved));
+            }
+            move(tempPath, targetPath);
+        }
+        catch (Exception original)
+        {
+            var failures = new List<Exception>();
+            foreach (var (file, saved) in moved.AsEnumerable().Reverse())
+            {
+                try { move(saved, file); }
+                catch (Exception rollback) { failures.Add(rollback); }
+            }
+            if (failures.Count > 0)
+                throw new AggregateException($"恢复失败且部分回滚失败；原数据保留在 {safetyDirectory}，请勿删除此目录。", new[] { original }.Concat(failures));
+            throw;
         }
     }
 

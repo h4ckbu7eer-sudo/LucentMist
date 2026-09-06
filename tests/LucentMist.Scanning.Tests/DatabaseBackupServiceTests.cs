@@ -36,6 +36,50 @@ public sealed class DatabaseBackupServiceTests : IDisposable
         Assert.Equal("wal-row", Convert.ToString(read.ExecuteScalar()));
     }
 
+    [Theory]
+    [InlineData(2)]
+    [InlineData(3)]
+    [InlineData(4)]
+    public void RestoreMoveFailureRestoresEveryOriginalFile(int failOnMove)
+    {
+        var target = Path.Combine(_directory, "original.db");
+        var staged = Path.Combine(_directory, "staged.db");
+        var safety = Path.Combine(_directory, "safety");
+        var original = new[] { target, target + "-wal", target + "-shm" };
+        foreach (var file in original) File.WriteAllText(file, Path.GetFileName(file));
+        File.WriteAllText(staged, "new database");
+        var count = 0;
+        void Move(string from, string to)
+        {
+            if (++count == failOnMove) throw new IOException("simulated sharing violation");
+            File.Move(from, to);
+        }
+        Assert.Throws<IOException>(() => DatabaseBackupService.ReplaceFileSet(staged, target, safety, original, Move));
+        foreach (var file in original) Assert.Equal(Path.GetFileName(file), File.ReadAllText(file));
+        Assert.Equal("new database", File.ReadAllText(staged));
+    }
+
+    [Fact]
+    public void FailedRollbackKeepsSafetyCopyAndAttemptsRemainingFiles()
+    {
+        var target = Path.Combine(_directory, "rollback.db");
+        var staged = Path.Combine(_directory, "staged.db");
+        var safety = Path.Combine(_directory, "safety");
+        var original = new[] { target, target + "-wal" };
+        foreach (var file in original) File.WriteAllText(file, Path.GetFileName(file));
+        File.WriteAllText(staged, "new database");
+        void Move(string from, string to)
+        {
+            if (from == staged || from == Path.Combine(safety, "rollback.db-wal"))
+                throw new IOException("simulated persistent sharing violation");
+            File.Move(from, to);
+        }
+        var error = Assert.Throws<AggregateException>(() => DatabaseBackupService.ReplaceFileSet(staged, target, safety, original, Move));
+        Assert.Contains(safety, error.Message);
+        Assert.Equal("rollback.db", File.ReadAllText(target));
+        Assert.Equal("rollback.db-wal", File.ReadAllText(Path.Combine(safety, "rollback.db-wal")));
+    }
+
     [Fact]
     public void Restore_ValidatesBackupAndKeepsRecoverableSafetyCopy()
     {
