@@ -137,7 +137,7 @@ public class PingScanTool : INetworkTargetTool
                     if (_deviceProbe != null)
                     {
                         var device = await _deviceProbe(ip, mac, ct);
-                        deviceDetails[index] = new DeviceDetail(ip, device.Mac, device.Vendor, device.Name, device.Model);
+                        deviceDetails[index] = new DeviceDetail(ip, device.Mac, device.Vendor, device.Name, device.Model) { MdnsServices = device.MdnsServices };
                         return;
                     }
                     var name = IsPrivateAddress(ip) ? await _mdnsLookupAsync(ip, ct) : null;
@@ -193,7 +193,11 @@ public class PingScanTool : INetworkTargetTool
         [property: JsonPropertyName("mac")] string? Mac,
         [property: JsonPropertyName("vendor")] string Vendor,
         [property: JsonPropertyName("name")] string Name,
-        [property: JsonPropertyName("model")] string Model);
+        [property: JsonPropertyName("model")] string Model)
+    {
+        [JsonPropertyName("mdnsServices")]
+        public string[] MdnsServices { get; init; } = [];
+    }
 
     /// <summary>
     /// 解析 CIDR 或 IP 范围为目标 IP 列表

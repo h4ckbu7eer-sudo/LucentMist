@@ -31,14 +31,18 @@ public sealed class NetworkMonitorScanner(ITool discovery, ITool portScan, ITool
             var mac = Text(detail, "mac");
             var vendor = Text(detail, "vendor");
             var name = Text(detail, "name");
+            var model = Text(detail, "model");
+            var mdnsServices = Strings(detail, "mdnsServices");
             var ports = await portScan.ExecuteAsync(new() { ["target"] = ip, ["ports"] = scope.Ports, ["timeout_ms"] = "800", ["concurrency"] = "16" }, token);
-            if (!ports.Success) { devices[index] = new(ip, mac, vendor, name, null); return; }
+            if (!ports.Success) { devices[index] = new(ip, mac, vendor, name, null, Model: model, MdnsServices: mdnsServices); return; }
             using var portData = JsonDocument.Parse(ports.Data);
             var open = portData.RootElement.GetProperty("openPorts").EnumerateArray().Select(p => p.GetInt32()).ToArray();
             if (portData.RootElement.TryGetProperty("device", out var identity))
             {
                 if (Meaningful(Text(identity, "vendor"))) vendor = Text(identity, "vendor");
                 if (Meaningful(Text(identity, "name"))) name = Text(identity, "name");
+                if (Meaningful(Text(identity, "model"))) model = Text(identity, "model");
+                mdnsServices = mdnsServices.Union(Strings(identity, "mdnsServices")).ToArray();
                 mac = MonitorDevice.NormalizeMac(Text(identity, "mac")) ?? mac;
             }
             var services = new Dictionary<int, string>();
@@ -76,7 +80,7 @@ public sealed class NetworkMonitorScanner(ITool discovery, ITool portScan, ITool
                     AddService(port, Text(data.RootElement, "banner"));
                 }
             }
-            devices[index] = new(ip, mac, vendor, name, open, services, risks, warnings.ToArray());
+            devices[index] = new(ip, mac, vendor, name, open, services, risks, warnings.ToArray(), model, mdnsServices);
             void AddService(int port, string banner)
             {
                 var fingerprint = ServiceFingerprint.FromBanner(banner);
@@ -86,5 +90,7 @@ public sealed class NetworkMonitorScanner(ITool discovery, ITool portScan, ITool
         return new(true, devices);
     }
     private static string Text(JsonElement item, string key) => item.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
+    private static string[] Strings(JsonElement item, string key) => item.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Array
+        ? value.EnumerateArray().Where(v => v.ValueKind == JsonValueKind.String).Select(v => v.GetString()!).Distinct().ToArray() : [];
     private static bool Meaningful(string value) => value.Length > 0 && !value.StartsWith("未知", StringComparison.Ordinal);
 }

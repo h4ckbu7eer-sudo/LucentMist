@@ -7,10 +7,16 @@ namespace LucentMist.Tools.Discovery;
 
 public static class MdnsProbe
 {
+    internal const int MaxQueries = 20;
+    private static readonly string[] ServiceTypes =
+    [
+        "_googlecast._tcp.local", "_device-info._tcp.local", "_android._tcp.local",
+        "_adb._tcp.local", "_adb-tls-connect._tcp.local", "_adb-tls-pairing._tcp.local",
+    ];
     public static async Task<string?> ResolveNameAsync(string target, CancellationToken cancellationToken = default) =>
         (await ProbeAsync(target, cancellationToken)).Name;
 
-    public sealed record Identity(string? Name, string? Model, string Status, int Queries);
+    public sealed record Identity(string? Name, string? Model, string Status, int Queries, string[]? Services = null);
 
     public static Task<Identity> ProbeAsync(string target, CancellationToken cancellationToken = default) =>
         ProbeAsync(target, 5353, cancellationToken);
@@ -32,26 +38,28 @@ public static class MdnsProbe
             await Query(reverse, 12);
             await Query(enumeration, 12);
             // Some devices answer their service type but not the DNS-SD enumeration query.
-            await Query("_googlecast._tcp.local", 12);
-            await Query("_device-info._tcp.local", 12);
+            foreach (var type in ServiceTypes) await Query(type, 12);
             while (!timeout.IsCancellationRequested)
             {
                 var packet = (await udp.ReceiveAsync(timeout.Token)).Buffer;
                 records.AddRange(DnsRecords.Read(packet).Where(r => r.Class == 1));
                 if (records.Count > 256) break;
-                foreach (var type in records.Where(r => r.Owner == enumeration && r.Type == 12 && r.Name != null)
-                    .Select(r => r.Name!).Concat(["_googlecast._tcp.local", "_device-info._tcp.local"]).Distinct().Take(4).ToArray())
+                foreach (var type in records.Where(r => r.Owner.Equals(enumeration, StringComparison.OrdinalIgnoreCase) && r.Type == 12 && r.Name != null)
+                    .Select(r => r.Name!).Concat(ServiceTypes).Distinct(StringComparer.OrdinalIgnoreCase).Take(10).ToArray())
                 {
                     await Query(type, 12);
                     foreach (var instance in records.Where(r => r.Owner.Equals(type, StringComparison.OrdinalIgnoreCase) && r.Type == 12 && r.Name != null)
                         .Select(r => r.Name!).Distinct().Take(2).ToArray())
+                    {
                         await Query(instance, 16);
+                        await Query(instance, 33);
+                    }
                 }
             }
 
             async Task Query(string name, ushort type)
             {
-                if (queried.Count >= 8 || !queried.Add($"{type}:{name}")) return;
+                if (queried.Count >= MaxQueries || !queried.Add($"{type}:{name}")) return;
                 // QU requests a unicast reply; connected socket rejects other devices.
                 await udp.SendAsync(DnsSecurityProbe.BuildQuery(name, type, 0x8001, false)
                     .Select((b, i) => i < 2 ? (byte)0 : b).ToArray(), timeout.Token);
@@ -66,16 +74,18 @@ public static class MdnsProbe
     {
         var records = source.Where(r => r.Class == 1).ToArray();
         var name = records.FirstOrDefault(r => r.Type == 12 && r.Owner.Equals(reverse, StringComparison.OrdinalIgnoreCase))?.Name;
-        var types = records.Where(r => r.Type == 12 && r.Owner == "_services._dns-sd._udp.local")
+        var types = records.Where(r => r.Type == 12 && r.Owner.Equals("_services._dns-sd._udp.local", StringComparison.OrdinalIgnoreCase))
             .Select(r => r.Name).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
-        types.UnionWith(["_googlecast._tcp.local", "_device-info._tcp.local"]);
+        types.UnionWith(ServiceTypes);
         var instances = records.Where(r => r.Type == 12 && types.Contains(r.Owner))
             .Select(r => r.Name).OfType<string>().ToHashSet(StringComparer.OrdinalIgnoreCase);
         var txt = records.Where(r => r.Type == 16 && instances.Contains(r.Owner)).SelectMany(r => r.Text);
         var model = txt.Select(value => value.Split('=', 2))
             .FirstOrDefault(pair => pair.Length == 2 && pair[0].ToLowerInvariant() is "model" or "md" or "ty")?[1];
         name ??= records.FirstOrDefault(r => r.Type == 33 && instances.Contains(r.Owner))?.Name;
-        return new(name, model, records.Length == 0 ? "no_valid_unicast_response" : "response_observed", queries);
+        var services = records.Where(r => r.Type == 12 && types.Contains(r.Owner) && r.Name != null)
+            .Select(r => r.Owner).Distinct(StringComparer.OrdinalIgnoreCase).Order().ToArray();
+        return new(name, model, instances.Count == 0 && name == null ? "no_valid_unicast_response" : "response_observed", queries, services);
     }
 
     internal static byte[] BuildReversePtrQuery(IPAddress address)

@@ -21,7 +21,7 @@ public class DeviceEvidenceTests
         var names = new List<string>();
         var serving = Task.Run(async () =>
         {
-            for (var i = 0; i < 6; i++)
+            for (var i = 0; i < MdnsProbe.MaxQueries; i++)
             {
                 var received = await server.ReceiveAsync(deadline.Token);
                 var offset = 12;
@@ -29,7 +29,7 @@ public class DeviceEvidenceTests
                 names.Add(question);
                 byte[] packet;
                 if (question == "router._http._tcp.local") packet = Txt(question, "model=Example-Router", 1);
-                else if (question is "_googlecast._tcp.local" or "_device-info._tcp.local")
+                else if (question.StartsWith('_') && question is not "_services._dns-sd._udp.local" and not "_http._tcp.local")
                 {
                     packet = received.Buffer.ToArray();
                     packet[2] = 0x80;
@@ -48,13 +48,14 @@ public class DeviceEvidenceTests
                     packet = [.. query, 0xc0, 0x0c, 0, 12, 0, 1, 0, 0, 0, 30, 0, (byte)rdata.Length, .. rdata];
                 }
                 await server.SendAsync(packet, received.RemoteEndPoint, deadline.Token);
+                if (question == "router._http._tcp.local") break;
             }
         }, deadline.Token);
         var result = await MdnsProbe.ProbeAsync("127.0.0.1", ((IPEndPoint)server.Client.LocalEndPoint!).Port, deadline.Token);
         await serving;
         Assert.Equal("router.local", result.Name);
         Assert.Equal("Example-Router", result.Model);
-        Assert.Equal(6, result.Queries);
+        Assert.InRange(result.Queries, 10, MdnsProbe.MaxQueries);
         Assert.Contains("router._http._tcp.local", names);
     }
 

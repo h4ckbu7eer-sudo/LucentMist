@@ -53,6 +53,11 @@ public static class DeviceDiscovery
         var upnp = upnpTask == null ? null : await upnpTask;
         if (!isPrivate && string.IsNullOrWhiteSpace(mac))
             return BuildPublicIdentityWithoutLayer2Evidence(target);
+        return BuildRemoteIdentity(target, mac, mdns, upnp);
+    }
+
+    internal static DeviceIdentity BuildRemoteIdentity(string target, string? mac, MdnsProbe.Identity? mdns, UpnpProbe.Identity? upnp)
+    {
         return new DeviceIdentity(
             target,
             mac,
@@ -62,7 +67,9 @@ public static class DeviceDiscovery
         {
             MdnsStatus = mdns?.Status ?? "not_probed",
             UpnpStatus = upnp?.Status ?? "not_probed",
-            IdentityEvidence = "厂商来自 UPnP 设备声明或离线 OUI；名称/型号来自未经认证的定向 mDNS/UPnP 响应，均需管理端确认。无响应不代表未广播，不用厂商或主机名猜型号。邻居表无 DHCP Option，未采集 DHCP。",
+            MdnsServices = mdns?.Services ?? [],
+            IdentityEvidence = "厂商来自 UPnP 设备声明或离线 OUI；名称/型号来自未经认证的定向 mDNS/UPnP 响应，均需管理端确认。无响应不代表未广播，不用厂商或主机名猜型号。邻居表无 DHCP Option，未采集 DHCP。" +
+                (mdns?.Services?.Length > 0 ? " 已观测 mDNS 服务：" + string.Join(", ", mdns.Services) + "；服务声明不等于硬件型号确认。" : " 本次未收到有效 mDNS 服务声明。"),
         };
     }
 
@@ -196,6 +203,8 @@ public sealed record DeviceIdentity(
     public string MdnsStatus { get; init; } = "not_probed";
     [JsonPropertyName("upnpStatus")]
     public string UpnpStatus { get; init; } = "not_probed";
+    [JsonPropertyName("mdnsServices")]
+    public string[] MdnsServices { get; init; } = [];
     [JsonPropertyName("identityEvidence")]
     public string? IdentityEvidence { get; init; }
     [JsonPropertyName("pageIdentity")]

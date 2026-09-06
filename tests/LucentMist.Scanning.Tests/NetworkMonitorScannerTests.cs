@@ -24,6 +24,20 @@ public class NetworkMonitorScannerTests
     }
 
     [Fact]
+    public async Task AndroidIdentityEvidenceSurvivesDiscoveryAndPortScanning()
+    {
+        var discovery = new FakeTool((_, _) => Task.FromResult(Ok(new
+        {
+            deviceDetails = new[] { new { ip = "192.168.99.10", mac = "02:11:22:33:44:55", vendor = "随机 MAC", name = "android-99.local", model = "Test-Phone", mdnsServices = new[] { "_adb._tcp.local" } } },
+        })));
+        var scanner = new NetworkMonitorScanner(discovery, new FakeTool((_, _) => Task.FromResult(Ok(new { openPorts = Array.Empty<int>() }))), Never, Never);
+        var device = Assert.Single((await scanner.CaptureAsync(Scope, false, default)).Devices);
+        Assert.Equal("Test-Phone", device.Model);
+        Assert.Equal("android-99.local", device.Name);
+        Assert.Contains("_adb._tcp.local", device.MdnsServices!);
+    }
+
+    [Fact]
     public async Task FailedPortScanIsNull_NotEmptySuccessfulScan_AndDoesNotRunVulnerabilities()
     {
         var scanner = new NetworkMonitorScanner(Discovery(), new FakeTool((_, _) => Task.FromResult(ToolResult.Fail("probe failed", TimeSpan.Zero))), Never, Never);
