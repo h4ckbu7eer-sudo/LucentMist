@@ -37,24 +37,27 @@
 
 <ScanStatusAlerts Client="ScanTask" />
 
-@if (State.ScanResults.Count > 0)
+@if (State.HasScanResult || State.ScanResults.Count > 0)
 {
     <div class="card">
         <div style="margin-bottom:0.5rem;">
-            目标: <strong>@State.ScanTarget</strong> | 扫描: <strong>@_total</strong> | 开放: <strong style="color:var(--green)">@_open</strong>
+            目标: <strong>@State.ScanResultTarget</strong> | 扫描: <strong>@State.ScanResultTotal</strong> | 开放/在线: <strong style="color:var(--green)">@State.ScanResultOpen</strong>
         </div>
         <table><thead><tr><th>端口</th><th>服务</th><th>状态</th></tr></thead><tbody>
         @foreach (var r in State.ScanResults)
         {
-            <tr><td>@r.Port</td><td class="service">@r.Service</td><td style="color:var(--green)">✅ 开放</td></tr>
+            <tr><td>@(r.Port == 0 ? "—" : r.Port.ToString())</td><td class="service">@r.Service</td><td title="@r.Detail">@r.StatusLabel</td></tr>
         }
         </tbody></table>
+        @if (State.ScanResults.Count == 0)
+        {
+            <p>本次扫描范围内未观测到开放端口；不代表目标整体安全。</p>
+        }
     </div>
 }
 
 @code {
     private bool _busy;
-    private int _total, _open;
     private Action<ScanTaskRecord>? _completedHandler;
     private Action<string, string>? _failedHandler;
 
@@ -71,12 +74,14 @@
         };
         ScanTask.Completed += _completedHandler;
         ScanTask.Failed += _failedHandler;
+        ScanTask.MonitoringStateChanged += OnMonitoringChanged;
     }
 
     private async Task StartScan()
     {
         _busy = true;
         State.ScanResults.Clear();
+        State.HasScanResult = false;
         try {
             await ScanTask.StartAsync(State.ScanTarget, State.ScanType, State.ScanPorts);
         } catch (Exception ex) {
@@ -84,6 +89,12 @@
             _busy = false;
         }
     }
+
+    private void OnMonitoringChanged() => _ = InvokeAsync(() =>
+    {
+        if (ScanTask.CurrentStatus == "monitoring_unavailable") _busy = false;
+        StateHasChanged();
+    });
 
     private void OnProgress(ScanProgressEvent evt)
     {
@@ -127,36 +138,29 @@
 
         using var doc = JsonDocument.Parse(rec.ResultJson);
         var root = doc.RootElement;
+        State.HasScanResult = true;
+        State.ScanResultTarget = rec.Target;
         var scanType = root.TryGetProperty("scanType", out var st) ? st.GetString() : "tcp";
 
         if (scanType == "ping")
         {
             if (root.TryGetProperty("devices", out var devices))
                 foreach (var ip in devices.EnumerateArray())
-                    State.ScanResults.Add(new(0, ip.GetString() ?? "?"));
-            _total = State.ScanResults.Count;
-            _open = State.ScanResults.Count;
+                    State.ScanResults.Add(new(0, ip.GetString() ?? "?", "alive"));
+            State.ScanResultTotal = State.ScanResults.Count;
+            State.ScanResultOpen = State.ScanResults.Count;
             return;
         }
 
-        _total = root.TryGetProperty("totalScanned", out var total) ? total.GetInt32() : 0;
-        if (root.TryGetProperty("openPorts", out var ports))
-        {
-            foreach (var p in ports.EnumerateArray())
-            {
-                var port = p.GetInt32();
-                var service = scanType == "udp"
-                    ? PortHelper.GetUdpServiceName(port)
-                    : PortHelper.GetTcpServiceName(port);
-                State.ScanResults.Add(new(port, service ?? "?"));
-            }
-        }
-        _open = State.ScanResults.Count;
+        State.ScanResultTotal = root.TryGetProperty("totalScanned", out var total) ? total.GetInt32() : 0;
+        State.ScanResults.AddRange(AppState.ScanPortResult.FromToolResult(root, scanType ?? "tcp"));
+        State.ScanResultOpen = State.ScanResults.Count(result => result.State == "open");
     }
 
     public async ValueTask DisposeAsync()
     {
         ScanTask.Progress -= OnProgress;
+        ScanTask.MonitoringStateChanged -= OnMonitoringChanged;
         if (_completedHandler != null) ScanTask.Completed -= _completedHandler;
         if (_failedHandler != null) ScanTask.Failed -= _failedHandler;
         await ScanTask.DisposeAsync();

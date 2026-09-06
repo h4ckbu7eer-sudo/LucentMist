@@ -15,6 +15,79 @@ namespace LucentMist.API.Tests;
 public sealed class ScanTaskClientTests
 {
     [Fact]
+    public async Task ScanPageActuallyRendersUdpUncertaintyAndStoredTarget()
+    {
+        await using var client = CreateClient(new QueueCoordinator("unused"), new NeverCompletingReader());
+        var state = new LucentMistWeb::LucentMist.Web.AppState
+        {
+            ScanTarget = "edited-target",
+            ScanResultTarget = "127.0.0.1",
+            HasScanResult = true,
+            ScanResultTotal = 2,
+            ScanResults = [new(123, "NTP", "open|filtered"), new(514, "Syslog", "unprobeable")]
+        };
+        using var services = new ServiceCollection().AddLogging().AddSingleton(state).AddSingleton(client).BuildServiceProvider();
+        await using var renderer = new HtmlRenderer(services, NullLoggerFactory.Instance);
+        var html = await renderer.Dispatcher.InvokeAsync(async () =>
+        {
+            var page = await renderer.RenderComponentAsync<LucentMistWeb::LucentMist.Web.Components.Pages.Scan>();
+            return WebUtility.HtmlDecode(page.ToHtmlString());
+        });
+        Assert.Contains("NTP", html);
+        Assert.Contains("无法确认（开放或被过滤）", html);
+        Assert.Contains("无法确认（无有效探测方式）", html);
+        Assert.Contains("<strong>127.0.0.1</strong>", html);
+        Assert.DoesNotContain("✅ 开放", html);
+    }
+
+    [Fact]
+    public async Task TimeoutAtLoopBoundaryStillReportsMonitoringUnavailable()
+    {
+        static async Task DelayUntilCanceled(TimeSpan _, CancellationToken ct)
+        {
+            var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            using var registration = ct.Register(() => stopped.TrySetResult());
+            await stopped.Task;
+        }
+        await using var client = new ScanTaskClient(
+            new QueueCoordinator("boundary"), new ImmediateReader("pending"),
+            new TestNavigationManager(), DelayUntilCanceled, false, TimeSpan.FromMilliseconds(50));
+        var stopped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        client.MonitoringStateChanged += () =>
+        {
+            if (client.CurrentStatus == "monitoring_unavailable") stopped.TrySetResult();
+        };
+        await client.StartAsync("127.0.0.1", "tcp", "443");
+        await stopped.Task.WaitAsync(TimeSpan.FromSeconds(3));
+        Assert.Null(client.LastError);
+    }
+
+    [Fact]
+    public async Task SynchronousCompletionCanBeReplacedAndDisposedWithSignalREnabled()
+    {
+        await using var client = new ScanTaskClient(
+            new QueueCoordinator("first", "second"), new ImmediateReader("completed"),
+            new TestNavigationManager(), Task.Delay, true);
+        Assert.Equal("first", await client.StartAsync("127.0.0.1", "tcp", "443"));
+        Assert.Equal("second", await client.StartAsync("127.0.0.1", "tcp", "80"));
+        Assert.Equal("completed", client.CurrentStatus);
+        Assert.Null(client.MonitoringError);
+    }
+
+    private sealed class ImmediateReader(string status) : IScanTaskReader
+    {
+        public Task<ScanTaskRecord?> GetAsync(string id, CancellationToken ct = default) =>
+            Task.FromResult<ScanTaskRecord?>(new ScanTaskRecord
+            {
+                Id = id,
+                Target = "127.0.0.1",
+                ScanType = "tcp",
+                Status = status,
+                ResultJson = "{}"
+            });
+    }
+
+    [Fact]
     public async Task TransientSqliteBusy_RetriesWithoutReportingScanFailure()
     {
         var coordinator = new QueueCoordinator("task-1");

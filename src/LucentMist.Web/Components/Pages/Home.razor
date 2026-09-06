@@ -108,6 +108,7 @@
         };
         ScanTask.Completed += _completedHandler;
         ScanTask.Failed += _failedHandler;
+        ScanTask.MonitoringStateChanged += OnMonitoringChanged;
     }
 
     private async Task QuickScan()
@@ -124,6 +125,12 @@
             _busy = false;
         }
     }
+
+    private void OnMonitoringChanged() => _ = InvokeAsync(() =>
+    {
+        if (ScanTask.CurrentStatus == "monitoring_unavailable") _busy = false;
+        StateHasChanged();
+    });
 
     private void OnProgress(ScanProgressEvent evt)
     {
@@ -171,10 +178,6 @@
         var root = doc.RootElement;
         State.OnlineDevices = root.TryGetProperty("alive", out var alive) ? alive.GetInt32() : 0;
 
-        var byIp = root.TryGetProperty("openPortsByIp", out var portsByIp)
-            ? portsByIp.EnumerateObject().ToDictionary(x => x.Name, x => x.Value)
-            : new Dictionary<string, JsonElement>();
-
         if (root.TryGetProperty("devices", out var devices))
         {
             foreach (var ip in devices.EnumerateArray())
@@ -182,10 +185,7 @@
                 var value = ip.GetString();
                 if (string.IsNullOrEmpty(value)) continue;
 
-                var ports = byIp.TryGetValue(value, out var entry)
-                    ? entry.EnumerateArray().Select(p => p.GetInt32()).ToArray()
-                    : [];
-                State.LastResults.Add(new(value, ports.Length > 0 ? string.Join(",", ports) : "无"));
+                State.LastResults.Add(new(value, AppState.DescribeDevicePorts(root, value)));
             }
         }
     }
@@ -194,6 +194,7 @@
     {
         _disposed = true;
         ScanTask.Progress -= OnProgress;
+        ScanTask.MonitoringStateChanged -= OnMonitoringChanged;
         if (_completedHandler != null) ScanTask.Completed -= _completedHandler;
         if (_failedHandler != null) ScanTask.Failed -= _failedHandler;
         await ScanTask.DisposeAsync();

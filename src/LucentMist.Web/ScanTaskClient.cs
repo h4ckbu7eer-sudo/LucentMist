@@ -237,6 +237,7 @@ public sealed class ScanTaskClient : IAsyncDisposable
 
     private async Task TryJoinHubAsync(string? previousTaskId, ActiveRun run)
     {
+        if (!IsActive(run)) return;
         try
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(
@@ -340,6 +341,13 @@ public sealed class ScanTaskClient : IAsyncDisposable
         catch (OperationCanceledException) when (run.Token.IsCancellationRequested)
         {
             // The run was replaced or the client was disposed.
+        }
+        finally
+        {
+            // A reader/delay can finish normally just as the deadline expires.
+            // The while condition then exits without throwing cancellation.
+            if (timeoutCts.IsCancellationRequested && !run.Token.IsCancellationRequested)
+                RaiseMonitoringUnavailable(run, "无法确认扫描结果：监控已超时，请查看扫描历史");
         }
     }
 
@@ -503,6 +511,8 @@ public sealed class ScanTaskClient : IAsyncDisposable
     private sealed class ActiveRun : IDisposable
     {
         private readonly CancellationTokenSource _cts;
+        private readonly object _gate = new();
+        private bool _isDisposed;
 
         public ActiveRun(
             string taskId,
@@ -516,22 +526,32 @@ public sealed class ScanTaskClient : IAsyncDisposable
             ScanType = scanType;
             Ports = ports;
             _cts = CancellationTokenSource.CreateLinkedTokenSource(disposeToken);
+            Token = _cts.Token;
         }
 
         public string TaskId { get; }
         public string Target { get; }
         public string ScanType { get; }
         public string Ports { get; }
-        public CancellationToken Token => _cts.Token;
+        public CancellationToken Token { get; }
         public Task? PollTask { get; set; }
         public bool FinalRaised { get; set; }
 
         public void Cancel()
         {
-            if (!_cts.IsCancellationRequested)
-                _cts.Cancel();
+            lock (_gate)
+                if (!_isDisposed && !Token.IsCancellationRequested)
+                    _cts.Cancel();
         }
 
-        public void Dispose() => _cts.Dispose();
+        public void Dispose()
+        {
+            lock (_gate)
+            {
+                if (_isDisposed) return;
+                _isDisposed = true;
+                _cts.Dispose();
+            }
+        }
     }
 }
