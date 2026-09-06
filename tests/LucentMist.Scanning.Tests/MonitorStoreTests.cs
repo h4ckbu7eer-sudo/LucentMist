@@ -25,6 +25,27 @@ public sealed class MonitorStoreTests : IDisposable
         Assert.All(next.Devices, d => Assert.Equal(Now.AddMinutes(30), d.LastSeen));
     }
     [Fact]
+    public void MissingMacDoesNotCreateFalseStrangerAndDisappearanceOrHideOtherNewDevices()
+    {
+        Store.Apply(Scope, new(true, [A()]), Now);
+        Store.Trust(Scope, A().Ip);
+        var update = Store.Apply(Scope, new(true, [A() with { Mac = null }, B]), Now.AddMinutes(1));
+        Assert.DoesNotContain(update.Alerts, a => a.Ip == A().Ip && a.Kind is "new_device" or "missing_device");
+        Assert.Contains(update.Alerts, a => a.Ip == A().Ip && a.Kind == "identity_unconfirmed");
+        Assert.Contains(update.Alerts, a => a.Ip == B.Ip && a.Kind == "new_device" && a.Priority == "high");
+        var known = update.Devices.Single(d => d.Device.Ip == A().Ip);
+        Assert.Equal(Now, known.LastSeen);
+        Assert.False(known.IdentityConfirmed);
+        Assert.Throws<ArgumentException>(() => Store.Trust(Scope, A().Ip));
+        Assert.Contains("partial", update.Summary);
+        var retry = Store.Apply(Scope, new(true, [A() with { Mac = null }, B]), Now.AddMinutes(2));
+        Assert.DoesNotContain(retry.Alerts, a => a.Kind == "identity_unconfirmed");
+        var recovered = Store.Apply(Scope, new(true, [A(), B]), Now.AddMinutes(3));
+        Assert.DoesNotContain(recovered.Alerts, a => a.Kind == "new_device");
+        Assert.All(recovered.Devices, d => Assert.True(d.IdentityConfirmed));
+        Assert.Equal(Now.AddMinutes(3), recovered.Devices.Single(d => d.Device.Ip == A().Ip).LastSeen);
+    }
+    [Fact]
     public void NewDeviceIsHigh_MissingIsLow_EventsDoNotRepeatEveryPoll()
     {
         Store.Apply(Scope, new(true, [A()]), Now);

@@ -124,13 +124,16 @@ internal static class HomeNetworkCommands
         AnsiConsole.MarkupLine("[grey]以下为数据库最近有效记录，不是实时在线保证；端口保留各自观测时间。[/]");
         var table = new Table().AddColumn("IP/MAC").AddColumn("设备/厂商").AddColumn("最近记录/信任").AddColumn("已观测端口");
         foreach (var item in devices) table.AddRow(Markup.Escape(item.Device.Ip + "\n" + (item.Device.Mac ?? "无 MAC")),
-            Markup.Escape(item.Device.Name + "\n" + item.Device.Vendor), (item.Present ? "观测到" : "未观测到") + (item.Trusted ? "/可信" : "/未信任") + $"\n最后出现 {item.LastSeen.ToLocalTime():MM-dd HH:mm:ss}",
+            Markup.Escape(item.Device.Name + "\n" + item.Device.Vendor), IdentityObservation(item) + $"\n最后出现 {item.LastSeen.ToLocalTime():MM-dd HH:mm:ss}",
             Markup.Escape(PortObservation(item)));
         AnsiConsole.Write(table);
     }
+    internal static string IdentityObservation(KnownDevice item) => !item.IdentityConfirmed
+        ? "本轮身份未确认/信任不适用于当前响应"
+        : (item.Present ? "观测到" : "未观测到") + (item.Trusted ? "/可信" : "/未信任");
     internal static string PortObservation(KnownDevice item) => item.Device.OpenPorts == null ? "未取得成功结果" :
         (item.Device.OpenPorts.Length == 0 ? "所选端口无成功连接" : string.Join(',', item.Device.OpenPorts)) +
-        (item.LastPortScanSucceeded ? "" : "（本次扫描失败，保留历史）") + $"\n观测于 {item.PortsObservedAt?.ToLocalTime():MM-dd HH:mm:ss}";
+        (!item.IdentityConfirmed ? "（本轮身份未确认，保留历史）" : item.LastPortScanSucceeded ? "" : "（本次扫描失败，保留历史）") + $"\n观测于 {item.PortsObservedAt?.ToLocalTime():MM-dd HH:mm:ss}";
     private static void RenderAlerts(IEnumerable<MonitorAlert> alerts)
     {
         foreach (var alert in alerts)

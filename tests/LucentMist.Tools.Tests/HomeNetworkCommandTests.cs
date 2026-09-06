@@ -33,6 +33,17 @@ public class HomeNetworkCommandTests
         Assert.Contains("观测于", output);
     }
 
+    [Fact]
+    public void UnconfirmedIdentityDoesNotDisplayCurrentResponseAsTrusted()
+    {
+        var time = DateTimeOffset.UtcNow;
+        var device = new KnownDevice(new("192.168.99.1", "00:11:22:33:44:55", "ZTE", "router", [80]), time, time, true,
+            Trusted: true, PortsObservedAt: time, IdentityConfirmed: false);
+        Assert.Contains("信任不适用于当前响应", HomeNetworkCommands.IdentityObservation(device));
+        Assert.DoesNotContain("/可信", HomeNetworkCommands.IdentityObservation(device));
+        Assert.Contains("身份未确认，保留历史", HomeNetworkCommands.PortObservation(device));
+    }
+
     [Theory]
     [InlineData("192.168.99.0/24")]
     [InlineData("1.1.1.1")]

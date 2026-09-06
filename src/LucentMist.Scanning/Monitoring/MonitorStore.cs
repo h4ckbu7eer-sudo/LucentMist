@@ -67,7 +67,7 @@ public sealed class MonitorStore
         if (mac == null)
         {
             if (!IPAddress.TryParse(ipOrMac, out var address)) throw new ArgumentException("请提供有效 IP 或 MAC。");
-            var candidates = ReadDevices(db, scope.Id, transaction).Where(d => d.Present && d.Device.Ip == address.ToString()).ToArray();
+            var candidates = ReadDevices(db, scope.Id, transaction).Where(d => d.Present && d.IdentityConfirmed && d.Device.Ip == address.ToString()).ToArray();
             if (candidates.Length != 1 || (mac = MonitorDevice.NormalizeMac(candidates[0].Device.Mac)) == null)
                 throw new ArgumentException("该 IP 没有唯一已观测 MAC；请先扫描，或直接指定设备 MAC。不会永久信任可复用的 IP。");
         }
@@ -97,6 +97,7 @@ public sealed class MonitorStore
         using (var reader = state.ExecuteReader()) { reader.Read(); initialized = reader.GetBoolean(0); lastStatus = reader.GetString(1); }
         var old = ReadDevices(db, scope.Id, transaction).ToDictionary(d => d.Device.Id);
         var alerts = new List<MonitorAlert>();
+        var unconfirmedIdentities = new HashSet<string>();
         var duplicateIdentity = snapshot.Devices.GroupBy(d => d.Id).Any(g => g.Count() > 1);
         var uncertain = !snapshot.DiscoverySucceeded || snapshot.Devices.Length == 0 || duplicateIdentity;
         if (uncertain)
@@ -110,6 +111,25 @@ public sealed class MonitorStore
             var incoming = snapshot.Devices.GroupBy(d => d.Id).ToDictionary(g => g.Key, g => g.First());
             foreach (var (id, device) in incoming)
             {
+                // Missing ARP/neighbor evidence cannot prove either a new device or
+                // the disappearance of the previously observed MAC at this IP.
+                // Do not transfer trust or fresh port data across an unverified identity.
+                if (MonitorDevice.NormalizeMac(device.Mac) == null)
+                {
+                    var candidates = old.Values.Where(d => d.Device.Ip == device.Ip &&
+                        MonitorDevice.NormalizeMac(d.Device.Mac) != null && !incoming.ContainsKey(d.Device.Id)).ToArray();
+                    if (candidates.Length > 0)
+                    {
+                        if (candidates.Any(d => d.IdentityConfirmed))
+                            Alert("identity_unconfirmed", "low", device.Ip, "该 IP 本轮有响应但未取得 MAC，无法确认是否原设备；不判定新设备或原设备消失，不继承信任，保留历史基线。其它设备继续正常比对。");
+                        foreach (var candidate in candidates)
+                        {
+                            unconfirmedIdentities.Add(candidate.Device.Id);
+                            Save(candidate with { IdentityConfirmed = false, LastPortScanSucceeded = false });
+                        }
+                        continue;
+                    }
+                }
                 old.TryGetValue(id, out var previous);
                 using var trust = Command(db, transaction, "SELECT COUNT(*) FROM monitor_trust WHERE scope=$scope AND device_id=$id", ("$scope", scope.Id), ("$id", id));
                 var trusted = Convert.ToInt32(trust.ExecuteScalar()) > 0;
@@ -143,7 +163,7 @@ public sealed class MonitorStore
                 Save(new(retained, previous?.FirstSeen ?? now, now, true, trusted,
                     device.OpenPorts != null ? now : previous?.PortsObservedAt, device.OpenPorts != null));
             }
-            foreach (var previous in old.Values.Where(d => d.Present && !incoming.ContainsKey(d.Device.Id)))
+            foreach (var previous in old.Values.Where(d => d.Present && !incoming.ContainsKey(d.Device.Id) && !unconfirmedIdentities.Contains(d.Device.Id)))
             {
                 Alert("missing_device", "low", previous.Device.Ip, "本轮未观测到已知设备；可能休眠、离线或被过滤，不等于确认断开。");
                 Save(previous with { Present = false });
@@ -153,7 +173,7 @@ public sealed class MonitorStore
             if (snapshot.Devices.Any(d => d.Warnings?.Length > 0) && lastStatus != "partial")
                 Alert("analysis_incomplete", "low", "", "部分服务/漏洞检查未完成或来源覆盖不完整；没有新漏洞告警不代表安全。");
         }
-        var status = uncertain ? "uncertain" : snapshot.Devices.Any(d => d.OpenPorts == null || d.Warnings?.Length > 0) ? "partial" : "completed";
+        var status = uncertain ? "uncertain" : unconfirmedIdentities.Count > 0 || snapshot.Devices.Any(d => d.OpenPorts == null || d.Warnings?.Length > 0) ? "partial" : "completed";
         using (var update = Command(db, transaction, "UPDATE monitor_state SET initialized=$init,last_status=$status WHERE scope=$scope",
             ("$init", initialized || !uncertain ? 1 : 0), ("$status", status), ("$scope", scope.Id))) update.ExecuteNonQuery();
         transaction.Commit();
