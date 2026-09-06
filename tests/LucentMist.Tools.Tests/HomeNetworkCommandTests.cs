@@ -70,6 +70,21 @@ public class HomeNetworkCommandTests
     }
 
     [Theory]
+    [InlineData("possible_same_device", "疑似同一设备")]
+    [InlineData("identity_conflict", "身份待核实")]
+    public void WeakAssociationIsVisibleWithoutClaimingTrustedIdentity(string status, string evidence)
+    {
+        var time = DateTimeOffset.UtcNow;
+        var item = new KnownDevice(new("192.168.77.3", "06:11:22:33:44:55", "未知", "android-99.local", []), time, time, true,
+            Association: new(status, ["mac:02:11:22:33:44:55"], evidence));
+        var output = HomeNetworkCommands.IdentityObservation(item);
+        Assert.Contains(evidence, output);
+        Assert.Contains("不继承信任", output);
+        Assert.DoesNotContain("/可信", output);
+        Assert.Contains("已显式信任\n当前 MAC", HomeNetworkCommands.IdentityObservation(item with { Trusted = true }));
+    }
+
+    [Theory]
     [InlineData("192.168.99.0/24")]
     [InlineData("1.1.1.1")]
     [InlineData("::1")]

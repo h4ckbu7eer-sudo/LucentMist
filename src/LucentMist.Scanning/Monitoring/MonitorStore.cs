@@ -102,6 +102,7 @@ public sealed partial class MonitorStore
         var scannedPorts = scope.Ports.Split(',').Select(int.Parse).ToHashSet();
         var alerts = new List<MonitorAlert>();
         var unconfirmedIdentities = new HashSet<string>();
+        var identityAssociations = new Dictionary<string, MonitorIdentityAssociation>();
         var duplicateIdentity = snapshot.Devices.GroupBy(d => d.Id).Any(g => g.Count() > 1);
         var uncertain = !snapshot.DiscoverySucceeded || snapshot.Devices.Length == 0 || duplicateIdentity;
         if (uncertain)
@@ -113,6 +114,19 @@ public sealed partial class MonitorStore
         else
         {
             var incoming = snapshot.Devices.GroupBy(d => d.Id).ToDictionary(g => g.Key, g => g.First());
+            foreach (var device in incoming.Values)
+                if (MonitorIdentityMatcher.Match(device, old, snapshot.Devices) is { } association)
+                    identityAssociations[device.Id] = association;
+            var relatedIds = identityAssociations.Values.SelectMany(a => a.RelatedDeviceIds).ToHashSet();
+            foreach (var id in incoming.Keys.Where(old.ContainsKey)) relatedIds.Add(MonitorIdentityMatcher.Root(id, old));
+            // Keep old MAC rows and their trust/port baselines separate. An absent
+            // alias is not proof that a physical device disappeared during rotation.
+            foreach (var previous in old.Values.Where(d => !incoming.ContainsKey(d.Device.Id) &&
+                (relatedIds.Contains(d.Device.Id) || relatedIds.Contains(MonitorIdentityMatcher.Root(d.Device.Id, old)))))
+            {
+                unconfirmedIdentities.Add(previous.Device.Id);
+                Save(previous with { Present = false, IdentityConfirmed = false, LastPortScanSucceeded = false });
+            }
             foreach (var (id, device) in incoming)
             {
                 // Missing ARP/neighbor evidence cannot prove either a new device or
@@ -135,11 +149,15 @@ public sealed partial class MonitorStore
                     }
                 }
                 old.TryGetValue(id, out var previous);
+                identityAssociations.TryGetValue(id, out var identityAssociation);
                 var history = PortHistory(previous);
                 using var trust = Command(db, transaction, "SELECT COUNT(*) FROM monitor_trust WHERE scope=$scope AND device_id=$id", ("$scope", scope.Id), ("$id", id));
                 var trusted = Convert.ToInt32(trust.ExecuteScalar()) > 0;
-                if (initialized && previous == null && !trusted)
+                if (initialized && previous == null && !trusted && identityAssociation == null)
                     Alert("new_device", "high", device.Ip, "发现新的未信任设备（可能陌生设备）；核对后使用 monitor --trust 标记。MAC 可伪造/随机化，无 MAC 时仅按 IP 区分，不是入侵确认。");
+                if (initialized && identityAssociation != null && (previous?.Association?.Status != identityAssociation.Status ||
+                    !identityAssociation.RelatedDeviceIds.SequenceEqual(previous.Association.RelatedDeviceIds)))
+                    Alert("identity_association", identityAssociation.Status == "identity_conflict" ? "medium" : "low", device.Ip, identityAssociation.Evidence);
                 if (previous != null)
                 {
                     if (!previous.Present) Alert("device_returned", "low", device.Ip, "已知设备重新被观测到。");
@@ -174,7 +192,7 @@ public sealed partial class MonitorStore
                 };
                 Save(new(retained, previous?.FirstSeen ?? now, now, true, trusted,
                     device.OpenPorts != null ? now : previous?.PortsObservedAt, device.OpenPorts != null,
-                    PortHistory: history, LastPortScope: device.OpenPorts != null ? scope.Ports : previous?.LastPortScope));
+                    PortHistory: history, LastPortScope: device.OpenPorts != null ? scope.Ports : previous?.LastPortScope, Association: identityAssociation));
             }
             foreach (var previous in old.Values.Where(d => d.Present && !incoming.ContainsKey(d.Device.Id) && !unconfirmedIdentities.Contains(d.Device.Id)))
             {
@@ -184,7 +202,7 @@ public sealed partial class MonitorStore
             if (snapshot.Devices.Any(d => d.OpenPorts == null) && lastStatus != "partial")
                 Alert("port_scan_incomplete", "low", "", "部分设备端口扫描失败，保留其上次端口基线；不能据此认定端口关闭。");
         }
-        var status = uncertain ? "uncertain" : unconfirmedIdentities.Count > 0 || snapshot.Devices.Any(d => d.OpenPorts == null || d.Warnings?.Length > 0) ? "partial" : "completed";
+        var status = uncertain ? "uncertain" : unconfirmedIdentities.Count > 0 || identityAssociations.Count > 0 || snapshot.Devices.Any(d => d.OpenPorts == null || d.Warnings?.Length > 0) ? "partial" : "completed";
         using (var update = Command(db, transaction, "UPDATE monitor_state SET initialized=$init,last_status=$status WHERE scope=$scope",
             ("$init", initialized || !uncertain ? 1 : 0), ("$status", status), ("$scope", scope.Id))) update.ExecuteNonQuery();
         transaction.Commit();

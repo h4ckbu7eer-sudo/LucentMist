@@ -9,7 +9,7 @@ public sealed class MonitorStoreTests : IDisposable
     private static readonly DateTimeOffset Now = DateTimeOffset.Parse("2026-09-06T00:00:00Z");
     private MonitorStore Store => new(_path);
     private static MonitorDevice A(int[]? ports = null) => new("192.168.99.1", "00:11:22:33:44:55", "ZTE", "router", ports ?? [80]);
-    private static MonitorDevice B => new("192.168.99.6", "02:11:22:33:44:66", "未知", "android-99.local", [443]);
+    private static MonitorDevice B => new("192.168.99.6", "00:11:22:33:44:66", "未知", "android-99.local", [443]);
     public void Dispose() { foreach (var suffix in new[] { "", "-wal", "-shm" }) if (File.Exists(_path + suffix)) File.Delete(_path + suffix); }
 
     [Fact]
@@ -94,7 +94,9 @@ public sealed class MonitorStoreTests : IDisposable
         Assert.DoesNotContain(Store.Apply(Scope, new(true, [A(), B]), Now.AddMinutes(1)).Alerts, a => a.Kind == "new_device");
         Assert.Equal(A().Mac, Store.Trust(Scope, A().Ip));
         var intruder = B with { Ip = A().Ip, Mac = "02:AA:BB:CC:DD:EE" };
-        Assert.Contains(Store.Apply(Scope, new(true, [intruder, B]), Now.AddMinutes(2)).Alerts, a => a.Kind == "new_device" && a.Priority == "high");
+        var collision = Store.Apply(Scope, new(true, [intruder, B]), Now.AddMinutes(2));
+        Assert.Contains(collision.Alerts, a => a.Ip == intruder.Ip && a.Kind == "identity_association" && a.Priority == "medium");
+        Assert.False(collision.Devices.Single(d => d.Device.Id == intruder.Id).Trusted);
     }
     [Fact]
     public void IpWithoutMacCannotBePermanentlyTrusted()

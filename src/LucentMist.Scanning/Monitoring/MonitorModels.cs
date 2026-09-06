@@ -41,8 +41,10 @@ public sealed record MonitorDevice(string Ip, string? Mac, string Vendor, string
 }
 public sealed record NetworkSnapshot(bool DiscoverySucceeded, MonitorDevice[] Devices, string? Error = null);
 public sealed record MonitorPortObservation(bool Open, DateTimeOffset At);
+public sealed record MonitorIdentityAssociation(string Status, string[] RelatedDeviceIds, string Evidence);
 public sealed record KnownDevice(MonitorDevice Device, DateTimeOffset FirstSeen, DateTimeOffset LastSeen, bool Present,
     bool Trusted = false, DateTimeOffset? PortsObservedAt = null, bool LastPortScanSucceeded = false, bool IdentityConfirmed = true,
-    Dictionary<int, MonitorPortObservation>? PortHistory = null, string? LastPortScope = null);
+    Dictionary<int, MonitorPortObservation>? PortHistory = null, string? LastPortScope = null,
+    MonitorIdentityAssociation? Association = null);
 public sealed record MonitorAlert(long Id, DateTimeOffset At, string Kind, string Priority, string Ip, string Message);
 public sealed record MonitorUpdate(bool BaselineCreated, bool Applied, KnownDevice[] Devices, MonitorAlert[] Alerts, string Summary);

@@ -130,7 +130,7 @@ internal static class HomeNetworkCommands
         AnsiConsole.MarkupLine("[grey]以下为数据库最近有效记录，不是实时在线保证；端口保留各自观测时间。[/]");
         var table = new Table().AddColumn("IP/MAC").AddColumn("设备/厂商").AddColumn("最近记录/信任").AddColumn("已观测端口");
         foreach (var item in items) table.AddRow(Markup.Escape(item.Device.Ip + "\n" + (item.Device.Mac ?? "无 MAC")),
-            Markup.Escape(DeviceDescription(item.Device)), IdentityObservation(item) + $"\n最后出现 {item.LastSeen.ToLocalTime():MM-dd HH:mm:ss}",
+            Markup.Escape(DeviceDescription(item.Device)), Markup.Escape(IdentityObservation(item)) + $"\n最后出现 {item.LastSeen.ToLocalTime():MM-dd HH:mm:ss}",
             Markup.Escape(PortObservation(item)));
         AnsiConsole.Write(table);
         RenderAnalysisStatus(items);
@@ -156,7 +156,10 @@ internal static class HomeNetworkCommands
     }
     internal static string IdentityObservation(KnownDevice item) => !item.IdentityConfirmed
         ? "本轮身份未确认/信任不适用于当前响应"
-        : (item.Present ? "观测到" : "未观测到") + (item.Trusted ? "/可信" : "/未信任");
+        : item.Association is { } association
+            ? (item.Present ? "观测到" : "历史记录") + (item.Trusted ? "\n已显式信任\n当前 MAC" : "/未信任\n不继承信任") +
+                "\n" + association.Evidence + (association.RelatedDeviceIds.Length == 0 ? "" : "\n关联历史：" + string.Join(", ", association.RelatedDeviceIds))
+            : (item.Present ? "观测到" : "未观测到") + (item.Trusted ? "/可信" : "/未信任");
     internal static string PortObservation(KnownDevice item) => item.Device.OpenPorts == null ? "未取得成功结果" :
         (item.Device.OpenPorts.Length == 0 ? "所选端口无成功连接" : string.Join(',', item.Device.OpenPorts)) +
         (!item.IdentityConfirmed ? "（本轮身份未确认，保留历史）" : item.LastPortScanSucceeded ? "" : "（本次扫描失败，保留历史）") +

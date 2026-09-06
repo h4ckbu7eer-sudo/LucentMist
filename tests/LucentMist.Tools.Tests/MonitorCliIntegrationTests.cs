@@ -10,7 +10,7 @@ public sealed class MonitorCliIntegrationTests : IDisposable
     private readonly string _directory = Path.Combine(Path.GetTempPath(), "lmist-cli-sequence-" + Guid.NewGuid().ToString("N"));
     private const string Subnet = "192.168.77.0/24";
     private static readonly MonitorDevice Router = new("192.168.77.1", "00:11:22:33:44:55", "fixture-vendor", "fixture-router", [80]);
-    private static readonly MonitorDevice Phone = new("192.168.77.2", "02:11:22:33:44:66", "未知", "fixture-phone", [80]);
+    private static readonly MonitorDevice Phone = new("192.168.77.2", "00:11:22:33:44:66", "未知", "fixture-phone", [80]);
 
     public MonitorCliIntegrationTests() => Directory.CreateDirectory(_directory);
     public void Dispose() => Directory.Delete(_directory, true);
