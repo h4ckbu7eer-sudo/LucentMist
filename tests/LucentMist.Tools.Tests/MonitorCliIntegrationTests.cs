@@ -145,4 +145,50 @@ public sealed class MonitorCliIntegrationTests : IDisposable
         Assert.True(process.ExitCode == 0, $"{string.Join(' ', args)}: exit {process.ExitCode}\n{output}");
         return output;
     }
+
+    [Fact]
+    public async Task RandomMac_UserSeesOneDevice_ThenExplicitMergeTransfersTrustAndHistory()
+    {
+        var before = Phone with { Mac = "02:11:22:33:44:66", Name = "android-99.local" };
+        var after = before with { Ip = "192.168.77.21", Mac = "06:11:22:33:44:77", OpenPorts = [443] };
+        await Snapshot(Router, before);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        await Run("monitor", "--trust", before.Ip);
+        await Snapshot(Router, after);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "443");
+        var devices = await Run("monitor", "--devices");
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(devices, "android-99.local"));
+        Assert.Contains("疑似 = 旧", devices);
+        Assert.Contains("取代", devices);
+        var alerts = await Run("monitor", "--alerts");
+        Assert.Contains("medium", alerts);
+        Assert.Contains($"monitor --merge {before.Ip} {after.Ip}", alerts);
+        var merged = await Run("monitor", "--merge", before.Ip, after.Ip);
+        Assert.Contains("已确认合并", merged);
+        devices = await Run("monitor", "--devices");
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(devices, "android-99.local"));
+        Assert.Contains("已确认 = 旧", devices);
+        Assert.Contains("可信", devices);
+        Assert.Contains("80,443", devices);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "443");
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(await Run("monitor", "--devices"), "android-99.local"));
+        Assert.Contains("identity_merged", await Run("monitor", "--alerts"));
+    }
+
+    [Fact]
+    public async Task ConfirmedMergeWithoutExistingTrustExplainsWhyItIsStillUntrusted()
+    {
+        var before = Phone with { Mac = "02:11:22:33:44:66", Name = "android-99.local" };
+        var after = before with { Ip = "192.168.77.21", Mac = "06:11:22:33:44:77" };
+        await Snapshot(Router, before);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        await Snapshot(Router, after);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        await Run("monitor", "--merge", before.Ip, after.Ip);
+        var devices = await Run("monitor", "--devices");
+        Assert.Single(System.Text.RegularExpressions.Regex.Matches(devices, "android-99.local"));
+        Assert.Contains("已确认 = 旧", devices);
+        Assert.Contains("原身份也未信任", devices);
+        Assert.DoesNotContain("不继承信任", devices);
+    }
 }
