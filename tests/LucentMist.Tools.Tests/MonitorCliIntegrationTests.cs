@@ -68,6 +68,48 @@ public sealed class MonitorCliIntegrationTests : IDisposable
         Assert.DoesNotContain("analysis_incomplete", after);
     }
 
+    [Fact]
+    public async Task RandomMacRotation_AssociatesHostname_WithoutStrangerAlertOrTrustInheritance()
+    {
+        var original = Phone with { Mac = "02:11:22:33:44:66", Name = "android-99.local", MdnsServices = ["_adb._tcp.local"] };
+        await Snapshot(Router, original);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        await Run("monitor", "--trust", original.Ip);
+        var rotated = original with { Ip = "192.168.77.3", Mac = "06:11:22:33:44:77", Name = "android-99.local." };
+        await Snapshot(Router, rotated);
+        var update = await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        Assert.DoesNotContain("new_device", update);
+        Assert.DoesNotContain("missing_device", update);
+        Assert.Contains("疑似同一设备", update);
+        var devices = await Run("monitor", "--devices", "--subnet", Subnet);
+        Assert.Contains(rotated.Ip, devices);
+        Assert.Contains("不继承信任", devices);
+        Assert.DoesNotMatch(@"192\.168\.77\.3[^\r\n]*观测到/可信", devices);
+        var repeat = await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        Assert.DoesNotContain("identity_association：", repeat);
+        await Run("monitor", "--trust", rotated.Ip);
+        Assert.Contains("已显式信任", await Run("monitor", "--devices"));
+    }
+
+    [Fact]
+    public async Task ConcurrentRandomMacNames_AreVisibleAsConflict_NotAutoTrusted()
+    {
+        var original = Phone with { Mac = "02:11:22:33:44:66", Name = "android-99.local" };
+        await Snapshot(Router, original);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        await Run("monitor", "--trust", original.Ip);
+        var other = original with { Ip = "192.168.77.3", Mac = "06:11:22:33:44:77" };
+        await Snapshot(Router, original, other);
+        var update = await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        Assert.Contains("身份待核实", update);
+        Assert.DoesNotContain("new_device", update);
+        var devices = await Run("monitor", "--devices");
+        Assert.Contains("身份待核实", devices);
+        Assert.Contains("不继承信任", devices);
+        Assert.DoesNotMatch(@"192\.168\.77\.3[^\r\n]*观测到/可信", devices);
+        Assert.Contains("identity_association", await Run("monitor", "--alerts"));
+    }
+
     private async Task<string> Run(params string[] args)
     {
         var root = new DirectoryInfo(AppContext.BaseDirectory);
