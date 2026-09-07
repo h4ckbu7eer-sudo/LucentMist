@@ -45,6 +45,6 @@ public sealed record MonitorIdentityAssociation(string Status, string[] RelatedD
 public sealed record KnownDevice(MonitorDevice Device, DateTimeOffset FirstSeen, DateTimeOffset LastSeen, bool Present,
     bool Trusted = false, DateTimeOffset? PortsObservedAt = null, bool LastPortScanSucceeded = false, bool IdentityConfirmed = true,
     Dictionary<int, MonitorPortObservation>? PortHistory = null, string? LastPortScope = null,
-    MonitorIdentityAssociation? Association = null);
+    MonitorIdentityAssociation? Association = null, string? MergedIntoId = null);
 public sealed record MonitorAlert(long Id, DateTimeOffset At, string Kind, string Priority, string Ip, string Message);
 public sealed record MonitorUpdate(bool BaselineCreated, bool Applied, KnownDevice[] Devices, MonitorAlert[] Alerts, string Summary);

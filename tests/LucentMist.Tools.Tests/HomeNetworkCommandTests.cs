@@ -90,4 +90,41 @@ public class HomeNetworkCommandTests
     [InlineData("::1")]
     public void InvalidGatewayIsNotSilentlySkippedAsASuccessfulDiagnosis(string gateway) =>
         Assert.Throws<ArgumentException>(() => HomeNetworkCommands.ValidateGateway(gateway));
+
+    [Fact]
+    public void SuspectedReplacementIsOneRow_OfflineUnrelatedDeviceStaysSeparate()
+    {
+        var time = DateTimeOffset.UtcNow;
+        var old = new KnownDevice(new("192.168.77.6", "02:11:22:33:44:55", "未知", "android-99.local", [80]), time, time, false);
+        var current = new KnownDevice(new("192.168.77.21", "06:11:22:33:44:66", "未知", "android-99.local", []), time, time, true,
+            Association: new("possible_same_device", [old.Device.Id], "name"));
+        var offline = old with { Device = old.Device with { Ip = "192.168.77.10", Mac = "0A:11:22:33:44:77", Name = "another-device" } };
+        var rows = MonitorDevicePresentation.Rows([old, current, offline]);
+        Assert.Equal(current.Device.Id, Assert.Single(rows, r => r.Item.Present).Item.Device.Id);
+        Assert.Equal(offline.Device.Id, Assert.Single(rows, r => !r.Item.Present).Item.Device.Id);
+        Assert.Contains("疑似 = 旧 192.168.77.6", rows.Single(r => r.Item.Present).Label);
+    }
+
+    [Fact]
+    public void ConfirmedAliasesRemainOneRowWhenOldMacReturns_ButConcurrentResponsesAreNotHidden()
+    {
+        var time = DateTimeOffset.UtcNow;
+        var oldDevice = new MonitorDevice("192.168.77.6", "02:11:22:33:44:55", "未知", "android-99.local", [80]);
+        var newDevice = oldDevice with { Ip = "192.168.77.21", Mac = "06:11:22:33:44:66", OpenPorts = [443] };
+        var current = new KnownDevice(newDevice, time, time, false, Trusted: true, PortHistory: new() { [443] = new(true, time) },
+            Association: new("confirmed_same_device", [oldDevice.Id], "confirmed"));
+        var old = new KnownDevice(oldDevice, time, time, true, Trusted: true, PortHistory: new() { [80] = new(true, time) }, MergedIntoId: newDevice.Id);
+        var row = Assert.Single(MonitorDevicePresentation.Rows([old, current]));
+        Assert.Equal(oldDevice.Mac, row.Item.Device.Mac);
+        Assert.Contains("已确认 = 旧", row.Label);
+        Assert.Equal(new[] { 80, 443 }, row.Item.Device.OpenPorts);
+        Assert.All(MonitorDevicePresentation.Rows([old, current with { Present = true }]), r => Assert.Contains("身份待核实", r.Label));
+    }
+
+    [Theory]
+    [InlineData("--merge")]
+    [InlineData("--merge", "192.168.77.6")]
+    [InlineData("--merge", "192.168.77.6", "--devices")]
+    public void MergeRequiresBothIdentities(params string[] args) =>
+        Assert.Throws<ArgumentException>(() => HomeNetworkCommands.Parse(args, ["--devices"], ["--merge"]));
 }

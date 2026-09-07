@@ -20,8 +20,9 @@ internal static class MonitorIdentityMatcher
     internal static MonitorIdentityAssociation? Match(MonitorDevice device, IReadOnlyDictionary<string, KnownDevice> old, MonitorDevice[] incoming)
     {
         old.TryGetValue(device.Id, out var previous);
-        // An unchanged observed MAC needs no weak-name reassignment.
-        if (previous != null && previous.Association == null) return null;
+        if (previous?.MergedIntoId != null || previous?.Association?.Status == "confirmed_same_device") return previous.Association;
+        // Legacy rows may predate association metadata. A repeated MAC must not
+        // prevent correlating an already observed rotation after an upgrade.
         var name = Hostname(device.Name);
         var candidates = name == null ? [] : old.Values.Where(d => d.Device.Id != device.Id && Hostname(d.Device.Name) == name &&
             (IsRandomizedMac(device.Mac) || IsRandomizedMac(d.Device.Mac))).ToArray();
@@ -48,16 +49,29 @@ internal static class MonitorIdentityMatcher
     {
         var visited = new HashSet<string>();
         var current = id;
-        while (old.TryGetValue(current, out var device) &&
-            device.Association is { Status: "possible_same_device" or "identity_unconfirmed", RelatedDeviceIds.Length: 1 } association)
+        while (old.TryGetValue(current, out var device))
         {
             // Corrupt/cyclic links are not evidence of a shared identity.
             if (!visited.Add(current)) return id;
-            var next = association.RelatedDeviceIds[0];
+            var next = device.MergedIntoId ?? (device.Association is
+            { Status: "possible_same_device" or "identity_unconfirmed", RelatedDeviceIds.Length: 1 } association ? association.RelatedDeviceIds[0] : null);
+            if (next == null) return current;
             if (!old.ContainsKey(next)) return id;
             current = next;
         }
         return current;
+    }
+
+    internal static string AssociationMessage(MonitorScope scope, MonitorDevice device, MonitorIdentityAssociation association,
+        IReadOnlyDictionary<string, KnownDevice> old)
+    {
+        if (association.Status != "possible_same_device" || association.RelatedDeviceIds.Length != 1 ||
+            !old.TryGetValue(association.RelatedDeviceIds[0], out var before)) return association.Evidence;
+        var sameIp = before.Device.Ip == device.Ip;
+        var oldArgument = sameIp || old.Values.Count(d => d.Device.Ip == before.Device.Ip) > 1 ? before.Device.Mac : before.Device.Ip;
+        var newArgument = sameIp || old.Values.Any(d => d.Device.Ip == device.Ip && d.Device.Id != device.Id) ? device.Mac : device.Ip;
+        return $"{device.Ip} 疑似是之前的 {before.Device.Ip}（{before.Device.Name}）换随机 MAC；" +
+            $"疑似同一设备，不继承信任。运行 monitor --merge {oldArgument} {newArgument} --subnet {scope.Subnet} 确认。";
     }
 
     private static bool MeaningfulModel(string? value) => !string.IsNullOrWhiteSpace(value) &&

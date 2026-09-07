@@ -124,7 +124,7 @@ public sealed partial class MonitorStore
             foreach (var previous in old.Values.Where(d => !incoming.ContainsKey(d.Device.Id) &&
                 (relatedIds.Contains(d.Device.Id) || relatedIds.Contains(MonitorIdentityMatcher.Root(d.Device.Id, old)))))
             {
-                unconfirmedIdentities.Add(previous.Device.Id);
+                if (previous.MergedIntoId == null) unconfirmedIdentities.Add(previous.Device.Id);
                 Save(previous with { Present = false, IdentityConfirmed = false, LastPortScanSucceeded = false });
             }
             foreach (var (id, device) in incoming)
@@ -157,7 +157,8 @@ public sealed partial class MonitorStore
                     Alert("new_device", "high", device.Ip, "发现新的未信任设备（可能陌生设备）；核对后使用 monitor --trust 标记。MAC 可伪造/随机化，无 MAC 时仅按 IP 区分，不是入侵确认。");
                 if (initialized && identityAssociation != null && (previous?.Association?.Status != identityAssociation.Status ||
                     !identityAssociation.RelatedDeviceIds.SequenceEqual(previous.Association.RelatedDeviceIds)))
-                    Alert("identity_association", identityAssociation.Status == "identity_conflict" ? "medium" : "low", device.Ip, identityAssociation.Evidence);
+                    Alert("identity_association", identityAssociation.Status is "identity_conflict" or "possible_same_device" ? "medium" : "low", device.Ip,
+                        MonitorIdentityMatcher.AssociationMessage(scope, device, identityAssociation, old));
                 if (previous != null)
                 {
                     if (!previous.Present) Alert("device_returned", "low", device.Ip, "已知设备重新被观测到。");
@@ -192,17 +193,19 @@ public sealed partial class MonitorStore
                 };
                 Save(new(retained, previous?.FirstSeen ?? now, now, true, trusted,
                     device.OpenPorts != null ? now : previous?.PortsObservedAt, device.OpenPorts != null,
-                    PortHistory: history, LastPortScope: device.OpenPorts != null ? scope.Ports : previous?.LastPortScope, Association: identityAssociation));
+                    PortHistory: history, LastPortScope: device.OpenPorts != null ? scope.Ports : previous?.LastPortScope,
+                    Association: identityAssociation, MergedIntoId: previous?.MergedIntoId));
             }
             foreach (var previous in old.Values.Where(d => d.Present && !incoming.ContainsKey(d.Device.Id) && !unconfirmedIdentities.Contains(d.Device.Id)))
             {
-                Alert("missing_device", "low", previous.Device.Ip, "本轮未观测到已知设备；可能休眠、离线或被过滤，不等于确认断开。");
+                if (previous.MergedIntoId == null)
+                    Alert("missing_device", "low", previous.Device.Ip, "本轮未观测到已知设备；可能休眠、离线或被过滤，不等于确认断开。");
                 Save(previous with { Present = false });
             }
             if (snapshot.Devices.Any(d => d.OpenPorts == null) && lastStatus != "partial")
                 Alert("port_scan_incomplete", "low", "", "部分设备端口扫描失败，保留其上次端口基线；不能据此认定端口关闭。");
         }
-        var status = uncertain ? "uncertain" : unconfirmedIdentities.Count > 0 || identityAssociations.Count > 0 || snapshot.Devices.Any(d => d.OpenPorts == null || d.Warnings?.Length > 0) ? "partial" : "completed";
+        var status = uncertain ? "uncertain" : unconfirmedIdentities.Count > 0 || identityAssociations.Values.Any(a => a.Status != "confirmed_same_device") || snapshot.Devices.Any(d => d.OpenPorts == null || d.Warnings?.Length > 0) ? "partial" : "completed";
         using (var update = Command(db, transaction, "UPDATE monitor_state SET initialized=$init,last_status=$status WHERE scope=$scope",
             ("$init", initialized || !uncertain ? 1 : 0), ("$status", status), ("$scope", scope.Id))) update.ExecuteNonQuery();
         transaction.Commit();

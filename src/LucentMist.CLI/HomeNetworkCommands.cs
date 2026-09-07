@@ -19,6 +19,16 @@ internal static class HomeNetworkCommands
         {
             var pair = args[i].Split('=', 2);
             var key = pair[0];
+            if (key == "--merge" && values.Contains(key))
+            {
+                var oldIdentity = pair.Length == 2 ? pair[1] : i + 1 < args.Length ? args[++i] : "";
+                var newIdentity = i + 1 < args.Length ? args[++i] : "";
+                if (string.IsNullOrWhiteSpace(oldIdentity) || string.IsNullOrWhiteSpace(newIdentity) ||
+                    oldIdentity.StartsWith('-') || newIdentity.StartsWith('-')) throw new ArgumentException("用法：monitor --merge <旧IP/MAC> <新IP/MAC>");
+                result.Add("--merge", oldIdentity);
+                result.Add("--merge-target", newIdentity);
+                continue;
+            }
             if (flags.Contains(key) && pair.Length == 1) result.Add(key, "true");
             else if (values.Contains(key))
             {
@@ -35,9 +45,11 @@ internal static class HomeNetworkCommands
         Func<MonitorScope, bool, CancellationToken, Task<NetworkSnapshot>>? capture = null,
         Func<CancellationToken, Task<string>>? defaultSubnet = null) => WithCancellation(async ct =>
     {
-        var options = Parse(args, ["--once", "--alerts", "--devices", "--check-vulns"], ["--interval", "--subnet", "--ports", "--trust", "--cycles", "--limit"]);
-        if (new[] { "--alerts", "--devices", "--trust" }.Count(options.ContainsKey) > 1)
-            throw new ArgumentException("--alerts、--devices 与 --trust 不能同时使用");
+        var options = Parse(args, ["--once", "--alerts", "--devices", "--check-vulns"], ["--interval", "--subnet", "--ports", "--trust", "--merge", "--cycles", "--limit"]);
+        if (new[] { "--alerts", "--devices", "--trust", "--merge" }.Count(options.ContainsKey) > 1)
+            throw new ArgumentException("--alerts、--devices、--trust 与 --merge 不能同时使用");
+        if (options.ContainsKey("--merge") && new[] { "--once", "--cycles", "--interval", "--check-vulns" }.Any(options.ContainsKey))
+            throw new ArgumentException("--merge 仅确认合并，不能与扫描参数同时使用。");
         var interval = Integer(options, "--interval", 30, 1, 1440);
         int? cycles = options.ContainsKey("--once") ? 1 : options.ContainsKey("--cycles") ? Integer(options, "--cycles", 1, 1, 10000) : null;
         if (options.ContainsKey("--once") && options.ContainsKey("--cycles")) throw new ArgumentException("--once 与 --cycles 不能同时使用");
@@ -55,8 +67,16 @@ internal static class HomeNetworkCommands
         // Reuse scan-store startup checks, audit history and the existing database/backup location.
         var audit = new ScanStore(dbPath);
         var store = new MonitorStore(dbPath);
-        var queryOnly = new[] { "--alerts", "--devices", "--trust" }.Any(options.ContainsKey);
+        var queryOnly = new[] { "--alerts", "--devices", "--trust", "--merge" }.Any(options.ContainsKey);
         AnsiConsole.MarkupLine($"[teal]家庭监控：{Markup.Escape(scope.Subnet)}{(queryOnly ? "（查询此网段的全部记录）" : "; TCP " + Markup.Escape(scope.Ports))}[/]");
+        if (options.TryGetValue("--merge", out var oldIdentity))
+        {
+            using var mergeLease = NetworkMonitor.AcquireLease(dbPath, scope);
+            var merged = store.Merge(scope, oldIdentity, options["--merge-target"], DateTimeOffset.UtcNow);
+            AnsiConsole.MarkupLine($"[green]已确认合并到 {Markup.Escape(merged.Device.Ip)}；{(merged.Trusted ? "信任已迁移" : "两端均未信任，不自动设为可信")}；首次出现与端口历史已保留。[/]");
+            RenderDevices(store.ListDevices(scope));
+            return 0;
+        }
         if (options.TryGetValue("--trust", out var identity))
         {
             var mac = store.Trust(scope, identity);
@@ -127,13 +147,43 @@ internal static class HomeNetworkCommands
     private static void RenderDevices(IEnumerable<KnownDevice> devices)
     {
         var items = devices.ToArray();
+        var rows = MonitorDevicePresentation.Rows(items);
         AnsiConsole.MarkupLine("[grey]以下为数据库最近有效记录，不是实时在线保证；端口保留各自观测时间。[/]");
-        var table = new Table().AddColumn("IP/MAC").AddColumn("设备/厂商").AddColumn("最近记录/信任").AddColumn("已观测端口");
-        foreach (var item in items) table.AddRow(Markup.Escape(item.Device.Ip + "\n" + (item.Device.Mac ?? "无 MAC")),
-            Markup.Escape(DeviceDescription(item.Device)), Markup.Escape(IdentityObservation(item)) + $"\n最后出现 {item.LastSeen.ToLocalTime():MM-dd HH:mm:ss}",
-            Markup.Escape(PortObservation(item)));
-        AnsiConsole.Write(table);
+        RenderTable(rows.Where(r => r.Item.Present).ToArray(), "最近观测设备");
+        foreach (var row in rows.Where(r => r.Replaced.Length > 0))
+        {
+            var oldIps = string.Join("、", row.Replaced.Select(d => d.Device.Ip).Distinct());
+            var tentative = row.Item.Association?.Status == "possible_same_device";
+            AnsiConsole.MarkupLine($"[yellow]旧 {Markup.Escape(oldIps)} 已被 {Markup.Escape(row.Item.Device.Ip)} 取代{(tentative ? "（疑似，尚未合并/迁移信任）" : "（用户已确认合并，旧身份已归档）")}。[/]");
+        }
+        var offline = rows.Where(r => !r.Item.Present).ToArray();
+        if (offline.Length > 0)
+        {
+            AnsiConsole.MarkupLine($"[grey]离线设备（{offline.Length}）：以下是历史记录，不与当前设备并列；未响应不等于确认断开。[/]");
+            var history = new Table().AddColumn("历史 IP").AddColumn("名称/关联").AddColumn("最后出现");
+            foreach (var row in offline) history.AddRow(Markup.Escape(row.Item.Device.Ip), Markup.Escape(row.Item.Device.Name + "\n" + row.Label),
+                row.Item.LastSeen.ToLocalTime().ToString("MM-dd HH:mm:ss"));
+            AnsiConsole.Write(history);
+        }
         RenderAnalysisStatus(items);
+    }
+    private static void RenderTable(MonitorDeviceRow[] rows, string title)
+    {
+        AnsiConsole.MarkupLine($"[teal]{title}（{rows.Length}）[/]");
+        var table = new Table().AddColumn("IP/MAC").AddColumn("设备/厂商").AddColumn("最近记录/信任").AddColumn("已观测端口");
+        foreach (var row in rows)
+        {
+            var item = row.Item;
+            var description = DeviceDescription(item.Device);
+            if (row.Label.Length > 0) description = description.Insert(item.Device.Name.Length, "\n" + row.Label);
+            var status = row.Label.Length > 0 && item.Association?.Status is "possible_same_device" or "confirmed_same_device"
+                ? item.Trusted ? "观测到/可信\n已显式信任\n当前 MAC"
+                    : item.Association.Status == "confirmed_same_device" ? "观测到/未信任\n原身份也未信任" : "观测到/未信任\n不继承信任"
+                : IdentityObservation(item);
+            table.AddRow(Markup.Escape(item.Device.Ip + "\n" + (item.Device.Mac ?? "无 MAC")), Markup.Escape(description),
+                Markup.Escape(status) + $"\n首次 {item.FirstSeen.ToLocalTime():MM-dd HH:mm:ss}\n最后 {item.LastSeen.ToLocalTime():MM-dd HH:mm:ss}", Markup.Escape(PortObservation(item)));
+        }
+        AnsiConsole.Write(table);
     }
     internal static string ScheduleDescription(int? cycles, int interval) => cycles == 1
         ? "仅执行一轮，完成后退出；Ctrl+C 可停止。"
@@ -170,7 +220,7 @@ internal static class HomeNetworkCommands
         foreach (var alert in alerts)
         {
             var color = alert.Priority == "high" ? "red" : alert.Priority == "medium" ? "yellow" : "grey";
-            AnsiConsole.MarkupLine($"[{color}]#{alert.Id} {alert.At.ToLocalTime():MM-dd HH:mm:ss} {alert.Priority} {Markup.Escape(alert.Ip)} {Markup.Escape(alert.Kind)}：{Markup.Escape(alert.Message)}[/]");
+            AnsiConsole.MarkupLine($"[{color}]#{alert.Id} {alert.At.ToLocalTime():MM-dd HH:mm:ss} {alert.Priority} {Markup.Escape(alert.Ip)} {Markup.Escape(alert.Kind)}：{Markup.Escape(alert.Message.Replace("运行 monitor --merge ", "\n运行 monitor --merge ", StringComparison.Ordinal))}[/]");
         }
     }
     private static async Task<int> WithCancellation(Func<CancellationToken, Task<int>> run)
