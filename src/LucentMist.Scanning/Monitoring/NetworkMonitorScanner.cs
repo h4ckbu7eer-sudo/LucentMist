@@ -1,6 +1,7 @@
 using System.Text.Json;
 using LucentMist.Core.Networking;
 using LucentMist.Tools;
+using LucentMist.Tools.Discovery;
 using LucentMist.Tools.Scanning;
 using LucentMist.Tools.Security;
 using LucentMist.Tools.Vulnerability;
@@ -8,11 +9,12 @@ using Microsoft.Extensions.Logging;
 
 namespace LucentMist.Scanning.Monitoring;
 
-public sealed class NetworkMonitorScanner(ITool discovery, ITool portScan, ITool serviceIdentify, ITool vulnerabilityScan)
+public sealed class NetworkMonitorScanner(ITool discovery, ITool portScan, ITool serviceIdentify, ITool vulnerabilityScan,
+    Func<string, CancellationToken, Task<DhcpCaptureResult>>? dhcpCapture = null)
 {
-    public NetworkMonitorScanner(ILoggerFactory logger) : this(new PingScanTool(logger.CreateLogger<PingScanTool>()),
+    public NetworkMonitorScanner(ILoggerFactory logger, Func<string, CancellationToken, Task<DhcpCaptureResult>>? dhcpCapture = null) : this(new PingScanTool(logger.CreateLogger<PingScanTool>()),
         new PortScanTool(logger.CreateLogger<PortScanTool>()), new ServiceIdentifyTool(logger.CreateLogger<ServiceIdentifyTool>()),
-        new VulnerabilityScanTool(logger.CreateLogger<VulnerabilityScanTool>()))
+        new VulnerabilityScanTool(logger.CreateLogger<VulnerabilityScanTool>()), dhcpCapture ?? ((subnet, ct) => DhcpProbe.CaptureAsync(subnet, ct)))
     { }
 
     public async Task<NetworkSnapshot> CaptureAsync(MonitorScope scope, bool checkVulnerabilities, CancellationToken ct)
@@ -87,7 +89,33 @@ public sealed class NetworkMonitorScanner(ITool discovery, ITool portScan, ITool
                 if (fingerprint != null) services[port] = fingerprint.ProductKey + (fingerprint.Version == null ? "" : "/" + fingerprint.Version);
             }
         });
+        if (dhcpCapture != null && !string.Equals(Environment.GetEnvironmentVariable("LMIST_DHCP_ENABLED"), "false", StringComparison.OrdinalIgnoreCase) &&
+            devices.Any(d => !Meaningful(d.Name) || !Meaningful(d.Vendor) || MonitorIdentityMatcher.IsRandomizedMac(d.Mac)))
+        {
+            // One link-wide window supplies all devices; never broadcast once per host.
+            var dhcp = await dhcpCapture(scope.Subnet, ct);
+            devices = devices.Select(d => WithDhcp(d, dhcp)).ToArray();
+        }
         return new(true, devices);
+    }
+    internal static MonitorDevice WithDhcp(MonitorDevice device, DhcpCaptureResult capture)
+    {
+        var mac = MonitorDevice.NormalizeMac(device.Mac);
+        var matches = mac == null ? [] : capture.Records.Where(r => MonitorDevice.NormalizeMac(r.Mac) == mac).OrderByDescending(r => r.ObservedAt).ToArray();
+        var named = matches.FirstOrDefault(r => MonitorIdentityMatcher.Hostname(r.Hostname) != null);
+        var latest = named ?? matches.FirstOrDefault();
+        if (latest == null)
+            return device with { Warnings = (device.Warnings ?? []).Append($"DHCP {capture.Status}：{capture.Message} 本设备未取得 DHCP 名称证据。").ToArray() };
+        var conflicting = matches.Select(r => MonitorIdentityMatcher.Hostname(r.Hostname)).Where(n => n != null).Distinct().Count() > 1;
+        return device with
+        {
+            Name = MonitorIdentityMatcher.Hostname(device.Name) == null && named != null && !conflicting ? named.Hostname! : device.Name,
+            DhcpHostname = conflicting ? null : named?.Hostname,
+            DhcpVendorClass = matches.FirstOrDefault(r => r.VendorClass != null)?.VendorClass,
+            DhcpObserved = latest.ObservedAt,
+            DhcpSourceMode = latest.SourceMode,
+            Warnings = conflicting ? (device.Warnings ?? []).Append("DHCP 同一 MAC 声明多个名称，身份待核实，不用于自动关联。").ToArray() : device.Warnings,
+        };
     }
     private static string Text(JsonElement item, string key) => item.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? "" : "";
     private static string[] Strings(JsonElement item, string key) => item.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.Array

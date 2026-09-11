@@ -8,7 +8,7 @@ using Spectre.Console;
 
 namespace LucentMist.CLI;
 
-internal static class HomeNetworkCommands
+internal static partial class HomeNetworkCommands
 {
     internal const string DefaultPorts = "22,53,80,135,139,443,445,3389,8080,8443";
 
@@ -45,6 +45,7 @@ internal static class HomeNetworkCommands
         Func<MonitorScope, bool, CancellationToken, Task<NetworkSnapshot>>? capture = null,
         Func<CancellationToken, Task<string>>? defaultSubnet = null) => WithCancellation(async ct =>
     {
+        if (args.FirstOrDefault() == "sniff-dhcp") return await SniffDhcpAsync(args[1..], ct);
         var options = Parse(args, ["--once", "--alerts", "--devices", "--check-vulns"], ["--interval", "--subnet", "--ports", "--trust", "--merge", "--cycles", "--limit"]);
         if (new[] { "--alerts", "--devices", "--trust", "--merge" }.Count(options.ContainsKey) > 1)
             throw new ArgumentException("--alerts、--devices、--trust 与 --merge 不能同时使用");
@@ -103,7 +104,7 @@ internal static class HomeNetworkCommands
             AnsiConsole.MarkupLine(vulnerability
                 ? "[yellow]已启用漏洞候选检查，云源开关沿用 LMIST_CVE_EXTERNAL；候选不是确认漏洞。[/]"
                 : "[grey]默认检查设备/端口/服务变化；不会声称已检查漏洞。需要时添加 --check-vulns。[/]");
-            var scanner = new NetworkMonitorScanner(logger);
+            var scanner = new NetworkMonitorScanner(logger, (network, token) => CaptureDhcpAsync(network, false, token));
             var loop = new NetworkMonitor(store, token => capture != null ? capture(scope, vulnerability, token) : scanner.CaptureAsync(scope, vulnerability, token));
             await loop.RunAsync(scope, TimeSpan.FromMinutes(interval), cycles, async update =>
             {
@@ -150,6 +151,8 @@ internal static class HomeNetworkCommands
         var rows = MonitorDevicePresentation.Rows(items);
         AnsiConsole.MarkupLine("[grey]以下为数据库最近有效记录，不是实时在线保证；端口保留各自观测时间。[/]");
         RenderTable(rows.Where(r => r.Item.Present).ToArray(), "最近观测设备");
+        foreach (var row in rows.Where(r => r.Item.Present && r.Item.Device.DhcpObserved != null))
+            AnsiConsole.MarkupLine(Markup.Escape(DhcpDescription(row.Item.Device)));
         foreach (var row in rows.Where(r => r.Replaced.Length > 0))
         {
             var oldIps = string.Join("、", row.Replaced.Select(d => d.Device.Ip).Distinct());
@@ -192,6 +195,10 @@ internal static class HomeNetworkCommands
     internal static string DeviceDescription(MonitorDevice device) => device.Name + "\n" + device.Vendor +
         (string.IsNullOrWhiteSpace(device.Model) ? "" : "\n型号：" + device.Model) +
         (device.MdnsServices?.Length > 0 ? "\nmDNS 声明：" + string.Join(", ", device.MdnsServices.Select(s => s.Replace("._tcp.local", "", StringComparison.Ordinal))) + "（非型号确认）" : "");
+
+    internal static string DhcpDescription(MonitorDevice device) =>
+        $"{device.Ip} DHCP 名称：{device.DhcpHostname ?? "未公开"}\nvendorClass：{device.DhcpVendorClass ?? "未公开"}\n" +
+        $"客户端声明，非厂商确认；随机 MAC 不凭名称判断厂商。\n来源：{device.DhcpSourceMode}；观测：{device.DhcpObserved:O}";
 
     internal static string[] AnalysisStatus(IEnumerable<KnownDevice> devices) => devices
         .Where(d => d.Present).SelectMany(d => (d.Device.Warnings ?? []).Select(w => d.Device.Ip + "：" + w)).Distinct().ToArray();

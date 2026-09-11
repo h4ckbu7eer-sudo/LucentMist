@@ -74,3 +74,13 @@ BenchmarkDotNet.Artifacts/
 /tools/WhatWeb/
 /tools/recog/
 /tools/nmap/
+
+# Internal QA evidence and personal-network scan dumps — never publish.
+docs/validation-evidence/
+docs/dhcp-discovery-validation-*.md
+docs/validation-kit/results/
+
+# Local agent tooling and personal notes
+.codex/
+.workbuddy/
+deliverables/

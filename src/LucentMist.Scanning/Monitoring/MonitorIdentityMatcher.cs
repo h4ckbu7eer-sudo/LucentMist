@@ -23,20 +23,22 @@ internal static class MonitorIdentityMatcher
         if (previous?.MergedIntoId != null || previous?.Association?.Status == "confirmed_same_device") return previous.Association;
         // Legacy rows may predate association metadata. A repeated MAC must not
         // prevent correlating an already observed rotation after an upgrade.
-        var name = Hostname(device.Name);
-        var candidates = name == null ? [] : old.Values.Where(d => d.Device.Id != device.Id && Hostname(d.Device.Name) == name &&
+        var names = Names(device);
+        var name = names.FirstOrDefault();
+        var candidates = name == null ? [] : old.Values.Where(d => d.Device.Id != device.Id && Names(d.Device).Intersect(names).Any() &&
             (IsRandomizedMac(device.Mac) || IsRandomizedMac(d.Device.Mac))).ToArray();
-        if (!IsRandomizedMac(device.Mac) && candidates.Length == 0 && previous?.Association == null) return null;
-        var concurrent = name == null ? [] : incoming.Where(d => d.Id != device.Id && Hostname(d.Name) == name).Select(d => d.Id).ToArray();
+        var dhcpConflict = device.Warnings?.Any(w => w.StartsWith("DHCP 同一 MAC", StringComparison.Ordinal)) == true;
+        if (!IsRandomizedMac(device.Mac) && candidates.Length == 0 && previous?.Association == null && names.Length <= 1 && !dhcpConflict) return null;
+        var concurrent = name == null ? [] : incoming.Where(d => d.Id != device.Id && Names(d).Intersect(names).Any()).Select(d => d.Id).ToArray();
         var roots = candidates.Select(d => Root(d.Device.Id, old)).Where(id => id != device.Id).Distinct().Order().ToArray();
         var modelConflict = MeaningfulModel(device.Model) && candidates.Any(d => MeaningfulModel(d.Device.Model) &&
             !string.Equals(device.Model?.Trim(), d.Device.Model?.Trim(), StringComparison.OrdinalIgnoreCase));
-        if (roots.Length > 1 || concurrent.Length > 0 || modelConflict || previous?.Association?.Status == "identity_conflict")
+        if (dhcpConflict || names.Length > 1 || candidates.Any(d => Names(d.Device).Length > 1) || roots.Length > 1 || concurrent.Length > 0 || modelConflict || previous?.Association?.Status == "identity_conflict")
             return new("identity_conflict", roots.Concat(concurrent).Concat(previous?.Association?.RelatedDeviceIds ?? [])
                 .Where(id => id != device.Id).Distinct().Order().ToArray(),
-                $"身份待核实：主机名/mDNS 名称 {name ?? "未取得"} 存在多设备、同时响应或型号证据冲突；不合并身份、不继承信任。");
+                $"身份待核实：主机名/mDNS/DHCP 名称 {name ?? "未取得"} 存在多设备、同时响应或名称/型号证据冲突；不合并身份、不继承信任。");
         if (roots.Length == 1)
-            return new("possible_same_device", roots, $"疑似同一设备：主机名/mDNS 名称 {name} 唯一匹配；名称未经认证，不继承信任。");
+            return new("possible_same_device", roots, $"疑似同一设备：主机名/mDNS/DHCP 名称 {name} 唯一匹配；名称未经认证，不继承信任。");
         if (previous != null && previous.Association?.Status == "identity_unconfirmed" && name != null &&
             Hostname(previous.Device.Name) == name && previous.Association.RelatedDeviceIds.Length == 0)
             return previous.Association;
@@ -76,4 +78,7 @@ internal static class MonitorIdentityMatcher
 
     private static bool MeaningfulModel(string? value) => !string.IsNullOrWhiteSpace(value) &&
         !value.StartsWith("未知", StringComparison.Ordinal) && !value.StartsWith("未公开", StringComparison.Ordinal);
+
+    private static string[] Names(MonitorDevice device) => new[] { Hostname(device.Name), Hostname(device.DhcpHostname) }
+        .Where(n => n != null).Select(n => n!).Distinct().ToArray();
 }

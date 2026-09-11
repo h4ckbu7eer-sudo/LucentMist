@@ -28,7 +28,9 @@ public sealed record MonitorScope(string Subnet, string Ports)
 
 public sealed record MonitorDevice(string Ip, string? Mac, string Vendor, string Name,
     int[]? OpenPorts, Dictionary<int, string>? Services = null, string[]? Vulnerabilities = null, string[]? Warnings = null,
-    string? Model = null, string[]? MdnsServices = null)
+    string? Model = null, string[]? MdnsServices = null,
+    string? DhcpHostname = null, string? DhcpVendorClass = null, DateTimeOffset? DhcpObserved = null,
+    string? DhcpSourceMode = null)
 {
     public static string? NormalizeMac(string? value)
     {

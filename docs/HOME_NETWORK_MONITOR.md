@@ -193,6 +193,59 @@ dotnet run --project src/LucentMist.CLI -c Release --no-build -- monitor --alert
 
 ## 5. 长期运行、数据与恢复
 
+### DHCP 名称采集（Windows）
+
+当前源码新增 `monitor sniff-dhcp`。普通监控默认在未知设备/本地管理 MAC 存在时增加一次
+本网卡 DHCP 采集窗口，不对每台设备重复广播。设置 `LMIST_DHCP_ENABLED=false` 可关闭此阶段。
+只支持与本机唯一物理网卡的真实掩码完全匹配的私有 `/24`～`/30` 子网，先经过 TargetGuard；
+单 IP、回环、非本地网段不执行 DHCP，也不悄悄扩大授权范围。
+
+```powershell
+# 普通权限启动；只让短时采集子进程弹 UAC，主监控不长期提权。
+dotnet run --project src/LucentMist.CLI -c Release --no-build -- monitor sniff-dhcp --subnet 192.168.99.0/24
+
+# 仅被动监听两分钟；此时可在手机上切换私有 MAC 后重连 Wi-Fi。
+dotnet run --project src/LucentMist.CLI -c Release --no-build -- monitor sniff-dhcp --subnet 192.168.99.0/24 --passive --passive-ms 120000
+
+# 机器可读原始记录（含 DHCP PayloadHex）；无管理员权限时明确返回，不弹 UAC。
+dotnet run --project src/LucentMist.CLI -c Release --no-build -- monitor sniff-dhcp --subnet 192.168.99.0/24 --no-elevate --json
+
+$env:LMIST_DHCP_TIMEOUT_MS = '2500'
+$env:LMIST_DHCP_RETRIES = '2'
+$env:LMIST_DHCP_INTERVAL_MS = '1000'
+$env:LMIST_DHCP_PASSIVE_MS = '8000'
+# 无人值守、不希望每轮请求 UAC 时关闭 DHCP，已有扫描/基线/告警照常运行。
+$env:LMIST_DHCP_ENABLED = 'false'
+```
+
+- 接收使用绑定所选接口的 raw IPv4 socket + SIO_RCVALL，需要管理员权限；不停止系统 DHCP Client，
+  不抢占 UDP 68。普通 UDP 发送端绑定所选本机 IP，由系统选择源端口，发往本网卡受限广播 UDP 67。
+  个别服务器可能拒绝非 68 源端口，结果只能写无响应，不能据此说网络无 DHCP 服务。
+- 构造器原样沿用参考 `DhcpWire.BuildDiscover`；仅发送本机真实 MAC 的 DISCOVER，不发送 REQUEST、
+  RELEASE、DECLINE 或服务器应答，不更改租约/网卡配置。自身构造的 DISCOVER 不进入发现结果。
+- DISCOVER 的匹配应答依赖 xid + 客户端 MAC；收到 OFFER 后仍保留被动窗口，因为 OFFER 可能没有设备名称。
+  被动接受参考实现批准的 DISCOVER/OFFER/ACK（消息类型 1/2/5）；不是完整 DHCP 协议分析器，
+  不解析 DHCPREQUEST（包括常见续租请求）及 option overload。重连不保证产生 DISCOVER 或携带 hostname。
+- UAC 子进程只运行 `monitor sniff-dhcp`，不打开监控数据库。通过当前用户专用命名管道回传，
+  不接受任意输出文件路径；拒绝/失败明确标 `elevation-declined/elevation-failed`，不装作有记录。
+  收包/回传预算在子进程启动后计时，不把等待人工批准算成收包时间；monitor 原有三分钟总上限仍生效。
+- 环境变量范围：单次等待 250～10000 ms，最多 1～3 次发送，间隔 250～5000 ms，被动窗口 250～120000 ms；
+  最多保留 128 条去重记录。父监控仍受三分钟总预算约束，设备/端口扫描结果不会因为 DHCP 无响应变成空成功。
+- `server-response` / `relayed-response` 分别表示匹配应答及含 giaddr 的中继证据；
+  `passive-observations` 是其它有效广播/应答；`no-response` 只表示窗口内无有效记录。
+  **不从超时推断 `no-dhcp-server`，不把自己的 DISCOVER 当设备名称证明。**
+- CLI 表里的来源 IP 是 IP 报头（未获地址的客户端常为真实 `0.0.0.0`），MAC 是 DHCP chaddr 的客户端 MAC，
+  不是该来源服务器的 MAC。`OfferedIp` 是服务器提出的地址，不代表已经完成租约分配。
+- 原始 hostname/vendorClass 字段缺失就为空；本地管理位不等于已确认安卓，vendor class 也是未经认证声明，
+  不用它或 hostname 冒充厂商。监听只看到网卡收到的流量，不绕过无线客户端隔离，也不枚举路由器租约表。
+- 普通监控按已观测 MAC 合并 DHCP 元数据，不把服务器 IP 或 `0.0.0.0` 当被识别设备 IP。
+  DHCP 名称只参与原来的“疑似同一设备 → 用户 --merge 确认”流程；名称冲突标身份待核实，不继承信任。
+  JSON 增加可空 DHCP 字段，不改变数据库表/主键，旧基线仍可反序列化。此扩展不增加云端查询。
+
+实际网络输出与验收边界见 [DHCP 实测记录](dhcp-discovery-validation-2026-09-08.md)。
+2026-09-10 已真实捕获 `host-model-01` / `android-dhcp-16` 的 DISCOVER（含本地管理 MAC），
+不是从 OUI/mDNS 猜的名称。它仅证明该设备的声明可被本机收到，不保证所有设备公开名称。
+
 `monitor` 是持续运行的 CLI，不是安装到系统的守护服务。终端/进程退出、电脑休眠时不监控，
 关闭终端不会“仍在后台保护”。Ctrl+C 停止；重启同一命令/数据库恢复已有基线。
 需要无人值守时可由 Windows 任务计划程序以你的账户启动 `dotnet`：

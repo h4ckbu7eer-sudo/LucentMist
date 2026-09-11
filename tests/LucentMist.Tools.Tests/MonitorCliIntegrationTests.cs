@@ -191,4 +191,34 @@ public sealed class MonitorCliIntegrationTests : IDisposable
         Assert.Contains("原身份也未信任", devices);
         Assert.DoesNotContain("不继承信任", devices);
     }
+
+    [Fact]
+    public async Task DhcpEvidenceSurvivesSeparateCliProcesses_AndMergeStillRequiresConfirmation()
+    {
+        var before = Phone with { Mac = "02:11:22:33:44:66", Name = "android-99.local" };
+        var after = before with
+        {
+            Ip = "192.168.77.21",
+            Mac = "06:11:22:33:44:77",
+            Name = "android-99",
+            DhcpHostname = "android-99",
+            DhcpVendorClass = "android-dhcp-13",
+            DhcpObserved = DateTimeOffset.UtcNow,
+            DhcpSourceMode = "passive-sniff"
+        };
+        await Snapshot(Router, before);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        await Run("monitor", "--trust", before.Ip);
+        await Snapshot(Router, after);
+        await Run("monitor", "--once", "--subnet", Subnet, "--ports", "80");
+        var devices = await Run("monitor", "--devices");
+        Assert.True(devices.Contains("DHCP 名称：android-99", StringComparison.Ordinal), devices);
+        Assert.Contains("android-dhcp-13", devices);
+        Assert.Contains("非厂商确认", devices);
+        Assert.Contains("疑似 = 旧", devices);
+        Assert.Contains("不继承信任", devices);
+        Assert.Contains($"monitor --merge {before.Ip} {after.Ip}", await Run("monitor", "--alerts"));
+        Assert.Contains("信任已迁移", await Run("monitor", "--merge", before.Ip, after.Ip));
+        Assert.Contains("已确认 = 旧", await Run("monitor", "--devices"));
+    }
 }
