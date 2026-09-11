@@ -14,7 +14,7 @@ public sealed class GetMyIpToolTests
     {
         var tool = new GetMyIpTool(() =>
         [
-            new LocalNetworkEntry("Ethernet", "192.168.99.37", 20, "192.168.0.1"),
+            new LocalNetworkEntry("Ethernet", "192.168.99.37", 20, "192.168.99.1"),
         ]);
 
         var result = await tool.ExecuteAsync([]);
@@ -24,13 +24,13 @@ public sealed class GetMyIpToolTests
         Assert.Equal("192.168.99.37", doc.RootElement.GetProperty("primaryIp").GetString());
         Assert.Equal("192.168.99.0/24", doc.RootElement.GetProperty("suggestedSubnet").GetString());
         var item = Assert.Single(doc.RootElement.GetProperty("interfaces").EnumerateArray());
-        Assert.Equal("192.168.0.0/20", item.GetProperty("actualSubnet").GetString());
+        Assert.Equal("192.168.96.0/20", item.GetProperty("actualSubnet").GetString());
     }
 
     [Theory]
     [InlineData("10.20.30.40", 24, "10.20.30.0/24")]
     [InlineData("172.20.31.250", 16, "172.20.0.0/16")]
-    [InlineData("192.168.99.37", 20, "192.168.0.0/20")]
+    [InlineData("192.168.99.37", 20, "192.168.96.0/20")]
     public void ToNetworkCidr_ComputesNetworkBoundary(
         string ip,
         int prefix,
