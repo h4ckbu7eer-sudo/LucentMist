@@ -6,6 +6,10 @@
     <RootNamespace>LucentMist.CLI</RootNamespace>
     <AssemblyName>lmist</AssemblyName>
     <RollForward>LatestMajor</RollForward>
+    <PackAsTool>true</PackAsTool>
+    <ToolCommandName>lmist</ToolCommandName>
+    <PackageId>LucentMist.CLI</PackageId>
+    <Description>LucentMist command-line network analysis assistant.</Description>
   </PropertyGroup>
 
   <ItemGroup>
